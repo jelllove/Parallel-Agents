@@ -15,16 +15,32 @@ class PtyManager {
     this.win = win;
   }
 
-  spawn(projectId: string, cwd: string, cols: number, rows: number, initialCommand?: string): void {
+  spawn(
+    projectId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    initialCommand?: string,
+    extraPath?: string[],
+  ): void {
     if (this.ptys.has(projectId)) return;
 
     const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || 'bash';
+    const env: { [key: string]: string } = { ...process.env } as { [key: string]: string };
+    if (extraPath && extraPath.length > 0) {
+      const sep = process.platform === 'win32' ? ';' : ':';
+      const pathKey = process.platform === 'win32'
+        ? Object.keys(env).find((k) => k.toLowerCase() === 'path') ?? 'Path'
+        : 'PATH';
+      const existing = env[pathKey] || '';
+      env[pathKey] = [...extraPath, existing].filter(Boolean).join(sep);
+    }
     const p = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: Math.max(cols, 20),
       rows: Math.max(rows, 5),
       cwd,
-      env: { ...process.env } as { [key: string]: string },
+      env,
     });
 
     p.onData((data) => {

@@ -1,0 +1,59 @@
+name: ✨ Feature request
+description: Suggest a new capability or improvement.
+title: "[Feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea! Big or small, we'd love to hear it.
+
+        > For larger changes, please file the issue *before* opening a PR so we can align on scope.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched [existing issues](https://github.com/jelllove/ParallelAgents/issues?q=is%3Aissue) and the [roadmap](https://github.com/jelllove/ParallelAgents#-roadmap) — this isn't already tracked.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem this would solve
+      description: What are you trying to do that the current app makes hard or impossible?
+      placeholder: "When I'm using Claude and Codex on the same repo, I can't tell at a glance which tab is which because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? Don't worry about implementation — describe the experience.
+      placeholder: "I'd like each tab to show a colored indicator matching the agent, and..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, or other designs you considered.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Rough scope
+      options:
+        - Small (a tweak, < 1 day of work)
+        - Medium (a new component or flow)
+        - Large (significant architecture impact)
+        - Not sure
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups / references
+      description: Screenshots, sketches, or links to similar features in other apps are very welcome.

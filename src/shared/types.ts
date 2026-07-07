@@ -1,5 +1,22 @@
+export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
+
+export interface AgentInfo {
+  id: AgentId;
+  displayName: string;
+  iconAsset: string;
+  installHint: string;
+  installUrl: string;
+  hasResume: boolean;
+}
+
+export interface AgentStatus {
+  available: boolean;
+  path: string | null;
+}
+
 export interface Project {
   id: string;
+  agent: AgentId;
   dirName: string;
   realPath: string;
   displayName: string;
@@ -13,6 +30,7 @@ export interface Project {
 export interface Session {
   id: string;
   projectId: string;
+  agent: AgentId;
   title: string;
   timestamp: number;
   cwd: string | null;
@@ -33,11 +51,51 @@ export interface PtySpawnOptions {
   cols: number;
   rows: number;
   initialCommand?: string;
+  extraPath?: string[];
 }
+
+export type PaneId = 'sidebar' | 'middle' | 'right';
+
+export interface LayoutConfig {
+  order: [PaneId, PaneId, PaneId];
+  sizes: [number, number, number];
+}
+
+export type ThemeMode = 'dark' | 'light';
 
 export interface AppConfig {
   pinned: string[];
   hidden: string[];
+  lastAgentByProject: Record<string, AgentId>;
+  projectOrder: Record<AgentId, string[]>;
+  layout: LayoutConfig;
+  theme: ThemeMode;
+  confirmOnCloseTab: boolean;
+  terminalMultilineEnter: boolean;
+  terminalCopyPaste: boolean;
+}
+
+export type GitFileState = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict';
+
+export interface GitChange {
+  path: string;
+  staged: GitFileState | null;
+  unstaged: GitFileState | null;
+  oldPath?: string;
+}
+
+export interface GitStatus {
+  branch: string;
+  ahead: number;
+  behind: number;
+  changes: GitChange[];
+}
+
+export interface GitDiff {
+  oldContent: string;
+  newContent: string;
+  oldLabel: string;
+  newLabel: string;
 }
 
 export interface Api {
@@ -45,9 +103,12 @@ export interface Api {
     list(): Promise<Project[]>;
     pin(id: string, pinned: boolean): Promise<void>;
     hide(id: string, hidden: boolean): Promise<void>;
+    delete(id: string): Promise<void>;
+    setOrder(agent: AgentId, ids: string[]): Promise<void>;
   };
   sessions: {
     listForProject(projectId: string): Promise<Session[]>;
+    delete(projectId: string, sessionId: string): Promise<void>;
   };
   pty: {
     spawn(opts: PtySpawnOptions): Promise<void>;
@@ -59,12 +120,45 @@ export interface Api {
   };
   fs: {
     readDir(path: string): Promise<FsNode[]>;
+    createFile(path: string): Promise<void>;
+    createDir(path: string): Promise<void>;
+    rename(oldPath: string, newPath: string): Promise<void>;
+    copy(srcPath: string, destPath: string): Promise<void>;
+    move(srcPath: string, destPath: string): Promise<void>;
+    trash(path: string): Promise<void>;
+    reveal(path: string): Promise<void>;
+    openDefault(path: string): Promise<void>;
   };
   dialog: {
     pickDirectory(): Promise<string | null>;
   };
-  claude: {
-    check(): Promise<{ available: boolean; path: string | null }>;
+  agents: {
+    list(): Promise<AgentInfo[]>;
+    checkAll(): Promise<Record<AgentId, AgentStatus>>;
+  };
+  config: {
+    getLastAgent(projectId: string): Promise<AgentId | null>;
+    setLastAgent(projectId: string, agentId: AgentId): Promise<void>;
+    getLayout(): Promise<LayoutConfig>;
+    setLayout(layout: LayoutConfig): Promise<void>;
+    getTheme(): Promise<ThemeMode>;
+    setTheme(theme: ThemeMode): Promise<void>;
+    getConfirmOnCloseTab(): Promise<boolean>;
+    setConfirmOnCloseTab(v: boolean): Promise<void>;
+    getTerminalMultilineEnter(): Promise<boolean>;
+    setTerminalMultilineEnter(v: boolean): Promise<void>;
+    getTerminalCopyPaste(): Promise<boolean>;
+    setTerminalCopyPaste(v: boolean): Promise<void>;
+  };
+  git: {
+    status(repoPath: string): Promise<GitStatus | null>;
+    diff(repoPath: string, filePath: string, staged: boolean): Promise<GitDiff>;
+    stage(repoPath: string, files: string[]): Promise<void>;
+    unstage(repoPath: string, files: string[]): Promise<void>;
+    discard(repoPath: string, files: string[]): Promise<void>;
+    commit(repoPath: string, message: string): Promise<void>;
+    watch(repoPath: string): Promise<void>;
+    onChanged(cb: (repoPath: string) => void): () => void;
   };
   shell: {
     openExternal(url: string): Promise<void>;

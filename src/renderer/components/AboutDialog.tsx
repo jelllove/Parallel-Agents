@@ -30,7 +30,17 @@ export function AboutDialog({ onClose }: Props) {
             <dt>Version</dt>
             <dd>0.1.0</dd>
             <dt>Author</dt>
-            <dd>qinqiangxu</dd>
+            <dd>jelllove</dd>
+            <dt>Email</dt>
+            <dd>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.api.shell?.openExternal('mailto:jelllove@gmail.com');
+                }}
+              >jelllove@gmail.com</a>
+            </dd>
             <dt>Built with</dt>
             <dd>Electron · React · xterm.js · node-pty</dd>
           </dl>

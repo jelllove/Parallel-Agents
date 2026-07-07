@@ -1,0 +1,95 @@
+name: 🐛 Bug report
+description: Something is broken or behaving unexpectedly in Parallel Agents.
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! The more detail you give, the faster we can fix it.
+
+        > ⚠️ **Security issue?** Please don't file it here — see [SECURITY.md](https://github.com/jelllove/ParallelAgents/blob/main/SECURITY.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I am running the latest release from the [Releases page](https://github.com/jelllove/ParallelAgents/releases).
+          required: true
+        - label: I searched [existing issues](https://github.com/jelllove/ParallelAgents/issues?q=is%3Aissue) and didn't find a duplicate.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: "When I click X, Y happens instead of Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, numbered steps that reliably reproduce the bug.
+      placeholder: |
+        1. Open Parallel Agents
+        2. Click on a project in the sidebar
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: "I expected the diff window to open."
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or screen recording
+      description: Drag-and-drop images / GIFs here. For UI bugs these are extremely helpful.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Parallel Agents version
+      placeholder: "e.g. v0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: textarea
+    id: cli-versions
+    attributes:
+      label: Affected agent CLI(s)
+      description: Output of `claude --version`, `codex --version`, `gemini --version`, etc., if relevant.
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / console output
+      description: If the bug produces any errors in the DevTools console (Ctrl+Shift+I) or the terminal, paste them here.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else we should know — config snippets, recent changes, etc.

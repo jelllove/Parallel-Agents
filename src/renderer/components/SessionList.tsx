@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { useAppStore } from '../store/app-store';
-import { SessionIcon } from './SessionIcon';
+import { agentIconUrl, resumeCommandFor, extraPathFor } from '../icons/agentIcons';
+import { ConfirmDialog } from './ConfirmDialog';
+import type { Session } from '../../shared/types';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -15,10 +18,12 @@ function formatTime(ts: number): string {
 export function SessionList() {
   const selectedId = useAppStore((s) => s.selectedProjectId);
   const sessions = useAppStore((s) => (selectedId ? s.sessions[selectedId] ?? [] : []));
-  const openTab = useAppStore((s) => s.openTab);
-  const setActiveTab = useAppStore((s) => s.setActiveTab);
-  const openTabs = useAppStore((s) => s.openTabs);
+  const restartTabWithCommand = useAppStore((s) => s.restartTabWithCommand);
   const project = useAppStore((s) => s.projects.find((p) => p.id === selectedId));
+  const status = useAppStore((s) => s.agentStatus);
+  const deleteSession = useAppStore((s) => s.deleteSession);
+
+  const [confirmDelete, setConfirmDelete] = useState<Session | null>(null);
 
   if (!selectedId) {
     return <div className="list-item-sub" style={{ padding: '4px 12px' }}>Select a project to view its sessions.</div>;
@@ -28,30 +33,57 @@ export function SessionList() {
     return <div className="list-item-sub" style={{ padding: '4px 12px' }}>No sessions yet.</div>;
   }
 
-  async function resume(sessionId: string) {
+  async function resume(s: Session) {
     if (!project || !project.exists) return;
-    if (!openTabs.includes(project.id)) {
-      openTab(project.id);
-    } else {
-      setActiveTab(project.id);
-    }
-    // Slight delay so the terminal mounts and spawns before we write.
-    setTimeout(() => {
-      window.api.pty.write(project.id, `claude --resume ${sessionId}\r`);
-    }, 200);
+    const cmd = resumeCommandFor(s.agent, s.id);
+    if (!cmd) return;
+    await restartTabWithCommand(project.id, s.agent, cmd, extraPathFor(status[s.agent]?.path));
   }
 
   return (
     <div>
-      {sessions.map((s) => (
-        <div key={s.id} className="list-item session-item" onClick={() => resume(s.id)} title={s.title}>
-          <SessionIcon className="session-icon" />
-          <div className="session-text">
-            <div className="list-item-title">{s.title || '(empty)'}</div>
-            <div className="list-item-sub">{formatTime(s.timestamp)}</div>
+      {sessions.map((s) => {
+        const cmd = resumeCommandFor(s.agent, s.id);
+        return (
+          <div
+            key={s.id}
+            className={`list-item session-item${cmd ? '' : ' disabled'}`}
+            onClick={() => resume(s)}
+            title={cmd ? `${s.title}\n${cmd}` : `${s.title}\n(no resume available for ${s.agent})`}
+          >
+            <img src={agentIconUrl(s.agent)} className="session-icon" alt="" draggable={false} />
+            <div className="session-text">
+              <div className="list-item-title">{s.title || '(empty)'}</div>
+              <div className="list-item-sub">{formatTime(s.timestamp)}</div>
+            </div>
+            <button
+              className="session-delete"
+              title="Delete this session"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(s);
+              }}
+            >
+              ×
+            </button>
           </div>
-        </div>
-      ))}
+        );
+      })}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete session?"
+          message={`This will permanently delete the session file for "${confirmDelete.title || '(empty)'}". This cannot be undone.`}
+          confirmText="Delete forever"
+          typeToConfirm="delete"
+          destructive
+          onConfirm={async () => {
+            const s = confirmDelete;
+            setConfirmDelete(null);
+            if (selectedId) await deleteSession(selectedId, s.id);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Run multiple CLI coding agents side by side in one window.",
   "main": "out/main/index.js",
-  "author": "qinqiangxu",
+  "author": {
+    "name": "jelllove",
+    "email": "jelllove@gmail.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
@@ -11,13 +14,17 @@
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w node-pty",
     "pack": "electron-vite build && electron-builder --dir",
-    "dist": "electron-vite build && electron-builder"
+    "dist": "electron-vite build && electron-builder",
+    "release": "electron-vite build && electron-builder --dir && node scripts/promote-latest.cjs",
+    "build:icons": "node scripts/build-icons.cjs"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "material-icon-theme": "^5.34.0",
+    "monaco-editor": "^0.55.1",
     "node-pty": "1.2.0-beta.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,11 +40,13 @@
     "electron": "^32.1.2",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
     "typescript": "^5.6.2",
     "vite": "^5.4.8"
   },
   "build": {
-    "appId": "com.qinqiangxu.parallelagents",
+    "appId": "com.jelllove.parallelagents",
     "productName": "Parallel Agents",
     "directories": {
       "output": "release",
@@ -55,10 +64,12 @@
       "target": [
         {
           "target": "dir",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "icon": "resources/app-icon.png",
+      "icon": "resources/app-icon.ico",
       "signAndEditExecutable": false
     }
   }
