@@ -93,7 +93,7 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
   },
 };
 
-export const AGENT_IDS: AgentId[] = ['claude', 'codex', 'gemini', 'aider', 'copilot'];
+export const AGENT_IDS: AgentId[] = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
 
 export function getProvider(id: AgentId): ProviderDef {
   return PROVIDERS[id];

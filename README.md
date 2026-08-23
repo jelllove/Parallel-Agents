@@ -78,11 +78,11 @@ npm run release      # produces release/latest/Parallel Agents.exe
 
 | Agent | CLI | Status |
 |---|---|---|
-| <img src="src/renderer/assets/agents/claude.png" width="16" valign="middle" /> **Claude Code** | `claude` | ✅ Sessions auto-detected from `~/.claude/projects/` |
+| <img src="src/renderer/assets/agents/copilot.svg" width="16" valign="middle" /> **Copilot CLI** | `gh copilot` | 🚧 Launch only |
 | <img src="src/renderer/assets/agents/codex.png" width="16" valign="middle" /> **Codex** | `codex` | ✅ Detected via `which / where` |
+| <img src="src/renderer/assets/agents/claude.png" width="16" valign="middle" /> **Claude Code** | `claude` | ✅ Sessions auto-detected from `~/.claude/projects/` |
 | <img src="src/renderer/assets/agents/gemini.svg" width="16" valign="middle" /> **Gemini CLI** | `gemini` | ✅ Sessions auto-detected from `~/.gemini/tmp/` |
 | <img src="src/renderer/assets/agents/aider.svg" width="16" valign="middle" /> Aider | `aider` | 🚧 Launch only (no session scan yet) |
-| <img src="src/renderer/assets/agents/copilot.svg" width="16" valign="middle" /> Copilot CLI | `gh copilot` | 🚧 Launch only |
 
 Don't have one installed? Parallel Agents shows a banner at the top with a one-click install hint.
 
