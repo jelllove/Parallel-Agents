@@ -13,7 +13,7 @@ import type { PaneId } from '../shared/types';
 
 function RightColumn() {
   return (
-    <PanelGroup direction="vertical" autoSaveId="ccs-right-layout">
+    <PanelGroup direction="vertical" autoSaveId="parallel-agents-right-layout">
       <Panel defaultSize={60} minSize={20}>
         <Explorer />
       </Panel>

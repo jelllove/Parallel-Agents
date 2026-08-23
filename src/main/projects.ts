@@ -7,7 +7,7 @@ import type { Project, AgentId } from '../shared/types';
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
 
-// C--jelllove-ClaudeCodeShell  →  C:\jelllove\ClaudeCodeShell
+// C--jelllove-ParallelAgents   →  C:\jelllove\ParallelAgents
 // c--Users-jelllove            →  c:\Users\jelllove
 // Naive fallback: every `-` becomes `\`. Loses real `.` in folder names
 // (Claude encodes `.` as `-` too — so `Mr.Translator` becomes `Mr-Translator`).

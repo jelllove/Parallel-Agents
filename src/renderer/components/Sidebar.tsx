@@ -34,7 +34,7 @@ export function Sidebar({ onAbout }: Props) {
         <span>New Project</span>
       </button>
       <div className="sidebar-split">
-        <PanelGroup direction="vertical" autoSaveId="ccs-sidebar-layout">
+        <PanelGroup direction="vertical" autoSaveId="parallel-agents-sidebar-layout">
           <Panel defaultSize={60} minSize={20}>
             <div className="sidebar-section scrollable">
               <div className="sidebar-title section-projects">

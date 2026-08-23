@@ -41,4 +41,4 @@ if (Test-Path $vswhere) {
 }
 
 Write-Host ""
-Write-Host "All done. Now go back to C:\jelllove\ClaudeCodeShell and run: npm install" -ForegroundColor Green
+Write-Host "All done. Now go back to your ParallelAgents folder and run: npm install" -ForegroundColor Green
