@@ -140,6 +140,21 @@ button {
 }
 .sidebar-section:first-of-type .sidebar-title { border-top: none; }
 
+.sidebar-actions {
+  padding: 0 12px 8px;
+}
+.sidebar-refresh-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.sidebar-refresh-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .section-glyph {
   display: inline-flex;
   align-items: center;

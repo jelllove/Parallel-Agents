@@ -13,6 +13,8 @@ interface Props {
 
 export function Sidebar({ onAbout }: Props) {
   const newSessionFromDialog = useAppStore((s) => s.newSessionFromDialog);
+  const refreshProjectsAndAgents = useAppStore((s) => s.refreshProjectsAndAgents);
+  const inventoryRefreshing = useAppStore((s) => s.inventoryRefreshing);
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
@@ -40,6 +42,16 @@ export function Sidebar({ onAbout }: Props) {
               <div className="sidebar-title section-projects">
                 <span className="section-glyph">▣</span>
                 <span>Projects</span>
+              </div>
+              <div className="sidebar-actions">
+                <button
+                  className="btn-secondary sidebar-refresh-btn"
+                  disabled={inventoryRefreshing}
+                  title="Refresh all agents and project status"
+                  onClick={() => void refreshProjectsAndAgents()}
+                >
+                  {inventoryRefreshing ? '↻ Refreshing…' : '↻ Refresh Projects & Agents'}
+                </button>
               </div>
               <ProjectList />
             </div>

@@ -94,6 +94,7 @@ Don't have one installed? Parallel Agents shows a banner at the top with a one-c
 - Tree grouped by agent, collapsible per group
 - Pin / Hide / **Delete** (triple-confirm: type the project name + check "I understand")
 - **Drag & drop** to reorder projects within the same agent group
+- **Refresh Projects & Agents** button + automatic background refresh every 60 seconds
 - Per-session × button with the same confirm flow
 
 ### Terminal Tabs

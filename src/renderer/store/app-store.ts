@@ -14,6 +14,7 @@ interface Clipboard {
 interface AppState {
   projects: Project[];
   adhocProjects: Project[];
+  inventoryRefreshing: boolean;
   selectedProjectId: string | null;
   openTabs: string[];
   activeTabId: string | null;
@@ -36,6 +37,7 @@ interface AppState {
   loadProjects: () => Promise<void>;
   loadAgents: () => Promise<void>;
   checkAgents: () => Promise<void>;
+  refreshProjectsAndAgents: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
   openTabWithAgent: (projectId: string, agentId: AgentId, startCommand: string, extraPath?: string[]) => Promise<void>;
   setActiveTab: (id: string) => void;
@@ -93,6 +95,7 @@ function scheduleLayoutWrite(layout: LayoutConfig) {
 export const useAppStore = create<AppState>((set, get) => ({
   projects: [],
   adhocProjects: [],
+  inventoryRefreshing: false,
   selectedProjectId: null,
   openTabs: [],
   activeTabId: null,
@@ -125,6 +128,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   async checkAgents() {
     const status = await window.api.agents.checkAll();
     set({ agentStatus: status });
+  },
+
+  async refreshProjectsAndAgents() {
+    if (get().inventoryRefreshing) return;
+    set({ inventoryRefreshing: true });
+    try {
+      await Promise.all([
+        get().loadProjects(),
+        get().loadAgents(),
+        get().checkAgents(),
+      ]);
+
+      const selectedId = get().selectedProjectId;
+      if (!selectedId) return;
+
+      const p = get().findProject(selectedId);
+      if (p && !p.dirName.startsWith('adhoc:')) {
+        await get().loadSessions(selectedId);
+      }
+      if (p?.exists) {
+        await get().loadGitStatus(p.realPath);
+      }
+    } finally {
+      set({ inventoryRefreshing: false });
+    }
   },
 
   async selectProject(id) {

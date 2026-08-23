@@ -11,6 +11,8 @@ import { AgentsBanner } from './components/AgentsBanner';
 import { ClaudeIcon } from './components/ClaudeIcon';
 import type { PaneId } from '../shared/types';
 
+const INVENTORY_AUTO_REFRESH_MS = 60_000;
+
 function RightColumn() {
   return (
     <PanelGroup direction="vertical" autoSaveId="parallel-agents-right-layout">
@@ -26,9 +28,7 @@ function RightColumn() {
 }
 
 export default function App() {
-  const loadProjects = useAppStore((s) => s.loadProjects);
-  const loadAgents = useAppStore((s) => s.loadAgents);
-  const checkAgents = useAppStore((s) => s.checkAgents);
+  const refreshProjectsAndAgents = useAppStore((s) => s.refreshProjectsAndAgents);
   const subscribeGitChanges = useAppStore((s) => s.subscribeGitChanges);
   const loadLayout = useAppStore((s) => s.loadLayout);
   const layout = useAppStore((s) => s.layout);
@@ -41,15 +41,20 @@ export default function App() {
   const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
-    loadProjects();
-    loadAgents();
-    checkAgents();
+    void refreshProjectsAndAgents();
     loadLayout();
     loadTheme();
     loadSettings();
     const off = subscribeGitChanges();
     return off;
-  }, [loadProjects, loadAgents, checkAgents, loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
+  }, [refreshProjectsAndAgents, loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshProjectsAndAgents();
+    }, INVENTORY_AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshProjectsAndAgents]);
 
   useEffect(() => {
     const off = window.api.window.onFullscreenChange((on) => setFullscreen(on));
