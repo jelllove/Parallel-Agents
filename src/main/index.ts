@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell, Tray, Menu, dialog, globalShortcut, nativeImage } from 'electron';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { registerIpc } from './ipc';
 import { ptyManager } from './pty-manager';
@@ -9,13 +10,19 @@ let tray: Tray | null = null;
 let isQuitting = false;
 
 function getIconPath(name: string): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, name);
+  if (!app.isPackaged) {
+    return join(__dirname, '../../resources', name);
   }
-  return join(__dirname, '../../resources', name);
+
+  const unpackedPath = join(process.resourcesPath, name);
+  if (existsSync(unpackedPath)) return unpackedPath;
+
+  // Icons are packaged under app.asar/resources.
+  return join(app.getAppPath(), 'resources', name);
 }
 
 function createWindow(): void {
+  const windowIcon = process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png';
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -25,7 +32,7 @@ function createWindow(): void {
     backgroundColor: '#1e1e1e',
     autoHideMenuBar: true,
     title: 'Parallel Agents',
-    icon: getIconPath('app-icon.png'),
+    icon: getIconPath(windowIcon),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -109,7 +116,10 @@ async function quitWithConfirm(): Promise<void> {
 }
 
 function createTray(): void {
-  const image = nativeImage.createFromPath(getIconPath('tray-icon.png'));
+  const trayImage = nativeImage.createFromPath(getIconPath('tray-icon.png'));
+  const image = trayImage.isEmpty()
+    ? nativeImage.createFromPath(getIconPath('app-icon.png'))
+    : trayImage;
   tray = new Tray(image);
   tray.setToolTip('Parallel Agents');
 
