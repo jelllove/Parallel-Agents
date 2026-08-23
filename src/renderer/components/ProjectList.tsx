@@ -5,7 +5,24 @@ import { folderIconUrl } from '../icons/iconResolver';
 import { agentIconUrl, startCommandFor, extraPathFor } from '../icons/agentIcons';
 import { ConfirmDialog } from './ConfirmDialog';
 
-const TREE_AGENTS: AgentId[] = ['claude', 'codex', 'gemini'];
+const TREE_AGENTS: AgentId[] = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
+
+function canDeleteProject(agent: AgentId): boolean {
+  return agent === 'claude' || agent === 'gemini' || agent === 'copilot';
+}
+
+function deleteMessageFor(project: Project): string {
+  if (project.agent === 'claude') {
+    return `This will permanently delete ~/.claude/projects/${project.dirName}/ and all its sessions. The actual working directory on disk is not touched.`;
+  }
+  if (project.agent === 'gemini') {
+    return `This will permanently delete ~/.gemini/tmp/${project.dirName}/ and all its sessions. The actual working directory on disk is not touched.`;
+  }
+  if (project.agent === 'copilot') {
+    return `This will permanently delete Copilot session history for "${project.realPath}" from ~/.copilot/session-state/. The actual working directory on disk is not touched.`;
+  }
+  return `Delete is not supported for ${project.agent} projects.`;
+}
 
 export function ProjectList() {
   const projects = useAppStore((s) => s.projects);
@@ -193,23 +210,31 @@ export function ProjectList() {
             {ctxMenu.project.hidden ? 'Unhide' : 'Hide'}
           </div>
           <div className="ctx-menu-divider" />
-          <div
-            className="ctx-menu-item danger"
-            onClick={() => {
-              setConfirmDelete(ctxMenu.project);
-              setCtxMenu(null);
-            }}
-          >
-            Delete...
-          </div>
+          {canDeleteProject(ctxMenu.project.agent) ? (
+            <div
+              className="ctx-menu-item danger"
+              onClick={() => {
+                setConfirmDelete(ctxMenu.project);
+                setCtxMenu(null);
+              }}
+            >
+              Delete...
+            </div>
+          ) : (
+            <div
+              className="ctx-menu-item"
+              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+              title="Delete is not supported for this agent yet"
+            >
+              Delete (not supported)
+            </div>
+          )}
         </div>
       )}
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete project "${confirmDelete.displayName}"?`}
-          message={`This will permanently delete ${confirmDelete.agent === 'claude'
-            ? `~/.claude/projects/${confirmDelete.dirName}/`
-            : `~/.gemini/tmp/${confirmDelete.dirName}/`} and all its sessions. The actual working directory on disk is not touched.`}
+          message={deleteMessageFor(confirmDelete)}
           confirmText="Delete forever"
           typeToConfirm={confirmDelete.displayName}
           destructive

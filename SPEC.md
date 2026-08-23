@@ -168,7 +168,7 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Git: push / pull / 切分支 / merge 冲突解决（避免要做冲突 UI）
 - Agent 之间消息中继（每个 tab 独立 PTY，无 cross-agent 联动）
 - Cloud sync / 团队协作 / 多账号
-- Aider / Copilot 的 project 扫描（v1 仅 Claude / Codex / Gemini）
+- Aider / Codex 的 project 扫描（当前已支持 Claude / Gemini / Copilot）
 
 ## 12. Roadmap Hints
 

@@ -1,8 +1,8 @@
 import { readdir, stat, createReadStream } from 'fs';
-import { unlink } from 'fs/promises';
+import { unlink, rm } from 'fs/promises';
 import { promisify } from 'util';
 import { createInterface } from 'readline';
-import { join } from 'path';
+import { join, normalize } from 'path';
 import { homedir } from 'os';
 import type { Session, AgentId } from '../shared/types';
 
@@ -11,12 +11,18 @@ const statP = promisify(stat);
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
+const COPILOT_SESSION_STATE_ROOT = join(homedir(), '.copilot', 'session-state');
 
 const TITLE_MAX = 80;
 
 function trimTitle(s: string): string {
   const t = s.trim().replace(/\s+/g, ' ');
   return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) + '…' : t;
+}
+
+function normalizeProjectPath(p: string): string {
+  const n = normalize(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
 }
 
 function extractTitleFromClaude(content: unknown): string {
@@ -89,6 +95,86 @@ async function readGeminiSessionMeta(filePath: string): Promise<{
         rec = JSON.parse(line);
       } catch {
         return;
+      }
+
+      interface CopilotSessionMeta {
+        sessionId: string | null;
+        projectPath: string;
+        title: string;
+        timestamp: number;
+        cwd: string | null;
+        gitBranch: string | null;
+        version: string | null;
+      }
+
+      async function readCopilotSessionMeta(filePath: string): Promise<CopilotSessionMeta | null> {
+        return new Promise((resolve) => {
+          const rl = createInterface({
+            input: createReadStream(filePath, { encoding: 'utf-8' }),
+            crlfDelay: Infinity,
+          });
+          let header: {
+            sessionId: string | null;
+            projectPath: string;
+            startTime: number;
+            cwd: string | null;
+            gitBranch: string | null;
+            version: string | null;
+          } | null = null;
+          let title: string | null = null;
+          let userTs: number | null = null;
+          rl.on('line', (line) => {
+            if (!line) return;
+            let rec: any;
+            try {
+              rec = JSON.parse(line);
+            } catch {
+              return;
+            }
+            if (!header && rec?.type === 'session.start') {
+              const ctx = rec?.data?.context;
+              const rawProjectPath = typeof ctx?.gitRoot === 'string' && ctx.gitRoot
+                ? ctx.gitRoot
+                : (typeof ctx?.cwd === 'string' && ctx.cwd ? ctx.cwd : null);
+              if (!rawProjectPath) return;
+              const rawStartTs = typeof rec?.data?.startTime === 'string'
+                ? Date.parse(rec.data.startTime)
+                : NaN;
+              header = {
+                sessionId: typeof rec?.data?.sessionId === 'string' ? rec.data.sessionId : null,
+                projectPath: normalize(rawProjectPath),
+                startTime: Number.isFinite(rawStartTs) ? rawStartTs : Date.now(),
+                cwd: typeof ctx?.cwd === 'string' ? ctx.cwd : null,
+                gitBranch: typeof ctx?.branch === 'string' ? ctx.branch : null,
+                version: typeof rec?.data?.copilotVersion === 'string' ? rec.data.copilotVersion : null,
+              };
+            } else if (!title && rec?.type === 'user.message') {
+              const text = typeof rec?.data?.content === 'string' ? rec.data.content : '';
+              if (text.trim()) {
+                title = trimTitle(text);
+                const rawUserTs = typeof rec?.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN;
+                if (Number.isFinite(rawUserTs)) userTs = rawUserTs;
+              }
+            }
+            if (header && title) rl.close();
+          });
+          rl.on('close', () => {
+            if (!header) {
+              resolve(null);
+              return;
+            }
+            resolve({
+              sessionId: header.sessionId,
+              projectPath: header.projectPath,
+              title: title ?? '(no user message)',
+              timestamp: userTs ?? header.startTime,
+              cwd: header.cwd,
+              gitBranch: header.gitBranch,
+              version: header.version,
+            });
+          });
+          rl.on('error', () => resolve(null));
+        });
       }
       if (!header && rec.sessionId) {
         header = rec;
@@ -178,6 +264,48 @@ async function listGeminiSessions(projectId: string, dirName: string): Promise<S
   return out;
 }
 
+async function listCopilotSessions(projectId: string, projectPath: string): Promise<Session[]> {
+  let entries: string[];
+  try {
+    entries = await readdirP(COPILOT_SESSION_STATE_ROOT);
+  } catch {
+    return [];
+  }
+  const targetPath = normalizeProjectPath(projectPath);
+  const out: Session[] = [];
+  for (const dirName of entries) {
+    const sessionDir = join(COPILOT_SESSION_STATE_ROOT, dirName);
+    let isDir = false;
+    try {
+      isDir = (await statP(sessionDir)).isDirectory();
+    } catch {}
+    if (!isDir) continue;
+
+    const eventsPath = join(sessionDir, 'events.jsonl');
+    let mtime = 0;
+    try {
+      mtime = (await statP(eventsPath)).mtimeMs;
+    } catch {
+      continue;
+    }
+
+    const meta = await readCopilotSessionMeta(eventsPath);
+    if (!meta) continue;
+    if (normalizeProjectPath(meta.projectPath) !== targetPath) continue;
+    out.push({
+      id: meta.sessionId ?? dirName,
+      projectId,
+      agent: 'copilot',
+      title: meta.title,
+      timestamp: meta.timestamp || mtime,
+      cwd: meta.cwd,
+      gitBranch: meta.gitBranch,
+      version: meta.version,
+    });
+  }
+  return out;
+}
+
 export async function listSessionsForProject(projectId: string): Promise<Session[]> {
   const colon = projectId.indexOf(':');
   if (colon < 0) return [];
@@ -187,7 +315,8 @@ export async function listSessionsForProject(projectId: string): Promise<Session
   let out: Session[] = [];
   if (agent === 'claude') out = await listClaudeSessions(projectId, dirName);
   else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName);
-  // codex/aider/copilot: no session listing in v1
+  else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName);
+  // codex/aider: no session listing in v1
 
   out.sort((a, b) => b.timestamp - a.timestamp);
   return out;
@@ -221,6 +350,8 @@ export async function deleteSession(projectId: string, sessionId: string): Promi
     const file = await findGeminiSessionFile(dirName, sessionId);
     if (!file) throw new Error(`Session not found: ${sessionId}`);
     await unlink(file);
+  } else if (agent === 'copilot') {
+    await rm(join(COPILOT_SESSION_STATE_ROOT, sessionId), { recursive: true, force: true });
   } else {
     throw new Error(`Delete not supported for agent: ${agent}`);
   }

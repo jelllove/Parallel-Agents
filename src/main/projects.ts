@@ -1,11 +1,14 @@
+import { createReadStream } from 'fs';
 import { readdir, stat, readFile, rm } from 'fs/promises';
-import { join } from 'path';
+import { createInterface } from 'readline';
+import { join, normalize } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject } from './config';
 import type { Project, AgentId } from '../shared/types';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
+const COPILOT_SESSION_STATE_ROOT = join(homedir(), '.copilot', 'session-state');
 
 // C--jelllove-ParallelAgents   →  C:\jelllove\ParallelAgents
 // c--Users-jelllove            →  c:\Users\jelllove
@@ -66,6 +69,75 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function normalizeProjectPath(p: string): string {
+  const n = normalize(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
+}
+
+interface CopilotSessionStartMeta {
+  sessionId: string | null;
+  projectPath: string;
+  timestamp: number;
+}
+
+async function readCopilotSessionStart(eventsPath: string): Promise<CopilotSessionStartMeta | null> {
+  return new Promise((resolve) => {
+    const rl = createInterface({
+      input: createReadStream(eventsPath, { encoding: 'utf-8' }),
+      crlfDelay: Infinity,
+    });
+    let done = false;
+    let scanned = 0;
+    rl.on('line', (line) => {
+      if (done || !line.trim()) return;
+      scanned++;
+      let rec: any;
+      try {
+        rec = JSON.parse(line);
+      } catch {
+        if (scanned >= 20) {
+          done = true;
+          rl.close();
+          resolve(null);
+        }
+        return;
+      }
+      if (rec?.type !== 'session.start') {
+        if (scanned >= 20) {
+          done = true;
+          rl.close();
+          resolve(null);
+        }
+        return;
+      }
+      const ctx = rec?.data?.context;
+      const rawProjectPath = typeof ctx?.gitRoot === 'string' && ctx.gitRoot
+        ? ctx.gitRoot
+        : (typeof ctx?.cwd === 'string' && ctx.cwd ? ctx.cwd : null);
+      if (!rawProjectPath) {
+        done = true;
+        rl.close();
+        resolve(null);
+        return;
+      }
+      const rawTs = typeof rec?.data?.startTime === 'string'
+        ? Date.parse(rec.data.startTime)
+        : NaN;
+      done = true;
+      rl.close();
+      resolve({
+        sessionId: typeof rec?.data?.sessionId === 'string' ? rec.data.sessionId : null,
+        projectPath: normalize(rawProjectPath),
+        timestamp: Number.isFinite(rawTs) ? rawTs : 0,
+      });
+    });
+    rl.on('close', () => {
+      if (!done) resolve(null);
+    });
+    rl.on('error', () => resolve(null));
+  });
 }
 
 async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
@@ -177,17 +249,91 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
   return out;
 }
 
+async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
+  let entries: string[] = [];
+  try {
+    entries = await readdir(COPILOT_SESSION_STATE_ROOT);
+  } catch {
+    return [];
+  }
+
+  const grouped = new Map<string, {
+    realPath: string;
+    sessionCount: number;
+    lastActivity: number | null;
+  }>();
+
+  for (const dirName of entries) {
+    const sessionDir = join(COPILOT_SESSION_STATE_ROOT, dirName);
+    try {
+      if (!(await stat(sessionDir)).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    const eventsPath = join(sessionDir, 'events.jsonl');
+    let mtimeMs: number;
+    try {
+      const s = await stat(eventsPath);
+      if (!s.isFile()) continue;
+      mtimeMs = s.mtimeMs;
+    } catch {
+      continue;
+    }
+
+    const meta = await readCopilotSessionStart(eventsPath);
+    if (!meta) continue;
+
+    const key = normalizeProjectPath(meta.projectPath);
+    const existing = grouped.get(key);
+    const activityTs = Number.isFinite(mtimeMs) ? mtimeMs : meta.timestamp;
+    if (!existing) {
+      grouped.set(key, {
+        realPath: meta.projectPath,
+        sessionCount: 1,
+        lastActivity: activityTs || null,
+      });
+      continue;
+    }
+
+    existing.sessionCount += 1;
+    if (activityTs && (existing.lastActivity === null || activityTs > existing.lastActivity)) {
+      existing.lastActivity = activityTs;
+    }
+  }
+
+  const out: Project[] = [];
+  for (const agg of grouped.values()) {
+    const dirName = agg.realPath;
+    const id = makeProjectId('copilot', dirName);
+    out.push({
+      id,
+      agent: 'copilot',
+      dirName,
+      realPath: agg.realPath,
+      displayName: displayNameFor(agg.realPath),
+      exists: await pathExists(agg.realPath),
+      pinned: pinned.has(id),
+      hidden: hidden.has(id),
+      sessionCount: agg.sessionCount,
+      lastActivity: agg.lastActivity,
+    });
+  }
+  return out;
+}
+
 export async function listProjects(): Promise<Project[]> {
   const cfg = await loadConfig();
   const pinned = new Set(cfg.pinned);
   const hidden = new Set(cfg.hidden);
 
-  const [claude, gemini] = await Promise.all([
+  const [claude, gemini, copilot] = await Promise.all([
     listClaudeProjects(pinned, hidden),
     listGeminiProjects(pinned, hidden),
+    listCopilotProjects(pinned, hidden),
   ]);
 
-  const out = [...claude, ...gemini];
+  const out = [...claude, ...gemini, ...copilot];
   const orderIndex = (p: Project): number => {
     const ids = cfg.projectOrder?.[p.agent] ?? [];
     const i = ids.indexOf(p.id);
@@ -215,6 +361,22 @@ export async function deleteProject(projectId: string): Promise<void> {
     await rm(join(CLAUDE_ROOT, dirName), { recursive: true, force: true });
   } else if (agent === 'gemini') {
     await rm(join(GEMINI_TMP_ROOT, dirName), { recursive: true, force: true });
+  } else if (agent === 'copilot') {
+    const target = normalizeProjectPath(dirName);
+    let entries: string[] = [];
+    try {
+      entries = await readdir(COPILOT_SESSION_STATE_ROOT);
+    } catch {
+      entries = [];
+    }
+    for (const sessionDirName of entries) {
+      const sessionDir = join(COPILOT_SESSION_STATE_ROOT, sessionDirName);
+      const eventsPath = join(sessionDir, 'events.jsonl');
+      const meta = await readCopilotSessionStart(eventsPath);
+      if (!meta) continue;
+      if (normalizeProjectPath(meta.projectPath) !== target) continue;
+      await rm(sessionDir, { recursive: true, force: true });
+    }
   } else {
     throw new Error(`Delete not supported for agent: ${agent}`);
   }

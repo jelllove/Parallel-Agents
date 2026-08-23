@@ -44,7 +44,7 @@ Electron 应用，分三个进程角色：**main**（Node 端，IPC/PTY/Git）�
 └───────────────────────────────────────────────────────────────────────────┘
                              │ fs / child_process
               ┌──────────────┴──────────────┐
-        ~/.claude/projects/         ~/.gemini/tmp/
+        ~/.claude/projects/         ~/.gemini/tmp/         ~/.copilot/session-state/
         ~/.claude/parallel-agents.json (config)
         git CLI · Windows shell APIs
 ```
@@ -169,7 +169,7 @@ src/
 ## 6. Modules
 
 ### 6.1 projects.ts
-- 扫 `~/.claude/projects/` 和 `~/.gemini/tmp/`
+- 扫 `~/.claude/projects/`、`~/.gemini/tmp/` 和 `~/.copilot/session-state/`
 - `dirName` 编码规则：`C--jelllove-Foo` → `C:\jelllove\Foo`（首字母作 drive，剩下 `-` → `\`）
 - 排序：pinned 优先；同 agent 组内按 `projectOrder` 应用用户拖拽顺序
 - `deleteProject(id)`：rm -rf agent 目录 + `forgetProject(id)`（清 pinned/hidden/lastAgent/projectOrder）
