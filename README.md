@@ -95,6 +95,7 @@ Don't have one installed? Parallel Agents shows a banner at the top with a one-c
 - Pin / Hide / **Delete** (triple-confirm: type the project name + check "I understand")
 - **Drag & drop** to reorder projects within the same agent group
 - **Refresh Projects & Agents** button + automatic background refresh every 60 seconds
+- Click project behavior: one session auto-resumes, multiple sessions trigger a visual cue in **Recent Sessions** so you can choose explicitly
 - Per-session × button with the same confirm flow
 
 ### Terminal Tabs

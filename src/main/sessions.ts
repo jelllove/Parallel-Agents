@@ -25,6 +25,86 @@ function normalizeProjectPath(p: string): string {
   return process.platform === 'win32' ? n.toLowerCase() : n;
 }
 
+interface CopilotSessionMeta {
+  sessionId: string | null;
+  projectPath: string;
+  title: string;
+  timestamp: number;
+  cwd: string | null;
+  gitBranch: string | null;
+  version: string | null;
+}
+
+async function readCopilotSessionMeta(filePath: string): Promise<CopilotSessionMeta | null> {
+  return new Promise((resolve) => {
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: 'utf-8' }),
+      crlfDelay: Infinity,
+    });
+    let header: {
+      sessionId: string | null;
+      projectPath: string;
+      startTime: number;
+      cwd: string | null;
+      gitBranch: string | null;
+      version: string | null;
+    } | null = null;
+    let title: string | null = null;
+    let userTs: number | null = null;
+    rl.on('line', (line) => {
+      if (!line) return;
+      let rec: any;
+      try {
+        rec = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (!header && rec?.type === 'session.start') {
+        const ctx = rec?.data?.context;
+        const rawProjectPath = typeof ctx?.gitRoot === 'string' && ctx.gitRoot
+          ? ctx.gitRoot
+          : (typeof ctx?.cwd === 'string' && ctx.cwd ? ctx.cwd : null);
+        if (!rawProjectPath) return;
+        const rawStartTs = typeof rec?.data?.startTime === 'string'
+          ? Date.parse(rec.data.startTime)
+          : NaN;
+        header = {
+          sessionId: typeof rec?.data?.sessionId === 'string' ? rec.data.sessionId : null,
+          projectPath: normalize(rawProjectPath),
+          startTime: Number.isFinite(rawStartTs) ? rawStartTs : Date.now(),
+          cwd: typeof ctx?.cwd === 'string' ? ctx.cwd : null,
+          gitBranch: typeof ctx?.branch === 'string' ? ctx.branch : null,
+          version: typeof rec?.data?.copilotVersion === 'string' ? rec.data.copilotVersion : null,
+        };
+      } else if (!title && rec?.type === 'user.message') {
+        const text = typeof rec?.data?.content === 'string' ? rec.data.content : '';
+        if (text.trim()) {
+          title = trimTitle(text);
+          const rawUserTs = typeof rec?.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN;
+          if (Number.isFinite(rawUserTs)) userTs = rawUserTs;
+        }
+      }
+      if (header && title) rl.close();
+    });
+    rl.on('close', () => {
+      if (!header) {
+        resolve(null);
+        return;
+      }
+      resolve({
+        sessionId: header.sessionId,
+        projectPath: header.projectPath,
+        title: title ?? '(no user message)',
+        timestamp: userTs ?? header.startTime,
+        cwd: header.cwd,
+        gitBranch: header.gitBranch,
+        version: header.version,
+      });
+    });
+    rl.on('error', () => resolve(null));
+  });
+}
+
 function extractTitleFromClaude(content: unknown): string {
   if (typeof content === 'string') return trimTitle(content);
   if (Array.isArray(content)) {
@@ -95,86 +175,6 @@ async function readGeminiSessionMeta(filePath: string): Promise<{
         rec = JSON.parse(line);
       } catch {
         return;
-      }
-
-      interface CopilotSessionMeta {
-        sessionId: string | null;
-        projectPath: string;
-        title: string;
-        timestamp: number;
-        cwd: string | null;
-        gitBranch: string | null;
-        version: string | null;
-      }
-
-      async function readCopilotSessionMeta(filePath: string): Promise<CopilotSessionMeta | null> {
-        return new Promise((resolve) => {
-          const rl = createInterface({
-            input: createReadStream(filePath, { encoding: 'utf-8' }),
-            crlfDelay: Infinity,
-          });
-          let header: {
-            sessionId: string | null;
-            projectPath: string;
-            startTime: number;
-            cwd: string | null;
-            gitBranch: string | null;
-            version: string | null;
-          } | null = null;
-          let title: string | null = null;
-          let userTs: number | null = null;
-          rl.on('line', (line) => {
-            if (!line) return;
-            let rec: any;
-            try {
-              rec = JSON.parse(line);
-            } catch {
-              return;
-            }
-            if (!header && rec?.type === 'session.start') {
-              const ctx = rec?.data?.context;
-              const rawProjectPath = typeof ctx?.gitRoot === 'string' && ctx.gitRoot
-                ? ctx.gitRoot
-                : (typeof ctx?.cwd === 'string' && ctx.cwd ? ctx.cwd : null);
-              if (!rawProjectPath) return;
-              const rawStartTs = typeof rec?.data?.startTime === 'string'
-                ? Date.parse(rec.data.startTime)
-                : NaN;
-              header = {
-                sessionId: typeof rec?.data?.sessionId === 'string' ? rec.data.sessionId : null,
-                projectPath: normalize(rawProjectPath),
-                startTime: Number.isFinite(rawStartTs) ? rawStartTs : Date.now(),
-                cwd: typeof ctx?.cwd === 'string' ? ctx.cwd : null,
-                gitBranch: typeof ctx?.branch === 'string' ? ctx.branch : null,
-                version: typeof rec?.data?.copilotVersion === 'string' ? rec.data.copilotVersion : null,
-              };
-            } else if (!title && rec?.type === 'user.message') {
-              const text = typeof rec?.data?.content === 'string' ? rec.data.content : '';
-              if (text.trim()) {
-                title = trimTitle(text);
-                const rawUserTs = typeof rec?.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN;
-                if (Number.isFinite(rawUserTs)) userTs = rawUserTs;
-              }
-            }
-            if (header && title) rl.close();
-          });
-          rl.on('close', () => {
-            if (!header) {
-              resolve(null);
-              return;
-            }
-            resolve({
-              sessionId: header.sessionId,
-              projectPath: header.projectPath,
-              title: title ?? '(no user message)',
-              timestamp: userTs ?? header.startTime,
-              cwd: header.cwd,
-              gitBranch: header.gitBranch,
-              version: header.version,
-            });
-          });
-          rl.on('error', () => resolve(null));
-        });
       }
       if (!header && rec.sessionId) {
         header = rec;

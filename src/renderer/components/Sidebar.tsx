@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useAppStore } from '../store/app-store';
 import { ProjectList } from './ProjectList';
@@ -17,7 +17,11 @@ export function Sidebar({ onAbout }: Props) {
   const inventoryRefreshing = useAppStore((s) => s.inventoryRefreshing);
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
+  const sessionGuideProjectId = useAppStore((s) => s.sessionGuideProjectId);
+  const sessionGuideSeq = useAppStore((s) => s.sessionGuideSeq);
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
+  const [sessionsFlashing, setSessionsFlashing] = useState(false);
 
   function handleNew(e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -28,6 +32,17 @@ export function Sidebar({ onAbout }: Props) {
     setPicker(null);
     await newSessionFromDialog(id, startCommandFor(id), extraPathFor(status[id]?.path));
   }
+
+  useEffect(() => {
+    if (!sessionGuideProjectId || sessionGuideProjectId !== selectedProjectId) return;
+    setSessionsFlashing(false);
+    const raf = window.requestAnimationFrame(() => setSessionsFlashing(true));
+    const timer = window.setTimeout(() => setSessionsFlashing(false), 1050);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [selectedProjectId, sessionGuideProjectId, sessionGuideSeq]);
 
   return (
     <div className="sidebar">
@@ -58,7 +73,7 @@ export function Sidebar({ onAbout }: Props) {
           </Panel>
           <PanelResizeHandle className="resize-handle-h" />
           <Panel defaultSize={40} minSize={15}>
-            <div className="sidebar-section scrollable sessions">
+            <div className={`sidebar-section scrollable sessions${sessionsFlashing ? ' sessions-guide-flash' : ''}`}>
               <div className="sidebar-title section-sessions">
                 <span className="section-glyph">⏱</span>
                 <span>Recent Sessions</span>

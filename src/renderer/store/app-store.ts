@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Project, Session, AgentId, AgentInfo, AgentStatus, GitStatus, LayoutConfig, ThemeMode } from '../../shared/types';
+import { startCommandFor, resumeCommandFor, extraPathFor } from '../icons/agentIcons';
 
 interface PendingLaunch {
   command: string;
@@ -16,6 +17,8 @@ interface AppState {
   adhocProjects: Project[];
   inventoryRefreshing: boolean;
   selectedProjectId: string | null;
+  sessionGuideProjectId: string | null;
+  sessionGuideSeq: number;
   openTabs: string[];
   activeTabId: string | null;
   pendingInitialCommand: Record<string, PendingLaunch>;
@@ -39,6 +42,8 @@ interface AppState {
   checkAgents: () => Promise<void>;
   refreshProjectsAndAgents: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
+  openProjectFromList: (id: string) => Promise<void>;
+  requestSessionSelection: (projectId: string) => void;
   openTabWithAgent: (projectId: string, agentId: AgentId, startCommand: string, extraPath?: string[]) => Promise<void>;
   setActiveTab: (id: string) => void;
   closeTab: (id: string) => void;
@@ -97,6 +102,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   adhocProjects: [],
   inventoryRefreshing: false,
   selectedProjectId: null,
+  sessionGuideProjectId: null,
+  sessionGuideSeq: 0,
   openTabs: [],
   activeTabId: null,
   pendingInitialCommand: {},
@@ -165,6 +172,51 @@ export const useAppStore = create<AppState>((set, get) => ({
       void get().loadGitStatus(p.realPath);
       void window.api.git.watch(p.realPath);
     }
+  },
+
+  requestSessionSelection(projectId) {
+    set((state) => ({
+      sessionGuideProjectId: projectId,
+      sessionGuideSeq: state.sessionGuideSeq + 1,
+    }));
+  },
+
+  async openProjectFromList(id) {
+    await get().selectProject(id);
+    const p = get().findProject(id);
+    if (!p || !p.exists) return;
+
+    const loadedSessions = get().sessions[id] ?? [];
+    if (loadedSessions.length > 1) {
+      get().requestSessionSelection(id);
+      return;
+    }
+
+    if (loadedSessions.length === 1) {
+      const only = loadedSessions[0];
+      const cmd = resumeCommandFor(only.agent, only.id);
+      if (cmd) {
+        await get().restartTabWithCommand(
+          id,
+          only.agent,
+          cmd,
+          extraPathFor(get().agentStatus[only.agent]?.path),
+        );
+        return;
+      }
+    }
+
+    if (get().openTabs.includes(id)) {
+      get().setActiveTab(id);
+      return;
+    }
+
+    await get().openTabWithAgent(
+      id,
+      p.agent,
+      startCommandFor(p.agent),
+      extraPathFor(get().agentStatus[p.agent]?.path),
+    );
   },
 
   async openTabWithAgent(projectId, agentId, startCommand, extraPath = []) {

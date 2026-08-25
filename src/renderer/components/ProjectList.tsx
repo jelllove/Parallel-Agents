@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import type { Project, AgentId } from '../../shared/types';
 import { folderIconUrl } from '../icons/iconResolver';
-import { agentIconUrl, startCommandFor, extraPathFor } from '../icons/agentIcons';
+import { agentIconUrl } from '../icons/agentIcons';
 import { ConfirmDialog } from './ConfirmDialog';
 
 const TREE_AGENTS: AgentId[] = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
@@ -27,16 +27,13 @@ function deleteMessageFor(project: Project): string {
 export function ProjectList() {
   const projects = useAppStore((s) => s.projects);
   const selectedId = useAppStore((s) => s.selectedProjectId);
-  const selectProject = useAppStore((s) => s.selectProject);
-  const openTabWithAgent = useAppStore((s) => s.openTabWithAgent);
-  const openTabs = useAppStore((s) => s.openTabs);
+  const openProjectFromList = useAppStore((s) => s.openProjectFromList);
   const pinProject = useAppStore((s) => s.pinProject);
   const hideProject = useAppStore((s) => s.hideProject);
   const deleteProject = useAppStore((s) => s.deleteProject);
   const reorderProjects = useAppStore((s) => s.reorderProjects);
   const showHidden = useAppStore((s) => s.showHidden);
   const setShowHidden = useAppStore((s) => s.setShowHidden);
-  const setActiveTab = useAppStore((s) => s.setActiveTab);
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
   const collapsedAgents = useAppStore((s) => s.collapsedAgents);
@@ -65,18 +62,7 @@ export function ProjectList() {
   }
 
   async function handleClick(p: Project) {
-    selectProject(p.id);
-    if (!p.exists) return;
-    if (openTabs.includes(p.id)) {
-      setActiveTab(p.id);
-      return;
-    }
-    await openTabWithAgent(
-      p.id,
-      p.agent,
-      startCommandFor(p.agent),
-      extraPathFor(status[p.agent]?.path),
-    );
+    await openProjectFromList(p.id);
   }
 
   function handleContext(e: React.MouseEvent, p: Project) {
@@ -122,7 +108,12 @@ export function ProjectList() {
               title={available ? agentName(agent) : `${agentName(agent)} (not installed)`}
             >
               <span className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
-              <img src={agentIconUrl(agent)} className="agent-group-icon" alt="" draggable={false} />
+              <img
+                src={agentIconUrl(agent)}
+                className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
+                alt=""
+                draggable={false}
+              />
               <span className="agent-group-name">{agentName(agent)}</span>
               <span className="agent-group-count">{group.length}</span>
             </div>

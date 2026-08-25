@@ -120,6 +120,19 @@ button {
 }
 
 .sidebar-section.scrollable { flex: 1; overflow-y: auto; }
+.sessions-guide-flash {
+  animation: sessions-guide-pulse 0.35s ease-in-out 0s 3;
+}
+@keyframes sessions-guide-pulse {
+  0%, 100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  50% {
+    background: rgba(14, 99, 156, 0.18);
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+  }
+}
 .sidebar-split { flex: 1; min-height: 0; overflow: hidden; }
 .sidebar-split > [data-panel-group] { height: 100%; }
 .sidebar-split [data-panel] { display: flex; flex-direction: column; min-height: 0; }
@@ -195,8 +208,10 @@ button {
   gap: 8px;
 }
 .list-item.project-item { flex-direction: row; }
-.project-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.project-icon { width: 20px; height: 20px; flex-shrink: 0; }
 .project-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.project-item .list-item-title { font-size: 14px; }
+.project-item .list-item-sub { font-size: 12px; }
 
 .list-item {
   padding: 6px 12px;
@@ -245,7 +260,7 @@ button {
   gap: 6px;
   padding: 6px 10px 6px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -262,22 +277,25 @@ button {
   transition: transform 0.1s;
 }
 .agent-group-caret.collapsed { transform: rotate(-90deg); }
-.agent-group-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.agent-group-icon { width: 18px; height: 18px; flex-shrink: 0; }
 .agent-group-name { flex: 1; }
 .agent-group-count {
-  font-size: 10px;
+  font-size: 11px;
   background: var(--bg-elev);
   color: var(--text-dim);
   padding: 1px 6px;
   border-radius: 8px;
 }
-.agent-group-body .project-item { padding-left: 24px; }
-.agent-group-empty { padding: 4px 24px 8px; font-style: italic; }
+.agent-group-body .project-item { padding-left: 36px; }
+.agent-group-empty { padding: 4px 36px 8px; font-style: italic; }
 .agent-group-empty code {
   background: var(--bg-elev);
   padding: 0 4px;
   border-radius: 3px;
   font-size: 10px;
+}
+:root:not([data-theme="light"]) .agent-group-icon-copilot {
+  filter: invert(1);
 }
 
 .middle {
