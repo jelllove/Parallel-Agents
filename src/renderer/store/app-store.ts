@@ -187,7 +187,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!p || !p.exists) return;
 
     const loadedSessions = get().sessions[id] ?? [];
-    if (loadedSessions.length > 1) {
+    const hasMultipleSessions = p.sessionCount > 1 || loadedSessions.length > 1;
+    if (hasMultipleSessions) {
       get().requestSessionSelection(id);
       return;
     }

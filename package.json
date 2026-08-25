@@ -1,6 +1,6 @@
 {
   "name": "parallel-agents",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Run multiple CLI coding agents side by side in one window.",
   "main": "out/main/index.js",
   "author": {
@@ -56,6 +56,24 @@
       "out/**/*",
       "resources/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/app-icon.ico",
+        "to": "app-icon.ico"
+      },
+      {
+        "from": "resources/app-icon.png",
+        "to": "app-icon.png"
+      },
+      {
+        "from": "resources/tray-icon.png",
+        "to": "tray-icon.png"
+      },
+      {
+        "from": "resources/icon-96.png",
+        "to": "icon-96.png"
+      }
     ],
     "asarUnpack": [
       "**/node_modules/node-pty/**/*"

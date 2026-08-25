@@ -8,17 +8,21 @@ let mainWindow: BrowserWindow | null = null;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let tray: Tray | null = null;
 let isQuitting = false;
+const APP_USER_MODEL_ID = 'com.jelllove.parallelagents';
 
 function getIconPath(name: string): string {
-  if (!app.isPackaged) {
-    return join(__dirname, '../../resources', name);
+  const candidates = app.isPackaged
+    ? [
+      // Preferred: copied via electron-builder extraResources.
+      join(process.resourcesPath, name),
+      // Backward-compatible fallback for previous package layouts.
+      join(app.getAppPath(), 'resources', name),
+    ]
+    : [join(__dirname, '../../resources', name)];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
   }
-
-  const unpackedPath = join(process.resourcesPath, name);
-  if (existsSync(unpackedPath)) return unpackedPath;
-
-  // Icons are packaged under app.asar/resources.
-  return join(app.getAppPath(), 'resources', name);
+  return candidates[0];
 }
 
 function createWindow(): void {
@@ -142,6 +146,9 @@ function toggleVisibility(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+  }
   createWindow();
   createTray();
 
