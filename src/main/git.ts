@@ -5,6 +5,7 @@ import { existsSync, FSWatcher, watch as watchSync } from 'fs';
 import { join } from 'path';
 import { BrowserWindow } from 'electron';
 import type { GitStatus, GitChange, GitFileState } from '../shared/types';
+import { sendToWindow } from './window-messenger';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -180,6 +181,10 @@ export function attachWindow(win: BrowserWindow): void {
   mainWindow = win;
 }
 
+export function detachWindow(): void {
+  mainWindow = null;
+}
+
 function emitChange(repoPath: string): void {
   const w = watchers.get(repoPath);
   if (!w) return;
@@ -187,7 +192,7 @@ function emitChange(repoPath: string): void {
   const now = Date.now();
   if (now - w.lastFire < 800) return;
   w.lastFire = now;
-  mainWindow?.webContents.send('git:changed', repoPath);
+  sendToWindow(mainWindow, 'git:changed', repoPath);
 }
 
 export function watchRepo(repoPath: string): void {

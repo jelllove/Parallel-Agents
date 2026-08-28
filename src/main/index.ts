@@ -3,12 +3,21 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { registerIpc } from './ipc';
 import { ptyManager } from './pty-manager';
+import * as git from './git';
 
 let mainWindow: BrowserWindow | null = null;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let tray: Tray | null = null;
 let isQuitting = false;
 const APP_USER_MODEL_ID = 'com.jelllove.parallelagents';
+
+function prepareToQuit(): void {
+  isQuitting = true;
+  ptyManager.detachWindow();
+  git.detachWindow();
+  git.unwatchAll();
+  ptyManager.killAll();
+}
 
 function getIconPath(name: string): string {
   const candidates = app.isPackaged
@@ -83,7 +92,7 @@ function showOrFocus(): void {
 
 async function quitWithConfirm(): Promise<void> {
   if (!mainWindow) {
-    isQuitting = true;
+    prepareToQuit();
     app.quit();
     return;
   }
@@ -93,8 +102,7 @@ async function quitWithConfirm(): Promise<void> {
     .catch(() => []);
 
   if (tabs.length === 0) {
-    isQuitting = true;
-    ptyManager.killAll();
+    prepareToQuit();
     app.quit();
     return;
   }
@@ -113,8 +121,7 @@ async function quitWithConfirm(): Promise<void> {
   });
 
   if (result.response === 0) {
-    isQuitting = true;
-    ptyManager.killAll();
+    prepareToQuit();
     app.quit();
   }
 }
@@ -174,7 +181,7 @@ app.on('before-quit', (e) => {
     quitWithConfirm();
     return;
   }
-  ptyManager.killAll();
+  prepareToQuit();
 });
 
 app.on('will-quit', () => {

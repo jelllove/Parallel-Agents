@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
+import { sendToWindow } from './window-messenger';
 
 interface Entry {
   pty: IPty;
@@ -13,6 +14,10 @@ class PtyManager {
 
   attachWindow(win: BrowserWindow) {
     this.win = win;
+  }
+
+  detachWindow(): void {
+    this.win = null;
   }
 
   spawn(
@@ -44,10 +49,10 @@ class PtyManager {
     });
 
     p.onData((data) => {
-      this.win?.webContents.send('pty:data', projectId, data);
+      sendToWindow(this.win, 'pty:data', projectId, data);
     });
     p.onExit(({ exitCode }) => {
-      this.win?.webContents.send('pty:exit', projectId, exitCode);
+      sendToWindow(this.win, 'pty:exit', projectId, exitCode);
       this.ptys.delete(projectId);
     });
 

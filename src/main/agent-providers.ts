@@ -4,13 +4,15 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { AgentId, AgentInfo, AgentStatus } from '../shared/types';
+import {
+  resumeCommandFor as buildResumeCommand,
+  startCommandFor as buildStartCommand,
+} from '../shared/agent-commands';
 
 const execAsync = promisify(exec);
 
 interface ProviderDef extends AgentInfo {
   binary: string;
-  startArgs: string;
-  resumeCommand: (sessionId: string) => string;
   resumeLast: string | null;
   fallbackPaths?: () => string[];
 }
@@ -21,8 +23,6 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
     displayName: 'Claude Code',
     iconAsset: 'claude.png',
     binary: 'claude',
-    startArgs: '',
-    resumeCommand: (id) => `claude --resume ${id}`,
     resumeLast: 'claude --continue',
     hasResume: true,
     installHint: 'npm i -g @anthropic-ai/claude-code',
@@ -33,8 +33,6 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
     displayName: 'Codex CLI',
     iconAsset: 'codex.png',
     binary: 'codex',
-    startArgs: '',
-    resumeCommand: (id) => `codex resume ${id}`,
     resumeLast: 'codex resume --last',
     hasResume: true,
     installHint: 'npm i -g @openai/codex',
@@ -45,8 +43,6 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
     displayName: 'Gemini CLI',
     iconAsset: 'gemini.svg',
     binary: 'gemini',
-    startArgs: '',
-    resumeCommand: (id) => `gemini --resume ${id}`,
     resumeLast: 'gemini --resume',
     hasResume: true,
     installHint: 'npm i -g @google/gemini-cli',
@@ -57,8 +53,6 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
     displayName: 'Aider',
     iconAsset: 'aider.svg',
     binary: 'aider',
-    startArgs: '',
-    resumeCommand: () => 'aider --restore-chat-history',
     resumeLast: 'aider --restore-chat-history',
     hasResume: true,
     installHint: 'python -m pip install aider-install && aider-install',
@@ -69,10 +63,8 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
     displayName: 'GitHub Copilot',
     iconAsset: 'copilot.svg',
     binary: 'copilot',
-    startArgs: '',
-    resumeCommand: () => 'copilot',
-    resumeLast: null,
-    hasResume: false,
+    resumeLast: 'copilot --continue',
+    hasResume: true,
     installHint: 'npm i -g @github/copilot',
     installUrl: 'https://docs.github.com/copilot/concepts/agents/about-copilot-cli',
     fallbackPaths: () => {
@@ -114,12 +106,11 @@ export function listAgents(): AgentInfo[] {
 }
 
 export function startCommandFor(id: AgentId): string {
-  const p = PROVIDERS[id];
-  return p.startArgs ? `${p.binary} ${p.startArgs}` : p.binary;
+  return buildStartCommand(id);
 }
 
 export function resumeCommandFor(id: AgentId, sessionId: string): string {
-  return PROVIDERS[id].resumeCommand(sessionId);
+  return buildResumeCommand(id, sessionId);
 }
 
 async function detectOne(id: AgentId): Promise<AgentStatus> {
