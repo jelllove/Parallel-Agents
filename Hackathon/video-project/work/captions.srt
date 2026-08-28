@@ -1,0 +1,39 @@
+1
+00:00:00,500 --> 00:00:09,000
+Modern developers use more than one AI coding agent,
+but every CLI has separate projects, sessions, and workflows.
+
+2
+00:00:09,000 --> 00:00:20,000
+Fragmentation creates too many windows, scattered history,
+constant context switching, and difficult comparisons.
+
+3
+00:00:20,000 --> 00:00:31,000
+Parallel Agents brings every workflow into one focused,
+project-first desktop experience.
+
+4
+00:00:31,000 --> 00:00:43,000
+Electron, an isolated IPC bridge, project and session discovery,
+and PTY runtimes create a secure, modular architecture.
+
+5
+00:00:43,000 --> 00:00:55,000
+One session resumes automatically. Multiple sessions clearly
+guide the developer to choose the right history.
+
+6
+00:00:55,000 --> 00:01:06,000
+Switch faster, see projects clearly, preserve continuity,
+reduce cognitive load, and improve multi-agent productivity.
+
+7
+00:01:06,000 --> 00:01:44,000
+Projects and sessions stay on the left, agents run in dedicated tabs,
+and Explorer plus Git keep the complete workflow visible.
+
+8
+00:01:44,000 --> 00:01:50,000
+Parallel Agents: one reliable workspace
+for the way developers actually use AI today.

@@ -1,0 +1,49 @@
+{
+  "size": "1536x1024",
+  "quality": "high",
+  "style_anchor_prompt": "Create a bright, clean, modern product-slide visual language inspired by a soft cyan-mint browser-style aesthetic. Use a light palette with dominant tones like #B0E0D0, #A0D0F0, #90D0F0, #C0E0C0, and white. Composition should feel sleek, minimal, and professional: rounded cards, subtle gradients, soft shadows, thin line icons, spacious layout, and excellent readability. Keep all visible text in English only.",
+  "slides": [
+    {
+      "id": "01",
+      "filename": "01-poster-overview.png",
+      "title": "Poster Overview",
+      "overlay_screenshot": false,
+      "prompt": "Create a hero poster for Parallel Agents in this exact clean cyan-mint style. Headline: 'Parallel Agents'. Subheadline: 'One Window for Multi-Agent Coding Workflows'. Add concise callouts: 'Projects & Sessions', 'Agent Tabs', 'Built-in Explorer', 'Git Panel'. Make it keynote-ready and visually premium."
+    },
+    {
+      "id": "02",
+      "filename": "02-problem.png",
+      "title": "Problem",
+      "overlay_screenshot": false,
+      "prompt": "Create a problem slide in the same style. Title: 'Problem'. Subtitle: 'Agent CLIs are fragmented and hard to manage at scale.' Include concise bullets: 'Too many separate windows', 'Scattered session history', 'Frequent context switching', 'Low comparison efficiency'. Keep visuals clear, not dark."
+    },
+    {
+      "id": "03",
+      "filename": "03-design.png",
+      "title": "Design",
+      "overlay_screenshot": false,
+      "prompt": "Create a design concept slide in the same style. Title: 'Design'. Subtitle: 'A unified desktop experience for coding agents.' Show a central app concept connected to Copilot, Codex, Claude, and Gemini. Include short labels: 'Unified navigation', 'Consistent interactions', 'Session-aware flow'."
+    },
+    {
+      "id": "04",
+      "filename": "04-architecture.png",
+      "title": "Architecture",
+      "overlay_screenshot": false,
+      "prompt": "Create an architecture slide in the same style. Title: 'Architecture'. Show clear labeled blocks with arrows: 'Electron Main', 'Preload IPC', 'Renderer UI', 'Project Discovery', 'Session Discovery', 'PTY Runtime'. Keep it technical yet clean and readable."
+    },
+    {
+      "id": "05",
+      "filename": "05-session-workflow.png",
+      "title": "Session Workflow",
+      "overlay_screenshot": false,
+      "prompt": "Create a workflow slide in the same style. Title: 'Session Workflow'. Visual flow: 'Select Project' -> 'Load Sessions' -> 'One Session: Auto Resume' -> 'Multiple Sessions: Ask User to Choose' -> 'Resume in Matching CLI'. Use arrows and step cards with high readability."
+    },
+    {
+      "id": "06",
+      "filename": "06-benefits.png",
+      "title": "Benefits",
+      "overlay_screenshot": false,
+      "prompt": "Create a benefits slide in the same style. Title: 'Benefits'. Include concise cards: 'Faster task switching', 'Clear project visibility', 'Reliable session continuity', 'Lower cognitive load', 'Better multi-agent productivity'. Keep design bright, modern, and polished."
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "target_duration": 110,
+  "transition_seconds": 0.4,
+  "operation_speed": 1.768421,
+  "scenes": [
+    {
+      "id": "poster-open",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/01-poster-overview.png",
+      "duration": 9
+    },
+    {
+      "id": "problem",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/02-problem.png",
+      "duration": 11
+    },
+    {
+      "id": "design",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/03-design.png",
+      "duration": 11
+    },
+    {
+      "id": "architecture",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/04-architecture.png",
+      "duration": 12
+    },
+    {
+      "id": "session-workflow",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/05-session-workflow.png",
+      "duration": 12
+    },
+    {
+      "id": "benefits",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/06-benefits.png",
+      "duration": 11
+    },
+    {
+      "id": "operation",
+      "type": "video",
+      "source": "Hackathon/parallel-agents-dark/Parallel_Agent_operation_2.mp4",
+      "duration": 38,
+      "source_start": 0,
+      "source_duration": 67.2
+    },
+    {
+      "id": "poster-close",
+      "type": "image",
+      "source": "Hackathon/parallel-agents-dark/01-poster-overview.png",
+      "duration": 6
+    }
+  ],
+  "audio": {
+    "voice": "Hackathon/video-project/work/narration.mp3",
+    "music": "Hackathon/parallel-agents-dark/Future-Technology(chosic.com).mp3",
+    "captions": "Hackathon/video-project/captions.srt"
+  },
+  "outputs": {
+    "final": "Hackathon/video-output/Parallel_Agents_Hackathon_110s.mp4",
+    "preview": "Hackathon/video-output/Parallel_Agents_Hackathon_preview.mp4"
+  }
+}

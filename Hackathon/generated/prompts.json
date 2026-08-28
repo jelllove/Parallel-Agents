@@ -1,0 +1,70 @@
+{
+  "size": "1536x1024",
+  "quality": "high",
+  "style_anchor_prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.",
+  "slides": [
+    {
+      "id": "01",
+      "filename": "01-poster-overview.png",
+      "title": "Parallel Agents",
+      "overlay_screenshot": true,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nDesign a hero poster for the project Parallel Agents. Headline text: 'One Window. Every Coding Agent.' Subheadline text: 'Claude, Codex, Gemini, Copilot — side by side.' Add 4 concise feature callouts: Projects & Sessions, Multi-Agent Tabs, Built-in Explorer, Git Workflow. Keep composition bold, modern, and conference-ready.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "02",
+      "filename": "02-problem-fragmentation.png",
+      "title": "Problem - Fragmented CLI Workflow",
+      "overlay_screenshot": false,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a slide explaining the pain of using agent CLIs separately. Show many disconnected terminal windows and chaotic workflow. Add English title: 'Problem: Fragmented Agent CLI Workflow'. Add 3 bullet callouts: 'Too many windows', 'No shared project context', 'Hard to compare outputs'. Use dramatic contrast and clean infographic layout.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "03",
+      "filename": "03-problem-context-switching.png",
+      "title": "Problem - Context Switching",
+      "overlay_screenshot": false,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a slide about context switching and lost continuity. English title: 'Problem: Context Switching Kills Flow'. Add short bullets: 'Session history is scattered', 'Reopening work takes time', 'Cognitive load keeps rising'. Visualize repeated switching between tools and confusion.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "04",
+      "filename": "04-design-concept.png",
+      "title": "Design Concept",
+      "overlay_screenshot": false,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a concept slide showing how Parallel Agents solves the problem with one unified desktop app. English title: 'Design: One Workspace for Every Agent'. Show a central app hub connected to Claude, Codex, Gemini, and Copilot CLIs. Add concise callouts: 'Unified Projects', 'Session-Aware Resume', 'Consistent Navigation'.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "05",
+      "filename": "05-architecture.png",
+      "title": "Architecture",
+      "overlay_screenshot": true,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a technical architecture slide with clear blocks and arrows. English title: 'Architecture Overview'. Include labeled blocks: 'Electron Main Process', 'Preload IPC Bridge', 'Renderer UI', 'Project Discovery', 'Session Discovery', 'Terminal Runtime (PTY)'. Leave a clean highlighted area on the lower-right for an app screenshot overlay.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "06",
+      "filename": "06-session-workflow.png",
+      "title": "Session-Aware Workflow",
+      "overlay_screenshot": false,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a workflow diagram slide. English title: 'Session-Aware Project Workflow'. Show this flow: 'Select Project' -> 'Load Sessions' -> 'If 1 Session: Auto Resume' -> 'If Multiple Sessions: Guide User to Choose' -> 'Resume in Matching CLI'. Style should be clear, visual, and presentation friendly.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "07",
+      "filename": "07-benefits.png",
+      "title": "Benefits",
+      "overlay_screenshot": true,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a benefits slide for hackathon judges. English title: 'Why Parallel Agents Matters'. Add concise benefit cards: 'Faster task switching', 'Cleaner project visibility', 'Reliable session recovery', 'Lower cognitive overhead', 'Better multi-agent comparison'. Keep it credible and practical.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "08",
+      "filename": "08-real-usage.png",
+      "title": "Real Usage",
+      "overlay_screenshot": true,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a real-world usage slide with strong product framing. English title: 'Real Usage in Daily Development'. Include callouts around where the user can manage projects, choose sessions, and run multiple agents. Leave an obvious framed area for a real screenshot insert.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    },
+    {
+      "id": "09",
+      "filename": "09-hackathon-cta.png",
+      "title": "Hackathon Summary",
+      "overlay_screenshot": false,
+      "prompt": "Create a premium dark-tech keynote visual style: cinematic gradient background (charcoal to deep navy), neon cyan and orange accents, clean geometric grids, glassmorphism cards, sharp modern typography regions, subtle glow edges, high readability, polished software product marketing look. Keep all visible text in English only.\n\nSlide content request:\nCreate a closing hackathon slide. English title: 'Parallel Agents for Modern AI Development'. Add subtitle: 'From fragmented terminals to one reliable workspace.' Include a concise CTA area with text: 'Built for speed, clarity, and real developer flow.' Keep it polished, optimistic, and impactful.\n\nConstraints: English text only; avoid gibberish glyphs; clean spacing; legible heading zones; polished keynote slide quality."
+    }
+  ]
+}

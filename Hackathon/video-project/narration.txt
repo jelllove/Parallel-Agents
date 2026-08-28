@@ -1,0 +1,15 @@
+Modern developers work with more than one AI coding agent. But each CLI lives in its own terminal, with separate projects, sessions, and workflows.
+
+That fragmentation creates too many windows, scattered history, constant context switching, and no simple way to compare results.
+
+Parallel Agents brings those workflows into one focused desktop experience. Copilot, Codex, Claude, Gemini, and other agents can be managed from a consistent project-first interface.
+
+The application uses Electron with an isolated preload bridge. The renderer presents projects, terminal tabs, sessions, Explorer, and Git, while the main process handles project discovery, session history, and PTY-based agent runtimes.
+
+The workflow is session-aware. Select a project, load its history, automatically resume when only one session exists, or clearly guide the user to choose when multiple sessions are available.
+
+The result is faster task switching, clearer project visibility, reliable session continuity, lower cognitive load, and more productive multi-agent development.
+
+In real use, the left panel organizes projects by agent and surfaces recent sessions. The center workspace runs agents in dedicated tabs. Explorer and Git remain visible on the right, so developers can inspect files, review changes, and stay in flow without rebuilding context.
+
+Parallel Agents turns fragmented terminals into one reliable workspace - built for the way developers actually use AI today.

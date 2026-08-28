@@ -1,0 +1,57 @@
+{
+  "theme": "dark",
+  "size": "1536x1024",
+  "quality": "high",
+  "screenshot_path": "Hackathon/Screen captuer/Parallel_Agents_Vk26skhqBu.png",
+  "style_anchor_prompt": "Create a polished Microsoft Fluent-inspired dark visual system for a Hackathon presentation. Deep charcoal and navy background inspired by a professional coding workspace, Fluent blue primary accents, cyan highlights, selective Copilot green, Claude orange, Gemini blue, and purple accents. Use dark rounded panels, subtle luminous borders, restrained soft glow, crisp white typography, spacious composition, approachable developer and robot illustrations. Keep it friendly and enterprise-ready, never heavy cyberpunk or sci-fi. Do not include Microsoft logos. All visible text must be English.",
+  "slides": [
+    {
+      "id": "01",
+      "filename": "01-poster-overview.png",
+      "title": "Parallel Agents",
+      "overlay_screenshot": true,
+      "visual_mode": "realistic-product-poster",
+      "prompt": "Create a realistic premium software launch poster using the same layout as the paired Light version. Large headline: 'Parallel Agents'. Subtitle: 'One Workspace for Every Coding Agent'. Show a confident developer at a modern dark desk and a large framed desktop application area on the right, intentionally leaving a clean rectangular screen region for a real product screenshot overlay. Add four compact feature cards along the bottom: 'Projects & Sessions', 'Multi-Agent Tabs', 'Explorer & Git', 'Session-Aware Resume'. Use realistic low-key studio lighting while maintaining clear readable hierarchy."
+    },
+    {
+      "id": "02",
+      "filename": "02-problem.png",
+      "title": "Problem",
+      "overlay_screenshot": false,
+      "visual_mode": "illustrated-infographic",
+      "prompt": "Create a friendly dark illustrated infographic with the same layout as the paired Light version and the title 'The Problem'. Use a left-to-right composition: a developer in the center overwhelmed by four separate terminal windows labeled 'Copilot', 'Codex', 'Claude', and 'Gemini'. Surround the scene with four clear problem cards: 'Too Many Windows', 'Scattered Sessions', 'Constant Context Switching', 'Hard to Compare Results'. Use simple glowing arrows, expressive but professional character art, and concise readable labels."
+    },
+    {
+      "id": "03",
+      "filename": "03-design.png",
+      "title": "Design",
+      "overlay_screenshot": false,
+      "visual_mode": "illustrated-infographic",
+      "prompt": "Create a friendly dark illustrated solution infographic with the same layout as the paired Light version, titled 'The Design'. Keep the Problem slide's broad composition, but replace chaos with one central desktop workspace labeled 'Parallel Agents'. Connect four agent cards around it: 'Copilot', 'Codex', 'Claude', 'Gemini'. Add three concise capability cards: 'Unified Projects', 'Consistent Navigation', 'Session-Aware Flow'. Use a smiling developer and a helpful robot mascot."
+    },
+    {
+      "id": "04",
+      "filename": "04-architecture.png",
+      "title": "Architecture",
+      "overlay_screenshot": false,
+      "visual_mode": "illustrated-infographic",
+      "prompt": "Create a clean dark technical infographic with the same layout as the paired Light version, titled 'Architecture'. Use a layered center composition. Top layer: 'Renderer UI' with Projects, Terminal Tabs, Explorer, Git. Middle layer: 'Preload IPC Bridge'. Bottom layer: 'Electron Main' connected to 'Project Discovery', 'Session Discovery', and 'PTY Runtime'. Show arrows from Project Discovery to Claude, Gemini, and Copilot history stores, and from PTY Runtime to agent CLIs. Use dark rounded cards and crisp minimal labels."
+    },
+    {
+      "id": "05",
+      "filename": "05-session-workflow.png",
+      "title": "Session Workflow",
+      "overlay_screenshot": false,
+      "visual_mode": "illustrated-infographic",
+      "prompt": "Create a horizontal five-step dark workflow infographic with the same layout as the paired Light version, titled 'Session-Aware Workflow'. Use numbered rounded cards and arrows: 1 'Select Project', 2 'Load Sessions', 3 decision card 'How Many?', 4A 'One: Auto Resume', 4B 'Multiple: Choose Session', 5 'Resume Matching CLI'. Add small project, history, decision, pointer, and terminal icons. Include a calm developer illustration below the flow."
+    },
+    {
+      "id": "06",
+      "filename": "06-benefits.png",
+      "title": "Benefits",
+      "overlay_screenshot": false,
+      "visual_mode": "illustrated-infographic",
+      "prompt": "Create a dark benefits infographic with the same layout as the paired Light version, titled 'Why Parallel Agents Matters'. Put a confident developer and friendly robot in the center. Arrange five large benefit cards around them with exact labels: 'Faster Task Switching', 'Clear Project Visibility', 'Reliable Session Continuity', 'Lower Cognitive Load', 'Better Multi-Agent Productivity'. Use luminous icons, check marks, subtle arrows, and an optimistic enterprise Hackathon aesthetic."
+    }
+  ]
+}
