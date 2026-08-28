@@ -31,7 +31,7 @@
   <br />
 
   <!-- Replace docs/hero.png with your own screenshot or GIF (1600x900 recommended) -->
-  <img src="docs/hero.png" alt="Parallel Agents — hero screenshot" width="900" />
+  <img src="Hackathon/parallel-agents-dark/01-poster-overview.png" alt="Parallel Agents — hero screenshot" width="900" />
 </div>
 
 <br />
