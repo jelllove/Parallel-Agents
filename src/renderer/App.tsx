@@ -10,8 +10,7 @@ import { AboutDialog } from './components/AboutDialog';
 import { AgentsBanner } from './components/AgentsBanner';
 import { ClaudeIcon } from './components/ClaudeIcon';
 import type { PaneId } from '../shared/types';
-
-const INVENTORY_AUTO_REFRESH_MS = 60_000;
+import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 
 function RightColumn() {
   return (

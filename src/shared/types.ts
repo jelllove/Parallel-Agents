@@ -104,6 +104,7 @@ export interface Api {
     pin(id: string, pinned: boolean): Promise<void>;
     hide(id: string, hidden: boolean): Promise<void>;
     delete(id: string): Promise<void>;
+    deleteMissing(ids: string[]): Promise<void>;
     setOrder(agent: AgentId, ids: string[]): Promise<void>;
   };
   sessions: {

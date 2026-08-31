@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import type { Project, AgentId } from '../../shared/types';
 import { folderIconUrl } from '../icons/iconResolver';
@@ -31,6 +31,7 @@ export function ProjectList() {
   const pinProject = useAppStore((s) => s.pinProject);
   const hideProject = useAppStore((s) => s.hideProject);
   const deleteProject = useAppStore((s) => s.deleteProject);
+  const deleteMissingProjects = useAppStore((s) => s.deleteMissingProjects);
   const reorderProjects = useAppStore((s) => s.reorderProjects);
   const showHidden = useAppStore((s) => s.showHidden);
   const setShowHidden = useAppStore((s) => s.setShowHidden);
@@ -41,6 +42,9 @@ export function ProjectList() {
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; project: Project } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
+  const [cleanupMode, setCleanupMode] = useState(false);
+  const [selectedMissingIds, setSelectedMissingIds] = useState<string[]>([]);
+  const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -56,6 +60,16 @@ export function ProjectList() {
     () => projects.filter((p) => p.hidden).length,
     [projects],
   );
+  const missingProjects = useMemo(
+    () => projects.filter((p) => !p.exists && canDeleteProject(p.agent)),
+    [projects],
+  );
+
+  useEffect(() => {
+    const valid = new Set(missingProjects.map((project) => project.id));
+    setSelectedMissingIds((ids) => ids.filter((id) => valid.has(id)));
+    if (missingProjects.length === 0) setCleanupMode(false);
+  }, [missingProjects]);
 
   function agentName(id: AgentId): string {
     return agents.find((a) => a.id === id)?.displayName ?? id;
@@ -95,6 +109,40 @@ export function ProjectList() {
 
   return (
     <div onClick={() => setCtxMenu(null)}>
+      {missingProjects.length > 0 && (
+        <div className="project-cleanup-bar">
+          {!cleanupMode ? (
+            <button className="btn-secondary" onClick={() => setCleanupMode(true)}>
+              Clean deleted projects ({missingProjects.length})
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn-danger"
+                disabled={selectedMissingIds.length === 0}
+                onClick={() => setConfirmBulkIds(selectedMissingIds)}
+              >
+                Delete selected ({selectedMissingIds.length})
+              </button>
+              <button
+                className="btn-danger"
+                onClick={() => setConfirmBulkIds(missingProjects.map((project) => project.id))}
+              >
+                Delete all deleted
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setCleanupMode(false);
+                  setSelectedMissingIds([]);
+                }}
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {TREE_AGENTS.map((agent) => {
         const group = grouped[agent];
         const visible = group.filter((p) => showHidden || !p.hidden);
@@ -130,7 +178,7 @@ export function ProjectList() {
                 {visible.map((p) => (
                   <div
                     key={p.id}
-                    draggable
+                    draggable={!cleanupMode}
                     onDragStart={(e) => onDragStart(e, p)}
                     onDragOver={(e) => onDragOver(e, p)}
                     onDragLeave={() => setDragOverId((cur) => (cur === p.id ? null : cur))}
@@ -146,6 +194,20 @@ export function ProjectList() {
                     onContextMenu={(e) => handleContext(e, p)}
                     title={p.realPath + (p.exists ? '' : ' (directory not found)')}
                   >
+                    {cleanupMode && !p.exists && canDeleteProject(p.agent) && (
+                      <input
+                        type="checkbox"
+                        className="project-cleanup-check"
+                        checked={selectedMissingIds.includes(p.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          setSelectedMissingIds((ids) => event.target.checked
+                            ? [...ids, p.id]
+                            : ids.filter((id) => id !== p.id));
+                        }}
+                        aria-label={`Select ${p.displayName} for deletion`}
+                      />
+                    )}
                     <img
                       className="project-icon"
                       src={folderIconUrl(p.displayName, selectedId === p.id)}
@@ -235,6 +297,26 @@ export function ProjectList() {
             await deleteProject(p.id);
           }}
           onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {confirmBulkIds && (
+        <ConfirmDialog
+          title={`Delete ${confirmBulkIds.length} deleted project histories?`}
+          message="This permanently removes the selected agent session histories. Working directories are not touched."
+          confirmText="Delete forever"
+          typeToConfirm="DELETE"
+          destructive
+          onConfirm={async () => {
+            const ids = confirmBulkIds;
+            try {
+              await deleteMissingProjects(ids);
+              setConfirmBulkIds(null);
+              setSelectedMissingIds([]);
+            } catch {
+              // The store exposes the failure while this dialog remains available to retry.
+            }
+          }}
+          onCancel={() => setConfirmBulkIds(null)}
         />
       )}
     </div>

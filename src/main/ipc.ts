@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
-import { listProjects, deleteProject } from './projects';
+import { listProjects, deleteProject, deleteMissingProjects } from './projects';
 import { listSessionsForProject, deleteSession } from './sessions';
 import {
   readDir,
@@ -39,6 +39,7 @@ export function registerIpc(win: BrowserWindow) {
   });
 
   ipcMain.handle('projects:delete', (_e, id: string) => deleteProject(id));
+  ipcMain.handle('projects:deleteMissing', (_e, ids: string[]) => deleteMissingProjects(ids));
   ipcMain.handle('projects:setOrder', (_e, agent: AgentId, ids: string[]) =>
     setProjectOrder(agent, ids),
   );

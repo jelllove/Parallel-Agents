@@ -15,6 +15,7 @@ export function Sidebar({ onAbout }: Props) {
   const newSessionFromDialog = useAppStore((s) => s.newSessionFromDialog);
   const refreshProjectsAndAgents = useAppStore((s) => s.refreshProjectsAndAgents);
   const inventoryRefreshing = useAppStore((s) => s.inventoryRefreshing);
+  const inventoryError = useAppStore((s) => s.inventoryError);
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
@@ -67,6 +68,11 @@ export function Sidebar({ onAbout }: Props) {
                 >
                   {inventoryRefreshing ? '↻ Refreshing…' : '↻ Refresh Projects & Agents'}
                 </button>
+                {inventoryError && (
+                  <div className="inventory-error" role="alert" title={inventoryError}>
+                    Inventory action failed: {inventoryError}
+                  </div>
+                )}
               </div>
               <ProjectList />
             </div>

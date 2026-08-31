@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Project, Session, AgentId, AgentInfo, AgentStatus, GitStatus, LayoutConfig, ThemeMode } from '../../shared/types';
 import { startCommandFor, resumeCommandFor, extraPathFor } from '../icons/agentIcons';
+import { closeTabIds, omitRecordKeys } from './tab-state';
 
 interface PendingLaunch {
   command: string;
@@ -16,6 +17,7 @@ interface AppState {
   projects: Project[];
   adhocProjects: Project[];
   inventoryRefreshing: boolean;
+  inventoryError: string | null;
   selectedProjectId: string | null;
   sessionGuideProjectId: string | null;
   sessionGuideSeq: number;
@@ -47,11 +49,13 @@ interface AppState {
   openTabWithAgent: (projectId: string, agentId: AgentId, startCommand: string, extraPath?: string[]) => Promise<void>;
   setActiveTab: (id: string) => void;
   closeTab: (id: string) => void;
+  closeTabs: (ids: string[]) => void;
   setShowHidden: (v: boolean) => void;
   toggleAgentGroup: (id: AgentId) => void;
   pinProject: (id: string, pinned: boolean) => Promise<void>;
   hideProject: (id: string, hidden: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  deleteMissingProjects: (ids: string[]) => Promise<void>;
   reorderProjects: (agent: AgentId, fromId: string, toId: string) => Promise<void>;
   loadSessions: (projectId: string) => Promise<void>;
   deleteSession: (projectId: string, sessionId: string) => Promise<void>;
@@ -101,6 +105,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   projects: [],
   adhocProjects: [],
   inventoryRefreshing: false,
+  inventoryError: null,
   selectedProjectId: null,
   sessionGuideProjectId: null,
   sessionGuideSeq: 0,
@@ -139,7 +144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshProjectsAndAgents() {
     if (get().inventoryRefreshing) return;
-    set({ inventoryRefreshing: true });
+    set({ inventoryRefreshing: true, inventoryError: null });
     try {
       await Promise.all([
         get().loadProjects(),
@@ -157,6 +162,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (p?.exists) {
         await get().loadGitStatus(p.realPath);
       }
+    } catch (error) {
+      set({ inventoryError: error instanceof Error ? error.message : String(error) });
     } finally {
       set({ inventoryRefreshing: false });
     }
@@ -236,21 +243,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closeTab(id) {
-    const { openTabs, activeTabId, adhocProjects, tabAgent } = get();
-    const next = openTabs.filter((t) => t !== id);
-    let nextActive = activeTabId;
-    if (activeTabId === id) {
-      const idx = openTabs.indexOf(id);
-      nextActive = next[idx] ?? next[idx - 1] ?? null;
+    get().closeTabs([id]);
+  },
+
+  closeTabs(ids) {
+    const uniqueIds = [...new Set(ids)];
+    const {
+      openTabs,
+      activeTabId,
+      adhocProjects,
+      tabAgent,
+      pendingInitialCommand,
+      tabRespawnNonce,
+    } = get();
+    const nextTabs = closeTabIds(openTabs, activeTabId, uniqueIds);
+    for (const id of uniqueIds) {
+      if (openTabs.includes(id)) void window.api.pty.kill(id);
     }
-    window.api.pty.kill(id);
-    const nextTabAgent = { ...tabAgent };
-    delete nextTabAgent[id];
     set({
-      openTabs: next,
-      activeTabId: nextActive,
-      adhocProjects: adhocProjects.filter((p) => p.id !== id),
-      tabAgent: nextTabAgent,
+      ...nextTabs,
+      adhocProjects: adhocProjects.filter((p) => !uniqueIds.includes(p.id)),
+      tabAgent: omitRecordKeys(tabAgent, uniqueIds),
+      pendingInitialCommand: omitRecordKeys(pendingInitialCommand, uniqueIds),
+      tabRespawnNonce: omitRecordKeys(tabRespawnNonce, uniqueIds),
     });
   },
 
@@ -278,27 +293,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async deleteProject(id) {
-    const { openTabs, activeTabId, tabAgent, sessions } = get();
     await window.api.projects.delete(id);
-    if (openTabs.includes(id)) window.api.pty.kill(id);
-    const nextTabAgent = { ...tabAgent };
-    delete nextTabAgent[id];
+    get().closeTabs([id]);
+    const { sessions } = get();
     const nextSessions = { ...sessions };
     delete nextSessions[id];
-    const nextOpenTabs = openTabs.filter((t) => t !== id);
-    let nextActive = activeTabId;
-    if (activeTabId === id) {
-      const idx = openTabs.indexOf(id);
-      nextActive = nextOpenTabs[idx] ?? nextOpenTabs[idx - 1] ?? null;
-    }
     set({
-      openTabs: nextOpenTabs,
-      activeTabId: nextActive,
-      tabAgent: nextTabAgent,
       sessions: nextSessions,
       selectedProjectId: get().selectedProjectId === id ? null : get().selectedProjectId,
     });
     await get().loadProjects();
+  },
+
+  async deleteMissingProjects(ids) {
+    try {
+      await window.api.projects.deleteMissing(ids);
+      get().closeTabs(ids);
+      const nextSessions = { ...get().sessions };
+      for (const id of ids) delete nextSessions[id];
+      set({
+        sessions: nextSessions,
+        selectedProjectId: ids.includes(get().selectedProjectId ?? '')
+          ? null
+          : get().selectedProjectId,
+        inventoryError: null,
+      });
+    } catch (error) {
+      set({ inventoryError: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      try {
+        await get().loadProjects();
+      } catch (error) {
+        set({ inventoryError: error instanceof Error ? error.message : String(error) });
+      }
+    }
   },
 
   async reorderProjects(agent, fromId, toId) {
