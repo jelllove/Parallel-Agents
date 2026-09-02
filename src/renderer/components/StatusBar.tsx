@@ -4,9 +4,14 @@ import { LayoutPicker } from './LayoutPicker';
 import { SettingsPicker } from './SettingsPicker';
 
 export function StatusBar() {
-  const project = useAppStore((s) =>
-    s.projects.find((p) => p.id === (s.activeTabId ?? s.selectedProjectId)),
-  );
+  const project = useAppStore((s) => {
+    const focusedId = s.activeTabId
+      ? (s.tabProjectId[s.activeTabId] ?? s.activeTabId)
+      : s.selectedProjectId;
+    if (!focusedId) return undefined;
+    return s.projects.find((p) => p.id === focusedId)
+      ?? s.adhocProjects.find((p) => p.id === focusedId);
+  });
   const openTabs = useAppStore((s) => s.openTabs);
   const theme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);

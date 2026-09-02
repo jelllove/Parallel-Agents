@@ -1,3 +1,6 @@
+import type { SessionShellProfile } from '../../shared/session-terminals.ts';
+import { agentTerminalKey, shellTerminalKey } from '../../shared/session-terminals.ts';
+
 export interface TabState {
   openTabs: string[];
   activeTabId: string | null;
@@ -10,6 +13,45 @@ export function omitRecordKeys<T>(
   const next = { ...record };
   for (const key of keys) delete next[key];
   return next;
+}
+
+export function cleanupShellStateForTabs<T>(
+  record: Record<string, T>,
+  closingTabs: string[],
+): Record<string, T> {
+  return omitRecordKeys(record, closingTabs);
+}
+
+export function setTabShellVisibility(
+  openTabs: string[],
+  tabShellVisible: Record<string, boolean>,
+  tabId: string,
+  visible: boolean,
+): Record<string, boolean> {
+  if (!openTabs.includes(tabId)) return tabShellVisible;
+  return { ...tabShellVisible, [tabId]: visible };
+}
+
+export function terminalKeysForClosingTabs(
+  tabIds: string[],
+  tabShellOpened: Record<string, boolean>,
+  tabShellProfile: Record<string, SessionShellProfile>,
+): string[] {
+  const keys: string[] = [];
+  for (const tabId of tabIds) {
+    keys.push(agentTerminalKey(tabId));
+    if (tabShellOpened[tabId]) {
+      keys.push(shellTerminalKey(tabId, tabShellProfile[tabId] ?? 'default'));
+    }
+  }
+  return keys;
+}
+
+export function tabKeysForProject(
+  tabProjectId: Record<string, string>,
+  projectId: string,
+): string[] {
+  return Object.keys(tabProjectId).filter((tabId) => tabProjectId[tabId] === projectId);
 }
 
 export function closeTabIds(

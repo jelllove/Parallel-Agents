@@ -63,8 +63,16 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle('pty:spawn', (_e, opts: { projectId: string; cwd: string; cols: number; rows: number; initialCommand?: string; extraPath?: string[] }) => {
-    ptyManager.spawn(opts.projectId, opts.cwd, opts.cols, opts.rows, opts.initialCommand, opts.extraPath);
+  ipcMain.handle('pty:spawn', (_e, opts: { projectId: string; cwd: string; cols: number; rows: number; initialCommand?: string; extraPath?: string[]; shellProfile?: 'default' | 'powershell' | 'bash' | 'cmd' }) => {
+    ptyManager.spawn(
+      opts.projectId,
+      opts.cwd,
+      opts.cols,
+      opts.rows,
+      opts.initialCommand,
+      opts.extraPath,
+      opts.shellProfile,
+    );
   });
   ipcMain.handle('pty:write', (_e, projectId: string, data: string) => {
     ptyManager.write(projectId, data);

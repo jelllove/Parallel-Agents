@@ -2,6 +2,8 @@ import { BrowserWindow } from 'electron';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
 import { sendToWindow } from './window-messenger';
+import { resolveShellLaunch } from './shell-profiles';
+import type { SessionShellProfile } from '../shared/session-terminals';
 
 interface Entry {
   pty: IPty;
@@ -27,10 +29,16 @@ class PtyManager {
     rows: number,
     initialCommand?: string,
     extraPath?: string[],
+    shellProfile?: SessionShellProfile,
   ): void {
     if (this.ptys.has(projectId)) return;
 
-    const shell = process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || 'bash';
+    const launch = shellProfile
+      ? resolveShellLaunch(process.platform, shellProfile, process.env.SHELL ?? null)
+      : {
+          command: process.platform === 'win32' ? 'cmd.exe' : process.env.SHELL || 'bash',
+          args: [] as string[],
+        };
     const env: { [key: string]: string } = { ...process.env } as { [key: string]: string };
     if (extraPath && extraPath.length > 0) {
       const sep = process.platform === 'win32' ? ';' : ':';
@@ -40,7 +48,7 @@ class PtyManager {
       const existing = env[pathKey] || '';
       env[pathKey] = [...extraPath, existing].filter(Boolean).join(sep);
     }
-    const p = pty.spawn(shell, [], {
+    const p = pty.spawn(launch.command, launch.args, {
       name: 'xterm-256color',
       cols: Math.max(cols, 20),
       rows: Math.max(rows, 5),

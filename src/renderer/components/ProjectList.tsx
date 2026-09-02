@@ -45,6 +45,8 @@ export function ProjectList() {
   const [cleanupMode, setCleanupMode] = useState(false);
   const [selectedMissingIds, setSelectedMissingIds] = useState<string[]>([]);
   const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null);
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -120,13 +122,19 @@ export function ProjectList() {
               <button
                 className="btn-danger"
                 disabled={selectedMissingIds.length === 0}
-                onClick={() => setConfirmBulkIds(selectedMissingIds)}
+                onClick={() => {
+                  setBulkDeleteError(null);
+                  setConfirmBulkIds(selectedMissingIds);
+                }}
               >
                 Delete selected ({selectedMissingIds.length})
               </button>
               <button
                 className="btn-danger"
-                onClick={() => setConfirmBulkIds(missingProjects.map((project) => project.id))}
+                onClick={() => {
+                  setBulkDeleteError(null);
+                  setConfirmBulkIds(missingProjects.map((project) => project.id));
+                }}
               >
                 Delete all deleted
               </button>
@@ -303,20 +311,31 @@ export function ProjectList() {
         <ConfirmDialog
           title={`Delete ${confirmBulkIds.length} deleted project histories?`}
           message="This permanently removes the selected agent session histories. Working directories are not touched."
-          confirmText="Delete forever"
+          confirmText={bulkDeleteBusy ? 'Deleting...' : 'Delete forever'}
           typeToConfirm="DELETE"
           destructive
+          warning={bulkDeleteError ?? undefined}
+          confirmDisabled={bulkDeleteBusy}
           onConfirm={async () => {
+            if (bulkDeleteBusy) return;
             const ids = confirmBulkIds;
+            setBulkDeleteBusy(true);
+            setBulkDeleteError(null);
             try {
               await deleteMissingProjects(ids);
               setConfirmBulkIds(null);
               setSelectedMissingIds([]);
-            } catch {
-              // The store exposes the failure while this dialog remains available to retry.
+            } catch (error) {
+              setBulkDeleteError(error instanceof Error ? error.message : String(error));
+            } finally {
+              setBulkDeleteBusy(false);
             }
           }}
-          onCancel={() => setConfirmBulkIds(null)}
+          onCancel={() => {
+            setConfirmBulkIds(null);
+            setBulkDeleteBusy(false);
+            setBulkDeleteError(null);
+          }}
         />
       )}
     </div>

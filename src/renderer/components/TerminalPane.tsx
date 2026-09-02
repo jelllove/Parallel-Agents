@@ -4,13 +4,15 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useAppStore } from '../store/app-store';
 import type { ThemeMode } from '../../shared/types';
+import type { SessionShellProfile } from '../../shared/session-terminals';
 
 interface Props {
-  projectId: string;
+  terminalKey: string;
   cwd: string;
   visible: boolean;
   initialCommand?: string;
   extraPath?: string[];
+  shellProfile?: SessionShellProfile;
 }
 
 function xtermThemeFor(mode: ThemeMode) {
@@ -29,7 +31,14 @@ function xtermThemeFor(mode: ThemeMode) {
       };
 }
 
-export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPath }: Props) {
+export function TerminalPane({
+  terminalKey,
+  cwd,
+  visible,
+  initialCommand,
+  extraPath,
+  shellProfile,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -64,7 +73,7 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
       if (e.type !== 'keydown') return true;
 
       if (multilineRef.current && e.key === 'Enter' && (e.shiftKey || e.ctrlKey)) {
-        window.api.pty.write(projectId, '\n');
+        window.api.pty.write(terminalKey, '\n');
         return false;
       }
 
@@ -80,7 +89,7 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
         }
         if (e.key === 'v' || e.key === 'V') {
           void navigator.clipboard.readText().then((txt) => {
-            if (txt) window.api.pty.write(projectId, txt);
+            if (txt) window.api.pty.write(terminalKey, txt);
           });
           return false;
         }
@@ -93,20 +102,28 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
 
     const { cols, rows } = term;
     const offData = window.api.pty.onData((pid, data) => {
-      if (pid === projectId) term.write(data);
+      if (pid === terminalKey) term.write(data);
     });
     const offExit = window.api.pty.onExit((pid) => {
-      if (pid === projectId) {
+      if (pid === terminalKey) {
         term.write('\r\n\x1b[33m[process exited]\x1b[0m\r\n');
         spawnedRef.current = false;
       }
     });
 
     term.onData((data) => {
-      window.api.pty.write(projectId, data);
+      window.api.pty.write(terminalKey, data);
     });
 
-    window.api.pty.spawn({ projectId, cwd, cols, rows, initialCommand, extraPath }).then(() => {
+    window.api.pty.spawn({
+      projectId: terminalKey,
+      cwd,
+      cols,
+      rows,
+      initialCommand,
+      extraPath,
+      shellProfile,
+    }).then(() => {
       spawnedRef.current = true;
     });
 
@@ -114,7 +131,7 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
       try {
         fit.fit();
         const { cols, rows } = term;
-        window.api.pty.resize(projectId, cols, rows);
+        window.api.pty.resize(terminalKey, cols, rows);
       } catch {}
     });
     ro.observe(containerRef.current);
@@ -127,7 +144,7 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [projectId, cwd]);
+  }, [terminalKey, cwd]);
 
   useEffect(() => {
     if (visible && fitRef.current && termRef.current) {
@@ -135,12 +152,12 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
         try {
           fitRef.current!.fit();
           const t = termRef.current!;
-          window.api.pty.resize(projectId, t.cols, t.rows);
+          window.api.pty.resize(terminalKey, t.cols, t.rows);
           t.focus();
         } catch {}
       });
     }
-  }, [visible, projectId]);
+  }, [visible, terminalKey]);
 
   useEffect(() => {
     const t = termRef.current;
@@ -163,7 +180,7 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
 
   async function doPaste() {
     const txt = await navigator.clipboard.readText();
-    if (txt) window.api.pty.write(projectId, txt);
+    if (txt) window.api.pty.write(terminalKey, txt);
     setMenu(null);
   }
 

@@ -1,3 +1,5 @@
+import type { SessionShellProfile } from './session-terminals';
+
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
 
 export interface AgentInfo {
@@ -52,6 +54,7 @@ export interface PtySpawnOptions {
   rows: number;
   initialCommand?: string;
   extraPath?: string[];
+  shellProfile?: SessionShellProfile;
 }
 
 export type PaneId = 'sidebar' | 'middle' | 'right';

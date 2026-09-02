@@ -11,6 +11,7 @@ import { AgentsBanner } from './components/AgentsBanner';
 import { ClaudeIcon } from './components/ClaudeIcon';
 import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
+import { sessionTabLabelSuffix } from '../shared/session-terminals';
 
 function RightColumn() {
   return (
@@ -35,6 +36,9 @@ export default function App() {
   const loadTheme = useAppStore((s) => s.loadTheme);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const openTabs = useAppStore((s) => s.openTabs);
+  const tabProjectId = useAppStore((s) => s.tabProjectId);
+  const tabSessionId = useAppStore((s) => s.tabSessionId);
+  const sessions = useAppStore((s) => s.sessions);
   const findProject = useAppStore((s) => s.findProject);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -62,8 +66,16 @@ export default function App() {
 
   useEffect(() => {
     (window as unknown as { __getOpenTabs: () => string[] }).__getOpenTabs = () =>
-      openTabs.map((id) => findProject(id)?.displayName ?? id);
-  }, [openTabs, findProject]);
+      openTabs.map((tabId) => {
+        const projectId = tabProjectId[tabId] ?? tabId;
+        const project = findProject(projectId);
+        if (!project) return tabId;
+        const sessionId = tabSessionId[tabId] ?? null;
+        if (!sessionId) return project.displayName;
+        const session = (sessions[projectId] ?? []).find((item) => item.id === sessionId);
+        return `${project.displayName} · ${sessionTabLabelSuffix(session?.title ?? '', sessionId)}`;
+      });
+  }, [openTabs, tabProjectId, tabSessionId, sessions, findProject]);
 
   const panes = useMemo(() => ({
     sidebar: {
