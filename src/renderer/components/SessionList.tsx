@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/app-store';
-import { agentIconUrl, resumeCommandFor, extraPathFor } from '../icons/agentIcons';
+import { agentIconUrl, resumeCommandFor } from '../icons/agentIcons';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { Session } from '../../shared/types';
 
@@ -18,9 +18,8 @@ function formatTime(ts: number): string {
 export function SessionList() {
   const selectedId = useAppStore((s) => s.selectedProjectId);
   const sessions = useAppStore((s) => (selectedId ? s.sessions[selectedId] ?? [] : []));
-  const restartTabWithCommand = useAppStore((s) => s.restartTabWithCommand);
+  const openSessionTab = useAppStore((s) => s.openSessionTab);
   const project = useAppStore((s) => s.projects.find((p) => p.id === selectedId));
-  const status = useAppStore((s) => s.agentStatus);
   const deleteSession = useAppStore((s) => s.deleteSession);
 
   const [confirmDelete, setConfirmDelete] = useState<Session | null>(null);
@@ -37,7 +36,7 @@ export function SessionList() {
     if (!project || !project.exists) return;
     const cmd = resumeCommandFor(s.agent, s.id);
     if (!cmd) return;
-    await restartTabWithCommand(project.id, s.agent, cmd, extraPathFor(status[s.agent]?.path));
+    await openSessionTab(project.id, s);
   }
 
   return (

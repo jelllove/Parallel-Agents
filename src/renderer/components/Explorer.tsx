@@ -19,8 +19,14 @@ function dirName(p: string): string {
 }
 
 export function Explorer() {
-  const selectedId = useAppStore((s) => s.activeTabId ?? s.selectedProjectId);
-  const project = useAppStore((s) => s.projects.find((p) => p.id === (s.activeTabId ?? s.selectedProjectId)));
+  const project = useAppStore((s) => {
+    const focusedId = s.activeTabId
+      ? (s.tabProjectId[s.activeTabId] ?? s.activeTabId)
+      : s.selectedProjectId;
+    if (!focusedId) return undefined;
+    return s.projects.find((p) => p.id === focusedId)
+      ?? s.adhocProjects.find((p) => p.id === focusedId);
+  });
   const clipboard = useAppStore((s) => s.clipboard);
   const setClipboard = useAppStore((s) => s.setClipboard);
 

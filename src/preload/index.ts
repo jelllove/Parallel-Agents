@@ -7,6 +7,7 @@ const api: Api = {
     pin: (id, pinned) => ipcRenderer.invoke('projects:pin', id, pinned),
     hide: (id, hidden) => ipcRenderer.invoke('projects:hide', id, hidden),
     delete: (id) => ipcRenderer.invoke('projects:delete', id),
+    deleteMissing: (ids) => ipcRenderer.invoke('projects:deleteMissing', ids),
     setOrder: (agent, ids) => ipcRenderer.invoke('projects:setOrder', agent, ids),
   },
   sessions: {

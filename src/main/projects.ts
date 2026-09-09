@@ -9,11 +9,18 @@ import {
   groupCodexSessionsByProject,
   listCodexSessions,
 } from './codex-storage';
+import {
+  removeProjectsFromSnapshot,
+  stabilizeCopilotProjects,
+  validateMissingProjectIds,
+  type CopilotScanResult,
+} from './project-policies';
 import type { Project, AgentId } from '../shared/types';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
 const COPILOT_SESSION_STATE_ROOT = join(homedir(), '.copilot', 'session-state');
+let lastSuccessfulCopilotProjects: Project[] = [];
 
 // C--jelllove-ParallelAgents   →  C:\jelllove\ParallelAgents
 // c--Users-jelllove            →  c:\Users\jelllove
@@ -254,13 +261,19 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
   return out;
 }
 
-async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
+async function listCopilotProjects(
+  pinned: Set<string>,
+  hidden: Set<string>,
+): Promise<CopilotScanResult> {
   let entries: string[] = [];
   try {
     entries = await readdir(COPILOT_SESSION_STATE_ROOT);
-  } catch {
-    return [];
+  } catch (error) {
+    const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
+    return { projects: [], valid: missing, candidateCount: 0, parsedCount: 0 };
   }
+  let candidateCount = 0;
+  let parsedCount = 0;
 
   const grouped = new Map<string, {
     realPath: string;
@@ -285,9 +298,11 @@ async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Pr
     } catch {
       continue;
     }
+    candidateCount++;
 
     const meta = await readCopilotSessionStart(eventsPath);
     if (!meta) continue;
+    parsedCount++;
 
     const key = normalizeProjectPath(meta.projectPath);
     const existing = grouped.get(key);
@@ -324,7 +339,7 @@ async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Pr
       lastActivity: agg.lastActivity,
     });
   }
-  return out;
+  return { projects: out, valid: true, candidateCount, parsedCount };
 }
 
 async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
@@ -351,12 +366,21 @@ export async function listProjects(): Promise<Project[]> {
   const pinned = new Set(cfg.pinned);
   const hidden = new Set(cfg.hidden);
 
-  const [claude, codex, gemini, copilot] = await Promise.all([
+  const [claude, codex, gemini, copilotScan] = await Promise.all([
     listClaudeProjects(pinned, hidden),
     listCodexProjects(pinned, hidden),
     listGeminiProjects(pinned, hidden),
     listCopilotProjects(pinned, hidden),
   ]);
+  const stabilizedCopilot = stabilizeCopilotProjects(lastSuccessfulCopilotProjects, copilotScan);
+  if (copilotScan.valid && (copilotScan.candidateCount === 0 || copilotScan.parsedCount > 0)) {
+    lastSuccessfulCopilotProjects = stabilizedCopilot;
+  }
+  const copilot = stabilizedCopilot.map((project) => ({
+    ...project,
+    pinned: pinned.has(project.id),
+    hidden: hidden.has(project.id),
+  }));
 
   const out = [...claude, ...codex, ...gemini, ...copilot];
   const orderIndex = (p: Project): number => {
@@ -376,7 +400,7 @@ export async function listProjects(): Promise<Project[]> {
   return out;
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
+async function deleteProjectHistory(projectId: string): Promise<void> {
   const colon = projectId.indexOf(':');
   if (colon < 0) throw new Error(`Invalid projectId: ${projectId}`);
   const agent = projectId.slice(0, colon) as AgentId;
@@ -407,6 +431,31 @@ export async function deleteProject(projectId: string): Promise<void> {
   } else {
     throw new Error(`Delete not supported for agent: ${agent}`);
   }
+}
 
+export async function deleteProject(projectId: string): Promise<void> {
+  await deleteProjectHistory(projectId);
+  lastSuccessfulCopilotProjects = removeProjectsFromSnapshot(
+    lastSuccessfulCopilotProjects,
+    [projectId],
+  );
   await forgetProject(projectId);
+}
+
+export async function deleteMissingProjects(projectIds: string[]): Promise<void> {
+  if (projectIds.length === 0) throw new Error('No projects selected');
+  const targets = validateMissingProjectIds(await listProjects(), projectIds);
+  for (const project of targets) {
+    if (await pathExists(project.realPath)) {
+      throw new Error(`Project is not missing: ${project.id}`);
+    }
+  }
+  for (const project of targets) {
+    await deleteProjectHistory(project.id);
+    lastSuccessfulCopilotProjects = removeProjectsFromSnapshot(
+      lastSuccessfulCopilotProjects,
+      [project.id],
+    );
+    await forgetProject(project.id);
+  }
 }
