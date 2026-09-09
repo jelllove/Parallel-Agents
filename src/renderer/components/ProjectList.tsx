@@ -4,25 +4,9 @@ import type { Project, AgentId } from '../../shared/types';
 import { folderIconUrl } from '../icons/iconResolver';
 import { agentIconUrl } from '../icons/agentIcons';
 import { ConfirmDialog } from './ConfirmDialog';
+import { canDeleteProject, deleteMessageFor } from '../../shared/project-delete';
 
 const TREE_AGENTS: AgentId[] = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
-
-function canDeleteProject(agent: AgentId): boolean {
-  return agent === 'claude' || agent === 'gemini' || agent === 'copilot';
-}
-
-function deleteMessageFor(project: Project): string {
-  if (project.agent === 'claude') {
-    return `This will permanently delete ~/.claude/projects/${project.dirName}/ and all its sessions. The actual working directory on disk is not touched.`;
-  }
-  if (project.agent === 'gemini') {
-    return `This will permanently delete ~/.gemini/tmp/${project.dirName}/ and all its sessions. The actual working directory on disk is not touched.`;
-  }
-  if (project.agent === 'copilot') {
-    return `This will permanently delete Copilot session history for "${project.realPath}" from ~/.copilot/session-state/. The actual working directory on disk is not touched.`;
-  }
-  return `Delete is not supported for ${project.agent} projects.`;
-}
 
 export function ProjectList() {
   const projects = useAppStore((s) => s.projects);

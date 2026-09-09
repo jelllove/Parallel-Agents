@@ -4,6 +4,11 @@ import { createInterface } from 'readline';
 import { join, normalize } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject } from './config';
+import {
+  deleteCodexProject,
+  groupCodexSessionsByProject,
+  listCodexSessions,
+} from './codex-storage';
 import type { Project, AgentId } from '../shared/types';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
@@ -322,18 +327,38 @@ async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Pr
   return out;
 }
 
+async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
+  const groups = groupCodexSessionsByProject(await listCodexSessions());
+  return Promise.all(groups.map(async (group) => {
+    const id = makeProjectId('codex', group.realPath);
+    return {
+      id,
+      agent: 'codex',
+      dirName: group.realPath,
+      realPath: group.realPath,
+      displayName: displayNameFor(group.realPath),
+      exists: await pathExists(group.realPath),
+      pinned: pinned.has(id),
+      hidden: hidden.has(id),
+      sessionCount: group.sessionCount,
+      lastActivity: group.lastActivity,
+    };
+  }));
+}
+
 export async function listProjects(): Promise<Project[]> {
   const cfg = await loadConfig();
   const pinned = new Set(cfg.pinned);
   const hidden = new Set(cfg.hidden);
 
-  const [claude, gemini, copilot] = await Promise.all([
+  const [claude, codex, gemini, copilot] = await Promise.all([
     listClaudeProjects(pinned, hidden),
+    listCodexProjects(pinned, hidden),
     listGeminiProjects(pinned, hidden),
     listCopilotProjects(pinned, hidden),
   ]);
 
-  const out = [...claude, ...gemini, ...copilot];
+  const out = [...claude, ...codex, ...gemini, ...copilot];
   const orderIndex = (p: Project): number => {
     const ids = cfg.projectOrder?.[p.agent] ?? [];
     const i = ids.indexOf(p.id);
@@ -359,6 +384,8 @@ export async function deleteProject(projectId: string): Promise<void> {
 
   if (agent === 'claude') {
     await rm(join(CLAUDE_ROOT, dirName), { recursive: true, force: true });
+  } else if (agent === 'codex') {
+    await deleteCodexProject(dirName);
   } else if (agent === 'gemini') {
     await rm(join(GEMINI_TMP_ROOT, dirName), { recursive: true, force: true });
   } else if (agent === 'copilot') {

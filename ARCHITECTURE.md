@@ -32,8 +32,8 @@ Electron 应用，分三个进程角色：**main**（Node 端，IPC/PTY/Git）�
 │  ┌──────────────┐  ┌────────────┐  ┌─────────┐  ┌─────────────┐           │
 │  │ projects     │  │ sessions   │  │ git     │  │ pty-manager │           │
 │  │ (scan ~/.    │  │ (parse     │  │ (CLI    │  │ (node-pty)  │           │
-│  │  claude/     │  │  jsonl)    │  │ exec +  │  │             │           │
-│  │  .gemini/)   │  │            │  │ watch)  │  │             │           │
+│  │  agent data) │  │  jsonl)    │  │ exec +  │  │             │           │
+│  │              │  │            │  │ watch)  │  │             │           │
 │  └──────────────┘  └────────────┘  └─────────┘  └─────────────┘           │
 │  ┌──────────────┐  ┌────────────┐  ┌────────────────────────┐             │
 │  │ fs-explorer  │  │ config     │  │ agent-providers        │             │
@@ -44,7 +44,7 @@ Electron 应用，分三个进程角色：**main**（Node 端，IPC/PTY/Git）�
 └───────────────────────────────────────────────────────────────────────────┘
                              │ fs / child_process
               ┌──────────────┴──────────────┐
-        ~/.claude/projects/         ~/.gemini/tmp/         ~/.copilot/session-state/
+        ~/.claude/projects/  ~/.codex/sessions/  ~/.gemini/tmp/  ~/.copilot/session-state/
         ~/.claude/parallel-agents.json (config)
         git CLI · Windows shell APIs
 ```
@@ -58,6 +58,7 @@ src/
 │   ├── ipc.ts                  ALL ipcMain.handle channels
 │   ├── projects.ts             list / delete / sort projects
 │   ├── sessions.ts             list / delete sessions (jsonl parsing)
+│   ├── codex-storage.ts         scan / parse / delete Codex rollout files
 │   ├── fs-explorer.ts          readDir + create/rename/copy/move/trash/reveal/openDefault
 │   ├── git.ts                  status / diff / stage / unstage / discard / commit + watcher
 │   ├── pty-manager.ts          node-pty wrapper, multiplexed by projectId
@@ -169,13 +170,15 @@ src/
 ## 6. Modules
 
 ### 6.1 projects.ts
-- 扫 `~/.claude/projects/`、`~/.gemini/tmp/` 和 `~/.copilot/session-state/`
+- 扫 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.gemini/tmp/` 和 `~/.copilot/session-state/`
+- Codex 按 rollout `session_meta.payload.cwd` 归组，路径规范化后生成 `codex:<cwd>` project ID
 - `dirName` 编码规则：`C--jelllove-Foo` → `C:\jelllove\Foo`（首字母作 drive，剩下 `-` → `\`）
 - 排序：pinned 优先；同 agent 组内按 `projectOrder` 应用用户拖拽顺序
 - `deleteProject(id)`：rm -rf agent 目录 + `forgetProject(id)`（清 pinned/hidden/lastAgent/projectOrder）
 
 ### 6.2 sessions.ts
 - Claude: `<dirName>/<sessionId>.jsonl` —— 文件名就是 sessionId，直接 rm
+- Codex: `sessions/YYYY/MM/DD/rollout-*.jsonl` —— 从 `session_meta` 读取 ID/cwd/version，标题优先取 `session_index.jsonl`
 - Gemini: `<dirName>/chats/*.jsonl` —— 文件名 ≠ sessionId，遍历读 jsonl head 匹配 sessionId 字段后 rm
 
 ### 6.3 fs-explorer.ts

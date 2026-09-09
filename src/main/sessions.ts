@@ -4,6 +4,11 @@ import { promisify } from 'util';
 import { createInterface } from 'readline';
 import { join, normalize } from 'path';
 import { homedir } from 'os';
+import {
+  deleteCodexSession,
+  filterCodexSessionsByProject,
+  listCodexSessions,
+} from './codex-storage';
 import type { Session, AgentId } from '../shared/types';
 
 const readdirP = promisify(readdir);
@@ -314,9 +319,20 @@ export async function listSessionsForProject(projectId: string): Promise<Session
 
   let out: Session[] = [];
   if (agent === 'claude') out = await listClaudeSessions(projectId, dirName);
-  else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName);
+  else if (agent === 'codex') {
+    out = filterCodexSessionsByProject(await listCodexSessions(), dirName).map((session) => ({
+      id: session.id,
+      projectId,
+      agent: 'codex',
+      title: session.title,
+      timestamp: session.timestamp,
+      cwd: session.cwd,
+      gitBranch: null,
+      version: session.version,
+    }));
+  } else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName);
   else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName);
-  // codex/aider: no session listing in v1
+  // aider: no session listing in v1
 
   out.sort((a, b) => b.timestamp - a.timestamp);
   return out;
@@ -346,6 +362,8 @@ export async function deleteSession(projectId: string, sessionId: string): Promi
 
   if (agent === 'claude') {
     await unlink(join(CLAUDE_ROOT, dirName, `${sessionId}.jsonl`));
+  } else if (agent === 'codex') {
+    await deleteCodexSession(sessionId);
   } else if (agent === 'gemini') {
     const file = await findGeminiSessionFile(dirName, sessionId);
     if (!file) throw new Error(`Session not found: ${sessionId}`);

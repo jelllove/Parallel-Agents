@@ -42,7 +42,7 @@ Modern coding agents are **terminal-first** — every CLI insists on owning its 
 
 **Parallel Agents** collapses all of that into a single, VS Code–style window:
 
-- 📂 **Unified project list** across Claude Code, Copilot CLI, and Gemini CLI — grouped by agent, sorted by you.
+- 📂 **Unified project list** across Claude Code, Codex, Copilot CLI, and Gemini CLI — grouped by agent, sorted by you.
 - 🪟 **Tabbed terminals** so you can run Claude on one tab and Codex on the next, on the same repo.
 - 📁 **File explorer** with proper file ops (create, rename, cut/copy/paste, trash, reveal in OS, open with default).
 - 🌿 **Git panel** in the spirit of VS Code Source Control — stage, unstage, discard, commit, and double-click for a Monaco diff.
@@ -79,7 +79,7 @@ npm run release      # produces release/latest/Parallel Agents.exe
 | Agent | CLI | Status |
 |---|---|---|
 | <img src="src/renderer/assets/agents/copilot.svg" width="16" valign="middle" /> **Copilot CLI** | `gh copilot` | ✅ Sessions auto-detected from `~/.copilot/session-state/` |
-| <img src="src/renderer/assets/agents/codex.png" width="16" valign="middle" /> **Codex** | `codex` | ✅ Detected via `which / where` |
+| <img src="src/renderer/assets/agents/codex.png" width="16" valign="middle" /> **Codex** | `codex` | ✅ Sessions auto-detected from `~/.codex/sessions/` |
 | <img src="src/renderer/assets/agents/claude.png" width="16" valign="middle" /> **Claude Code** | `claude` | ✅ Sessions auto-detected from `~/.claude/projects/` |
 | <img src="src/renderer/assets/agents/gemini.svg" width="16" valign="middle" /> **Gemini CLI** | `gemini` | ✅ Sessions auto-detected from `~/.gemini/tmp/` |
 | <img src="src/renderer/assets/agents/aider.svg" width="16" valign="middle" /> Aider | `aider` | 🚧 Launch only (no session scan yet) |
