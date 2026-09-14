@@ -1,6 +1,5 @@
-import type { AgentId, Project } from '../../shared/types';
-
-const DELETABLE_MISSING_AGENTS = new Set<AgentId>(['claude', 'gemini', 'copilot']);
+import type { Project } from '../../shared/types';
+import { canDeleteProject } from '../../shared/project-delete.ts';
 
 export function pickDeletableMissingProjectIds(
   projects: Project[],
@@ -12,6 +11,6 @@ export function pickDeletableMissingProjectIds(
     const project = byId.get(id);
     return !!project
       && !project.exists
-      && DELETABLE_MISSING_AGENTS.has(project.agent);
+      && canDeleteProject(project.agent);
   });
 }

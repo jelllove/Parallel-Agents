@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
-import { listProjects, deleteProject, deleteMissingProjects } from './projects';
-import { listSessionsForProject, deleteSession } from './sessions';
+import { listProjects, deleteProject, deleteMissingProjects, createProject } from './projects';
+import { listSessionsForProject, deleteSession, renameSession } from './sessions';
 import {
   readDir,
   createFile,
@@ -16,13 +16,30 @@ import { loadConfig, saveConfig, setLastAgent, getLastAgent, setProjectOrder, ge
 import { ptyManager } from './pty-manager';
 import { checkAllAgents, listAgents } from './agent-providers';
 import * as git from './git';
-import type { AgentId, LayoutConfig, ThemeMode } from '../shared/types';
+import type { AgentId, LayoutConfig, ThemeMode, NewProjectOptions, PtySpawnOptions } from '../shared/types';
+import { preferences } from './preferences-store';
+import { discoverShells } from './shell-profiles';
+import type { UpdateController } from './update-controller';
 
-export function registerIpc(win: BrowserWindow) {
+export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ptyManager.attachWindow(win);
   git.attachWindow(win);
 
+  ipcMain.handle('updates:getStatus', () => updates.getStatus());
+  ipcMain.handle('updates:check', () => updates.check());
+  ipcMain.handle('updates:install', () => updates.install());
+  const unsubscribeUpdates = updates.subscribe((status) => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('updates:status', status);
+    }
+  });
+  win.once('closed', () => {
+    unsubscribeUpdates();
+    for (const channel of ['updates:getStatus', 'updates:check', 'updates:install']) ipcMain.removeHandler(channel);
+  });
+
   ipcMain.handle('projects:list', () => listProjects());
+  ipcMain.handle('projects:create', (_e, options: NewProjectOptions) => createProject(options));
 
   ipcMain.handle('projects:pin', async (_e, id: string, pinned: boolean) => {
     const cfg = await loadConfig();
@@ -50,6 +67,9 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('sessions:delete', (_e, projectId: string, sessionId: string) =>
     deleteSession(projectId, sessionId),
   );
+  ipcMain.handle('sessions:rename', (_e, projectId: string, sessionId: string, title: string) =>
+    renameSession(projectId, sessionId, title),
+  );
 
   ipcMain.handle('fs:readDir', (_e, path: string) => readDir(path));
   ipcMain.handle('fs:createFile', (_e, path: string) => createFile(path));
@@ -63,8 +83,8 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle('pty:spawn', (_e, opts: { projectId: string; cwd: string; cols: number; rows: number; initialCommand?: string; extraPath?: string[]; shellProfile?: 'default' | 'powershell' | 'bash' | 'cmd' }) => {
-    ptyManager.spawn(
+  ipcMain.handle('pty:spawn', (_e, opts: PtySpawnOptions) => {
+    return ptyManager.spawn(
       opts.projectId,
       opts.cwd,
       opts.cols,
@@ -110,6 +130,11 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('config:setTerminalMultilineEnter', (_e, v: boolean) => setTerminalMultilineEnter(v));
   ipcMain.handle('config:getTerminalCopyPaste', () => getTerminalCopyPaste());
   ipcMain.handle('config:setTerminalCopyPaste', (_e, v: boolean) => setTerminalCopyPaste(v));
+  ipcMain.handle('config:getFontSize', async () => (await preferences.read()).fontSize);
+  ipcMain.handle('config:setFontSize', (_e, size: number) => preferences.setFontSize(size));
+  ipcMain.handle('config:getFontBold', async () => (await preferences.read()).fontBold);
+  ipcMain.handle('config:setFontBold', (_e, bold: boolean) => preferences.setFontBold(bold));
+  ipcMain.handle('shell:list', () => discoverShells());
 
   ipcMain.handle('git:status', (_e, repoPath: string) => git.getStatus(repoPath));
   ipcMain.handle('git:diff', (_e, repoPath: string, filePath: string, staged: boolean) =>

@@ -44,7 +44,7 @@ export function ConfirmDialog({
         <div className="modal-title">{title}</div>
         <div className="modal-body">
           <div>{message}</div>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>
+          <div style={{ marginTop: 12, fontSize: 'calc(var(--app-font-size) * 0.923077)', color: 'var(--text-dim)' }}>
             Type <code>{typeToConfirm}</code> to enable the {confirmText} button:
           </div>
           <input

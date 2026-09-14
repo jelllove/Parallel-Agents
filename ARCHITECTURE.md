@@ -114,8 +114,8 @@ src/
 
 | Namespace | Channel | Direction | 说明 |
 |---|---|---|---|
-| `projects` | `list` / `pin` / `hide` / `delete` / `setOrder` | renderer → main | 项目元信息 CRUD |
-| `sessions` | `listForProject` / `delete` | renderer → main | session jsonl |
+| `projects` | `list` / `create` / `pin` / `hide` / `delete` / `deleteMissing` / `setOrder` | renderer → main | 项目元信息 CRUD、Git worktree 创建 |
+| `sessions` | `listForProject` / `rename` / `delete` | renderer → main | session 列表与本地别名 |
 | `pty` | `spawn` / `write` / `resize` / `kill` | renderer → main | 终端控制 |
 | `pty` | `pty:data` / `pty:exit` | main → renderer | PTY 输出 / 退出 |
 | `fs` | `readDir` / `createFile` / `createDir` / `rename` / `copy` / `move` / `trash` / `reveal` / `openDefault` | renderer → main | 文件操作 |
@@ -123,11 +123,27 @@ src/
 | `git` | `git:changed` | main → renderer | 仓库变化广播 |
 | `dialog` | `pickDirectory` | renderer → main | 系统目录选择器 |
 | `agents` | `list` / `checkAll` | renderer → main | agent 元信息 + 安装检测 |
-| `config` | `getLastAgent` / `setLastAgent` / `getLayout` / `setLayout` | renderer → main | 用户配置读写 |
-| `shell` | `openExternal` | renderer → main | 系统打开 URL |
+| `config` | `getLastAgent` / `setLastAgent` / `getLayout` / `setLayout` / `getFontSize` / `setFontSize` | renderer → main | 用户配置读写 |
+| `shell` | `openExternal` / `list` | renderer → main | 系统打开 URL、发现可用交互 shell |
 | `window` | `window:fullscreen` | main → renderer | 全屏状态变化 |
 
 事件型（main → renderer）用 `webContents.send`，renderer 通过 `ipcRenderer.on` 订阅，preload 返回 unsubscribe 函数确保 cleanup。
+
+### Workspace and presentation preferences
+
+- `preferences-store.ts` serializes atomic writes to `~/.claude/parallel-agents-preferences.json`. It stores registered projects, names keyed by agent/session ID, font size, and a default-off bold setting; invalid data is surfaced rather than overwritten.
+- `projects.ts` merges registrations with discovered history while preserving the registered ID. Session lookups resolve the native history ID before applying saved aliases; renaming never edits native transcripts.
+- `worktrees.ts` validates a repository, new branch, starting commit and destination before invoking native Git with argument arrays. Existing directories and base-folder changes are not overwritten.
+- `shell-profiles.ts` discovers installed interactive shells and resolves the selected ID again when spawning. PTY startup can be cancelled while discovery is pending; stale process events cannot affect a replacement terminal.
+- The renderer keeps session identity separate from terminal identity. Linking freshly launched tabs to native history requires explicit confirmation; timing alone cannot identify the writer. Font changes update CSS, xterm, and Monaco in place.
+- Copilot registrations preserve the selected launch directory separately from the repository-root history path, so subfolder projects still find their sessions.
+
+### Build identity and desktop updates
+
+- Vite embeds package version, source commit, and dirty-worktree state in the renderer at build time. Packaged About dialogs need neither Git nor network access to identify their build.
+- Installed Windows builds use GitHub release metadata for background update checks/downloads. Restart/install follows the application's existing active-session confirmation and PTY cleanup path.
+- Project deletion displays a snapshot of selected projects and their session titles; acknowledgement and the final destructive action are both required. Session-read or deletion failures keep the confirmation visible.
+- Ctrl+Tab shortcuts are captured before terminal input handling and only change the active tab; modal confirmations suspend tab switching.
 
 ## 5. State Management
 

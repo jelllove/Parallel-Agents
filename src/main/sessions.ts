@@ -10,6 +10,9 @@ import {
   listCodexSessions,
 } from './codex-storage';
 import type { Session, AgentId } from '../shared/types';
+import { preferences } from './preferences-store';
+import { applySessionNames } from '../shared/session-presentation';
+import { resolveHistoryProjectId } from './projects';
 
 const readdirP = promisify(readdir);
 const statP = promisify(stat);
@@ -312,6 +315,11 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
 }
 
 export async function listSessionsForProject(projectId: string): Promise<Session[]> {
+  const historyId = await resolveHistoryProjectId(projectId);
+  if (!historyId) return [];
+  if (historyId !== projectId) {
+    return (await listSessionsForProject(historyId)).map((s) => ({ ...s, projectId }));
+  }
   const colon = projectId.indexOf(':');
   if (colon < 0) return [];
   const agent = projectId.slice(0, colon) as AgentId;
@@ -335,7 +343,13 @@ export async function listSessionsForProject(projectId: string): Promise<Session
   // aider: no session listing in v1
 
   out.sort((a, b) => b.timestamp - a.timestamp);
-  return out;
+  return applySessionNames(out, (await preferences.read()).sessionNames);
+}
+
+export async function renameSession(projectId: string, sessionId: string, title: string): Promise<string> {
+  const session = (await listSessionsForProject(projectId)).find((s) => s.id === sessionId);
+  if (!session) throw new Error(`Session not found: ${sessionId}`);
+  return preferences.renameSession(session.agent, session.id, title);
 }
 
 async function findGeminiSessionFile(dirName: string, sessionId: string): Promise<string | null> {
@@ -355,6 +369,9 @@ async function findGeminiSessionFile(dirName: string, sessionId: string): Promis
 }
 
 export async function deleteSession(projectId: string, sessionId: string): Promise<void> {
+  const historyId = await resolveHistoryProjectId(projectId);
+  if (!historyId) throw new Error(`Session not found: ${sessionId}`);
+  if (historyId !== projectId) return deleteSession(historyId, sessionId);
   const colon = projectId.indexOf(':');
   if (colon < 0) throw new Error(`Invalid projectId: ${projectId}`);
   const agent = projectId.slice(0, colon) as AgentId;

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/app-store';
-import { agentIconUrl, resumeCommandFor } from '../icons/agentIcons';
+import { resumeCommandFor } from '../icons/agentIcons';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { Session } from '../../shared/types';
+import { RenameSessionDialog } from './RenameSessionDialog';
+import { ActionIcon } from './ActionIcon';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -23,6 +25,7 @@ export function SessionList() {
   const deleteSession = useAppStore((s) => s.deleteSession);
 
   const [confirmDelete, setConfirmDelete] = useState<Session | null>(null);
+  const [rename, setRename] = useState<Session | null>(null);
 
   if (!selectedId) {
     return <div className="list-item-sub" style={{ padding: '4px 12px' }}>Select a project to view its sessions.</div>;
@@ -50,11 +53,13 @@ export function SessionList() {
             onClick={() => resume(s)}
             title={cmd ? `${s.title}\n${cmd}` : `${s.title}\n(no resume available for ${s.agent})`}
           >
-            <img src={agentIconUrl(s.agent)} className="session-icon" alt="" draggable={false} />
+            <span className="session-marker" aria-hidden="true" />
             <div className="session-text">
               <div className="list-item-title">{s.title || '(empty)'}</div>
               <div className="list-item-sub">{formatTime(s.timestamp)}</div>
             </div>
+            <button className="session-rename" title="Rename session" aria-label={`Rename ${s.title}`}
+              onClick={(e) => { e.stopPropagation(); setRename(s); }}><ActionIcon name="rename" /></button>
             <button
               className="session-delete"
               title="Delete this session"
@@ -68,6 +73,8 @@ export function SessionList() {
           </div>
         );
       })}
+      {rename && <RenameSessionDialog projectId={rename.projectId} sessionId={rename.id}
+        title={rename.title} onClose={() => setRename(null)} />}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete session?"

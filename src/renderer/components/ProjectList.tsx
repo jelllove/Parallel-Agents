@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import type { Project, AgentId } from '../../shared/types';
 import { folderIconUrl } from '../icons/iconResolver';
-import { agentIconUrl } from '../icons/agentIcons';
-import { ConfirmDialog } from './ConfirmDialog';
-import { canDeleteProject, deleteMessageFor } from '../../shared/project-delete';
+import { AgentIcon } from './AgentIcon';
+import { ProjectDeleteDialog } from './ProjectDeleteDialog';
+import { canDeleteProject } from '../../shared/project-delete';
+import { ActionIcon } from './ActionIcon';
 
 const TREE_AGENTS: AgentId[] = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
 
 export function ProjectList() {
   const projects = useAppStore((s) => s.projects);
+  const refresh = useAppStore((s) => s.refreshProjectsAndAgents);
+  const refreshing = useAppStore((s) => s.inventoryRefreshing);
+  const inventoryError = useAppStore((s) => s.inventoryError);
   const selectedId = useAppStore((s) => s.selectedProjectId);
   const openProjectFromList = useAppStore((s) => s.openProjectFromList);
   const pinProject = useAppStore((s) => s.pinProject);
@@ -30,7 +34,6 @@ export function ProjectList() {
   const [selectedMissingIds, setSelectedMissingIds] = useState<string[]>([]);
   const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
-  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -95,19 +98,29 @@ export function ProjectList() {
 
   return (
     <div onClick={() => setCtxMenu(null)}>
-      {missingProjects.length > 0 && (
+      <div className="project-toolbar">
+        <button className="project-action" title="Refresh projects and agents" aria-label="Refresh projects and agents"
+          disabled={refreshing || bulkDeleteBusy} onClick={() => void refresh()}>
+          <ActionIcon name="refresh" spinning={refreshing} />
+          <span>{refreshing ? 'Refreshing' : 'Refresh'}</span>
+        </button>
+        <button className={`project-action${cleanupMode ? ' selected' : ''}`}
+          title={`Clean ${missingProjects.length} deleted project histories`}
+          aria-label={`Clean deleted projects (${missingProjects.length})`} aria-pressed={cleanupMode}
+          disabled={missingProjects.length === 0 || bulkDeleteBusy}
+          onClick={() => setCleanupMode(!cleanupMode)}>
+          <ActionIcon name="cleanup" />
+          <span>Clean</span><span className="action-count">{missingProjects.length}</span>
+        </button>
+      </div>
+      {inventoryError && <div className="inventory-error" role="alert">{inventoryError}</div>}
+      {missingProjects.length > 0 && cleanupMode && (
         <div className="project-cleanup-bar">
-          {!cleanupMode ? (
-            <button className="btn-secondary" onClick={() => setCleanupMode(true)}>
-              Clean deleted projects ({missingProjects.length})
-            </button>
-          ) : (
             <>
               <button
                 className="btn-danger"
                 disabled={selectedMissingIds.length === 0}
                 onClick={() => {
-                  setBulkDeleteError(null);
                   setConfirmBulkIds(selectedMissingIds);
                 }}
               >
@@ -116,7 +129,6 @@ export function ProjectList() {
               <button
                 className="btn-danger"
                 onClick={() => {
-                  setBulkDeleteError(null);
                   setConfirmBulkIds(missingProjects.map((project) => project.id));
                 }}
               >
@@ -132,7 +144,6 @@ export function ProjectList() {
                 Cancel
               </button>
             </>
-          )}
         </div>
       )}
       {TREE_AGENTS.map((agent) => {
@@ -148,11 +159,10 @@ export function ProjectList() {
               title={available ? agentName(agent) : `${agentName(agent)} (not installed)`}
             >
               <span className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
-              <img
-                src={agentIconUrl(agent)}
+              <AgentIcon
+                agent={agent}
+                size={18}
                 className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
-                alt=""
-                draggable={false}
               />
               <span className="agent-group-name">{agentName(agent)}</span>
               <span className="agent-group-count">{group.length}</span>
@@ -277,40 +287,26 @@ export function ProjectList() {
         </div>
       )}
       {confirmDelete && (
-        <ConfirmDialog
-          title={`Delete project "${confirmDelete.displayName}"?`}
-          message={deleteMessageFor(confirmDelete)}
-          confirmText="Delete forever"
-          typeToConfirm={confirmDelete.displayName}
-          destructive
+        <ProjectDeleteDialog
+          projects={[confirmDelete]}
           onConfirm={async () => {
-            const p = confirmDelete;
+            await deleteProject(confirmDelete.id);
             setConfirmDelete(null);
-            await deleteProject(p.id);
           }}
           onCancel={() => setConfirmDelete(null)}
         />
       )}
       {confirmBulkIds && (
-        <ConfirmDialog
-          title={`Delete ${confirmBulkIds.length} deleted project histories?`}
-          message="This permanently removes the selected agent session histories. Working directories are not touched."
-          confirmText={bulkDeleteBusy ? 'Deleting...' : 'Delete forever'}
-          typeToConfirm="DELETE"
-          destructive
-          warning={bulkDeleteError ?? undefined}
-          confirmDisabled={bulkDeleteBusy}
+        <ProjectDeleteDialog
+          projects={projects.filter((project) => confirmBulkIds.includes(project.id))}
           onConfirm={async () => {
             if (bulkDeleteBusy) return;
             const ids = confirmBulkIds;
             setBulkDeleteBusy(true);
-            setBulkDeleteError(null);
             try {
               await deleteMissingProjects(ids);
               setConfirmBulkIds(null);
               setSelectedMissingIds([]);
-            } catch (error) {
-              setBulkDeleteError(error instanceof Error ? error.message : String(error));
             } finally {
               setBulkDeleteBusy(false);
             }
@@ -318,7 +314,6 @@ export function ProjectList() {
           onCancel={() => {
             setConfirmBulkIds(null);
             setBulkDeleteBusy(false);
-            setBulkDeleteError(null);
           }}
         />
       )}

@@ -20,7 +20,7 @@ test('keeps only unique deletable missing project IDs', () => {
   const missingA = project('copilot:C:\\work\\gone-a');
   const missingB = project('claude:C--work-gone-b', { agent: 'claude' });
   const active = project('copilot:C:\\work\\active', { exists: true });
-  const unsupported = project('codex:C:\\work\\gone-c', { agent: 'codex' });
+  const unsupported = project('aider:C:\\work\\gone-c', { agent: 'aider' });
 
   const result = pickDeletableMissingProjectIds(
     [missingA, missingB, active, unsupported],
@@ -40,4 +40,9 @@ test('returns empty when no candidate is currently deletable and missing', () =>
   );
 
   assert.deepEqual(result, []);
+});
+
+test('includes missing Codex projects offered by the cleanup UI', () => {
+  const codex = project('codex:C:\\work\\gone', { agent: 'codex' });
+  assert.deepEqual(pickDeletableMissingProjectIds([codex], [codex.id]), [codex.id]);
 });

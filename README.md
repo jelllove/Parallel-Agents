@@ -57,17 +57,18 @@ Modern coding agents are **terminal-first** — every CLI insists on owning its 
 
 ### Option A: Download a pre-built release
 
-1. Grab the latest Windows build from [**Releases**](https://github.com/jelllove/ParallelAgents/releases).
-2. Unzip and run **`Parallel Agents.exe`**. That's it — no installer, fully portable.
+1. Download the latest Windows installer from [**Releases**](https://github.com/jelllove/Parallel-Agents/releases).
+2. Run **`Parallel-Agents-Setup-<version>.exe`**.
+3. Versions before 0.1.10 do not include automatic updates: install this updater-enabled version manually once.
 
 ### Option B: Build from source
 
 ```bash
-git clone https://github.com/jelllove/ParallelAgents.git
-cd ParallelAgents
+git clone https://github.com/jelllove/Parallel-Agents.git
+cd Parallel-Agents
 npm install
 npm run dev          # hot-reload dev mode
-npm run release      # produces release/latest/Parallel Agents.exe
+npm run dist         # creates the Windows installer and update metadata
 ```
 
 > Requires Node.js 20+ and Windows Build Tools (for `node-pty`). The repo ships `install-vs-buildtools.ps1` if you need them.
@@ -84,7 +85,7 @@ npm run release      # produces release/latest/Parallel Agents.exe
 | <img src="src/renderer/assets/agents/gemini.svg" width="16" valign="middle" /> **Gemini CLI** | `gemini` | ✅ Sessions auto-detected from `~/.gemini/tmp/` |
 | <img src="src/renderer/assets/agents/aider.svg" width="16" valign="middle" /> Aider | `aider` | 🚧 Launch only (no session scan yet) |
 
-Don't have one installed? Parallel Agents shows a banner at the top with a one-click install hint.
+Don't have one installed? The CLI bar includes one-click install hints. It appears for 10 seconds on startup, then hides; hover over the thin handle at the top to reveal it again.
 
 <br />
 
@@ -92,17 +93,46 @@ Don't have one installed? Parallel Agents shows a banner at the top with a one-c
 
 ### Sidebar — Projects & Sessions
 - Tree grouped by agent, collapsible per group
-- Pin / Hide / **Delete** (triple-confirm: type the project name + check "I understand")
+- Pin / Hide / **Delete**: review highlighted project names and sessions, check the acknowledgement, then click **Delete forever**. No project-name typing is required, including bulk cleanup.
 - **Drag & drop** to reorder projects within the same agent group
-- **Refresh Projects & Agents** button + automatic background refresh every 60 seconds
+- Compact **Refresh** and **Clean** icon buttons share one row; Clean shows the number of missing projects. Automatic background refresh runs every 10 minutes.
 - Click project behavior: one session auto-resumes, multiple sessions trigger a visual cue in **Recent Sessions** so you can choose explicitly
-- Per-session × button with the same confirm flow
+- Per-session × button retains its typed confirmation.
+- Recent sessions use a small neutral marker. **Rename** saves an application-local name without modifying the agent's transcript.
+
+### New Project
+- Choose the agent first, then open an existing folder directly or create a Git worktree from a base repository.
+- Worktree mode asks for a new branch, starting ref (default `HEAD`), and an absolute destination. It uses native `git worktree add`, never overwrites an existing destination, and leaves uncommitted base-folder changes untouched.
+- Created project registrations persist even before the agent has written session history.
 
 ### Terminal Tabs
 - Independent PTY per tab via `node-pty`
 - Same project can be opened with multiple agents simultaneously
 - "Last used agent" remembered per project so re-opening is one click
 - `PATH` augmented at spawn time so globally-installed CLIs are always found
+- Session tab titles match Recent Sessions. Double-click a tab or use its **Rename** context action; names persist across restarts.
+- Opening an already-open session focuses its existing tab instead of starting a second writer.
+- **Ctrl+Tab** / **Ctrl+Shift+Tab** cycle through open sessions in tab order, including while terminal input has focus.
+- For newly launched terminals, double-click the tab to explicitly link its native session before renaming. This prevents another CLI's newly created history from being mistaken for this terminal; selecting such history offers linking or a separate resume.
+- **Show Shell** opens a menu of detected interactive shells (for example Windows PowerShell, PowerShell, Git Bash, Command Prompt, Nushell, and installed WSL distributions). Switching shells replaces only the attached shell, not the agent.
+
+### Typography
+- The bottom-right **Aa** control adjusts interface, terminal, and diff-editor text from 10 to 24px and remembers the setting.
+- Default size is 14px, with VS Code-style system UI typography and Consolas/Cascadia Mono terminal fallbacks.
+- **Bold text** is off by default and persists when enabled; it changes the interface, terminal base weight, and diff editor live. Native ANSI bold output remains supported.
+- Names, typography, and project registrations live in `~/.claude/parallel-agents-preferences.json`; native agent session files remain unchanged by renaming.
+- Codex uses a transparent logo mask tinted for the current light or dark theme.
+
+### About and build identity
+- About displays the package version and the source commit embedded at build time, not hardcoded release text.
+- Local modified builds are marked **uncommitted changes**. Builds from source archives without Git metadata explicitly report that the commit is unavailable.
+
+### Automatic updates
+- Installed Windows builds check stable GitHub Releases on startup and periodically, then download newer versions in the background.
+- About shows update status and offers a manual check and restart-to-install action. Download errors are shown there.
+- Installing an update requires an explicit restart action and confirmation before closing active agent sessions; background downloads never restart the app by themselves.
+- Source/development runs do not install updates.
+- Release publishers must upload the installer, its `.blockmap`, and `latest.yml` together. Commit the version change before building so About records the exact release commit.
 
 ### Explorer
 - Right-click menu: New File / New Folder / Rename / Cut / Copy / Paste / Open / Reveal / **Delete to Recycle Bin**

@@ -1,7 +1,7 @@
 import { createReadStream } from 'fs';
 import { readdir, stat, readFile, rm } from 'fs/promises';
 import { createInterface } from 'readline';
-import { join, normalize } from 'path';
+import { join, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject } from './config';
 import {
@@ -16,6 +16,10 @@ import {
   type CopilotScanResult,
 } from './project-policies';
 import type { Project, AgentId } from '../shared/types';
+import type { NewProjectOptions } from '../shared/types';
+import { preferences } from './preferences-store';
+import { createProjectWorktree, findProjectRepositoryRoot } from './worktrees';
+import { AGENT_IDS } from './agent-providers';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -361,7 +365,7 @@ async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Prom
   }));
 }
 
-export async function listProjects(): Promise<Project[]> {
+async function listDiscoveredProjects(): Promise<Project[]> {
   const cfg = await loadConfig();
   const pinned = new Set(cfg.pinned);
   const hidden = new Set(cfg.hidden);
@@ -400,7 +404,105 @@ export async function listProjects(): Promise<Project[]> {
   return out;
 }
 
+export async function listProjects(): Promise<Project[]> {
+  const [discovered, stored, cfg] = await Promise.all([
+    listDiscoveredProjects(), preferences.read(), loadConfig(),
+  ]);
+  const out = [...discovered];
+  for (const registered of stored.projects) {
+    const match = discovered.find((project) =>
+      project.agent === registered.agent
+      && normalizeProjectPath(project.realPath) === normalizeProjectPath(registered.historyPath ?? registered.realPath));
+    if (match) {
+      const project = {
+        ...match, id: registered.id, realPath: registered.realPath, historyProjectId: match.id,
+        displayName: displayNameFor(registered.realPath),
+        exists: await pathExists(registered.realPath),
+        pinned: cfg.pinned.includes(registered.id),
+        hidden: cfg.hidden.includes(registered.id),
+      };
+      const index = out.findIndex((p) => p.id === match.id);
+      if (index >= 0) out.splice(index, 1, project);
+      else out.push(project);
+      continue;
+    }
+    out.push({
+      ...registered,
+      dirName: `manual:${registered.realPath}`,
+      displayName: displayNameFor(registered.realPath),
+      exists: await pathExists(registered.realPath),
+      pinned: cfg.pinned.includes(registered.id),
+      hidden: cfg.hidden.includes(registered.id),
+      sessionCount: 0,
+      lastActivity: null,
+    });
+  }
+  return out.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.agent === b.agent) {
+      const order = cfg.projectOrder[a.agent] ?? [];
+      const ai = order.indexOf(a.id);
+      const bi = order.indexOf(b.id);
+      if (ai !== bi) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
+    }
+    return (b.lastActivity ?? 0) - (a.lastActivity ?? 0);
+  });
+}
+
+export async function createProject(options: NewProjectOptions): Promise<Project> {
+  if (!options || !AGENT_IDS.includes(options.agent)) throw new Error('Choose a valid agent.');
+  if (options.mode !== 'folder' && options.mode !== 'worktree') throw new Error('Invalid project mode.');
+  if (typeof options.basePath !== 'string' || !isAbsolute(options.basePath)
+    || !await pathExists(options.basePath)) {
+    throw new Error('Choose an existing absolute project folder.');
+  }
+  const realPath = options.mode === 'worktree'
+    ? await createProjectWorktree({
+        basePath: options.basePath,
+        branch: options.branch ?? '',
+        startPoint: options.startPoint || 'HEAD',
+        targetPath: options.targetPath ?? '',
+      })
+    : normalize(options.basePath);
+  const existing = (await listProjects()).find((project) =>
+    project.agent === options.agent && normalizeProjectPath(project.realPath) === normalizeProjectPath(realPath));
+  const id = existing?.id ?? `${options.agent}:manual:${normalizeProjectPath(realPath)}`;
+  const historyPath = options.agent === 'copilot'
+    ? await findProjectRepositoryRoot(realPath) ?? realPath
+    : realPath;
+  try {
+    await preferences.registerProject({ id, agent: options.agent, realPath, historyPath });
+  } catch (error) {
+    throw new Error(`Folder is ready at "${realPath}", but saving the project failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return existing ?? {
+    id, agent: options.agent, realPath, dirName: `manual:${realPath}`,
+    displayName: displayNameFor(realPath), exists: true, pinned: false,
+    hidden: false, sessionCount: 0, lastActivity: null,
+  };
+}
+
+export async function resolveHistoryProjectId(projectId: string): Promise<string | null> {
+  const registered = (await preferences.read()).projects.find((p) => p.id === projectId);
+  if (!registered && projectId.includes(':manual:')) throw new Error(`Unknown registered project: ${projectId}`);
+  if (!registered || !projectId.includes(':manual:')) return projectId;
+  return (await listDiscoveredProjects()).find((project) =>
+    project.agent === registered.agent
+    && normalizeProjectPath(project.realPath) === normalizeProjectPath(registered.historyPath ?? registered.realPath))?.id ?? null;
+}
+
 async function deleteProjectHistory(projectId: string): Promise<void> {
+  const registered = (await preferences.read()).projects.find((p) => p.id === projectId);
+  if (registered?.agent === 'copilot' && registered.historyPath
+    && normalizeProjectPath(registered.realPath) !== normalizeProjectPath(registered.historyPath)) {
+    // Subfolder registrations share repository history with other workspaces.
+    return;
+  }
+  if (projectId.includes(':manual:')) {
+    const historyId = await resolveHistoryProjectId(projectId);
+    if (historyId) await deleteProjectHistory(historyId);
+    return;
+  }
   const colon = projectId.indexOf(':');
   if (colon < 0) throw new Error(`Invalid projectId: ${projectId}`);
   const agent = projectId.slice(0, colon) as AgentId;
@@ -440,6 +542,7 @@ export async function deleteProject(projectId: string): Promise<void> {
     [projectId],
   );
   await forgetProject(projectId);
+  await preferences.forgetProject(projectId);
 }
 
 export async function deleteMissingProjects(projectIds: string[]): Promise<void> {
@@ -457,5 +560,6 @@ export async function deleteMissingProjects(projectIds: string[]): Promise<void>
       [project.id],
     );
     await forgetProject(project.id);
+    await preferences.forgetProject(project.id);
   }
 }

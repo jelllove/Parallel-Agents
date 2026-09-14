@@ -26,3 +26,8 @@ test('uses login shell on non-windows default profile', () => {
   assert.equal(launch.command, '/bin/zsh');
   assert.deepEqual(launch.args, ['-l']);
 });
+
+test('retains synchronous fallback behavior for arbitrary profile strings', () => {
+  assert.deepEqual(resolveShellLaunch('win32', 'wsl:Ubuntu', null), { command: 'powershell.exe', args: [] });
+  assert.deepEqual(resolveShellLaunch('linux', 'fish', '/bin/zsh'), { command: '/bin/zsh', args: ['-l'] });
+});

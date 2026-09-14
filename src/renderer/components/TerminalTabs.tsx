@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import { TerminalPane } from './TerminalPane';
 import { CloseTabConfirmDialog } from './CloseTabConfirmDialog';
-import { agentIconUrl } from '../icons/agentIcons';
+import { AgentIcon } from './AgentIcon';
 import type { AgentId, Project } from '../../shared/types';
 import type { SessionShellProfile } from '../../shared/session-terminals';
 import { agentTerminalKey, sessionTabLabelSuffix, shellTerminalKey } from '../../shared/session-terminals';
+import { ShellPicker } from './ShellPicker';
+import { RenameSessionDialog } from './RenameSessionDialog';
+import { SessionLinkDialog } from './SessionLinkDialog';
 
 interface TabEntry {
   tabId: string;
@@ -44,9 +47,13 @@ export function TerminalTabs() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [shellPicker, setShellPicker] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState<{ projectId: string; sessionId: string; title: string } | null>(null);
+  const projects = useAppStore((s) => s.projects);
+  const sessionLinkRequest = useAppStore((s) => s.sessionLinkRequest);
 
   const tabEntries = useMemo<TabEntry[]>(() => {
-    return openTabs.flatMap((tabId) => {
+    return openTabs.flatMap<TabEntry>((tabId) => {
       const projectId = tabProjectId[tabId] ?? tabId;
       const project = findProject(projectId);
       if (!project) return [];
@@ -67,15 +74,24 @@ export function TerminalTabs() {
         tabId,
         project,
         sessionId,
-        label: `${project.displayName} · ${suffix}`,
+        label: suffix,
       }];
     });
-  }, [openTabs, tabProjectId, findProject, tabSessionId, sessionsByProject]);
+  }, [openTabs, tabProjectId, findProject, tabSessionId, sessionsByProject, projects]);
   const tabEntryById = useMemo(
     () => new Map(tabEntries.map((entry) => [entry.tabId, entry])),
     [tabEntries],
   );
-  const isWindows = navigator.userAgent.toLowerCase().includes('windows');
+  function renameTab(tabId: string) {
+    const entry = tabEntryById.get(tabId);
+    if (entry && !entry.sessionId) {
+      useAppStore.getState().requestSessionLink({ tabId, renameAfterLink: true });
+      return;
+    }
+    if (entry?.sessionId) setRenaming({
+      projectId: entry.project.id, sessionId: entry.sessionId, title: entry.label,
+    });
+  }
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -142,6 +158,10 @@ export function TerminalTabs() {
 
   return (
     <>
+      {sessionLinkRequest && <SessionLinkDialog request={sessionLinkRequest}
+        onLinked={(projectId, session) => {
+          if (sessionLinkRequest.renameAfterLink) setRenaming({ projectId, sessionId: session.id, title: session.title });
+        }} />}
       <div className="tab-bar" onClick={() => setContextMenu(null)}>
         {tabEntries.map((entry) => {
           const ag: AgentId = tabAgent[entry.tabId] ?? entry.project.agent;
@@ -159,6 +179,7 @@ export function TerminalTabs() {
                 dragOverId === entry.tabId ? 'drag-over' : '',
               ].filter(Boolean).join(' ')}
               onClick={() => setActiveTab(entry.tabId)}
+              onDoubleClick={() => renameTab(entry.tabId)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setContextMenu({ x: event.clientX, y: event.clientY, id: entry.tabId });
@@ -169,7 +190,7 @@ export function TerminalTabs() {
                 entry.sessionId ?? null,
               ].filter(Boolean).join(' · ')}
             >
-              <img src={agentIconUrl(ag)} className="tab-icon" width={16} height={16} alt="" draggable={false} />
+              <AgentIcon agent={ag} className="tab-icon" />
               <span>{entry.label}</span>
               <span
                 className="close"
@@ -215,49 +236,18 @@ export function TerminalTabs() {
             Close All
           </div>
           <div className="ctx-menu-divider" />
-          {isWindows ? (
-            <>
-              <div
-                className="ctx-menu-item"
-                onClick={() => {
-                  openShellForTab(contextMenu.id, 'powershell');
-                  setContextMenu(null);
-                }}
-              >
-                Open Shell (PowerShell)
-              </div>
-              <div
-                className="ctx-menu-item"
-                onClick={() => {
-                  openShellForTab(contextMenu.id, 'bash');
-                  setContextMenu(null);
-                }}
-              >
-                Open Shell (Bash)
-              </div>
-              <div
-                className="ctx-menu-item"
-                onClick={() => {
-                  openShellForTab(contextMenu.id, 'cmd');
-                  setContextMenu(null);
-                }}
-              >
-                Open Shell (CMD)
-              </div>
-            </>
-          ) : (
-            <div
-              className="ctx-menu-item"
-              onClick={() => {
-                openShellForTab(contextMenu.id, 'default');
-                setContextMenu(null);
-              }}
-            >
-              Open Shell
-            </div>
-          )}
+          <button className="ctx-menu-item"
+            onClick={() => { renameTab(contextMenu.id); setContextMenu(null); }}>Rename session...</button>
+          <button className="ctx-menu-item" onClick={() => {
+            setShellPicker(contextMenu); setContextMenu(null);
+          }}>Open Shell...</button>
         </div>
       )}
+      {shellPicker && <ShellPicker x={shellPicker.x} y={shellPicker.y}
+        onClose={() => setShellPicker(null)} onPick={(shell) => {
+          openShellForTab(shellPicker.id, shell.id); setShellPicker(null);
+        }} />}
+      {renaming && <RenameSessionDialog {...renaming} onClose={() => setRenaming(null)} />}
       <div className="terminal-host">
         {openTabs.length === 0 ? (
           <div className="empty-state">
@@ -270,20 +260,24 @@ export function TerminalTabs() {
               <div className="terminal-shell-toolbar">
                 <button
                   className="terminal-shell-toggle"
-                  onClick={() => {
+                  onClick={(event) => {
                     if (tabShellVisible[activeTabId]) {
                       setTabShellVisible(activeTabId, false);
                     } else {
-                      openShellForTab(activeTabId);
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setShellPicker({ id: activeTabId, x: rect.left, y: rect.bottom + 4 });
                     }
                   }}
                 >
                   {tabShellVisible[activeTabId] ? 'Hide Shell' : 'Show Shell'}
                 </button>
                 {tabShellOpened[activeTabId] && (
-                  <span className="terminal-shell-meta">
+                  <button className="terminal-shell-meta" title="Change shell" onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setShellPicker({ id: activeTabId, x: rect.left, y: rect.bottom + 4 });
+                  }}>
                     {tabShellProfile[activeTabId] ?? 'default'}
-                  </span>
+                  </button>
                 )}
               </div>
             )}

@@ -6,6 +6,13 @@ export interface TabState {
   activeTabId: string | null;
 }
 
+export function nextSessionTab(openTabs: string[], activeTabId: string | null, backwards = false): string | null {
+  if (openTabs.length === 0) return null;
+  const index = activeTabId ? openTabs.indexOf(activeTabId) : -1;
+  if (index < 0) return backwards ? openTabs[openTabs.length - 1] : openTabs[0];
+  return openTabs[(index + (backwards ? -1 : 1) + openTabs.length) % openTabs.length];
+}
+
 export function omitRecordKeys<T>(
   record: Record<string, T>,
   keys: string[],

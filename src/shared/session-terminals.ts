@@ -1,4 +1,4 @@
-export type SessionShellProfile = 'default' | 'powershell' | 'bash' | 'cmd';
+export type SessionShellProfile = string;
 
 const AGENT_SUFFIX = '::agent';
 const SHELL_PREFIX = '::shell:';

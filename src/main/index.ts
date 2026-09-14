@@ -4,11 +4,14 @@ import { join } from 'path';
 import { registerIpc } from './ipc';
 import { ptyManager } from './pty-manager';
 import * as git from './git';
+import { UpdateController } from './update-controller';
 
 let mainWindow: BrowserWindow | null = null;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 let tray: Tray | null = null;
 let isQuitting = false;
+let quitInProgress = false;
+let updates: UpdateController;
 const APP_USER_MODEL_ID = 'com.jelllove.parallelagents';
 
 function prepareToQuit(): void {
@@ -80,7 +83,7 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
-  registerIpc(mainWindow);
+  registerIpc(mainWindow, updates);
 }
 
 function showOrFocus(): void {
@@ -90,39 +93,42 @@ function showOrFocus(): void {
   mainWindow.focus();
 }
 
-async function quitWithConfirm(): Promise<void> {
-  if (!mainWindow) {
+async function quitWithConfirm(install?: () => void): Promise<boolean> {
+  if (quitInProgress || isQuitting) return false;
+  quitInProgress = true;
+  try {
+    // Never install without a visible confirmation, even if the renderer cannot
+    // report its tabs (a failed renderer does not imply there are no agents).
+    if (install && (!mainWindow || mainWindow.isDestroyed())) {
+      throw new Error('Open the application window before restarting to update.');
+    }
+    const tabs: string[] = mainWindow
+      ? await mainWindow.webContents
+        .executeJavaScript('window.__getOpenTabs ? window.__getOpenTabs() : []')
+        .catch(() => [])
+      : [];
+
+    if (mainWindow && (tabs.length > 0 || install)) {
+      showOrFocus();
+      const list = tabs.map((t, i) => `  ${i + 1}. ${t}`).join('\n');
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        title: install ? 'Restart to update Parallel Agents' : 'Quit Parallel Agents',
+        message: install ? 'Close all agent sessions and restart to install the update?' : 'Close all open agent sessions and quit?',
+        detail: `Open sessions (${tabs.length}):\n${list}${install ? '\n\nAll running agents and terminals will be stopped. Save your work before continuing.' : ''}`,
+        buttons: [install ? 'Close all & restart' : 'Close all & quit', 'Cancel'],
+        defaultId: install ? 1 : 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (result.response !== 0) return false;
+    }
     prepareToQuit();
-    app.quit();
-    return;
-  }
-
-  const tabs: string[] = await mainWindow.webContents
-    .executeJavaScript('window.__getOpenTabs ? window.__getOpenTabs() : []')
-    .catch(() => []);
-
-  if (tabs.length === 0) {
-    prepareToQuit();
-    app.quit();
-    return;
-  }
-
-  showOrFocus();
-  const list = tabs.map((t, i) => `  ${i + 1}. ${t}`).join('\n');
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    title: 'Quit Parallel Agents',
-    message: `Close all open agent sessions and quit?`,
-    detail: `Open sessions (${tabs.length}):\n${list}`,
-    buttons: ['Close all & quit', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  });
-
-  if (result.response === 0) {
-    prepareToQuit();
-    app.quit();
+    if (install) install();
+    else app.quit();
+    return true;
+  } finally {
+    quitInProgress = false;
   }
 }
 
@@ -152,12 +158,28 @@ function toggleVisibility(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const { default: electronUpdater } = await import('electron-updater');
+  const { autoUpdater } = electronUpdater;
+  updates = new UpdateController({
+    updater: autoUpdater,
+    enabled: app.isPackaged && process.platform === 'win32',
+    currentVersion: app.getVersion(),
+    confirmAndInstall: (install) => quitWithConfirm(install),
+    onInstallError: () => {
+      isQuitting = false;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        ptyManager.attachWindow(mainWindow);
+        git.attachWindow(mainWindow);
+      }
+    },
+  });
   if (process.platform === 'win32') {
     app.setAppUserModelId(APP_USER_MODEL_ID);
   }
   createWindow();
   createTray();
+  updates.start();
 
   globalShortcut.register('F11', () => {
     if (mainWindow && mainWindow.isFocused()) {
@@ -171,8 +193,8 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', (e: Event) => {
-  if (!isQuitting) e.preventDefault();
+app.on('window-all-closed', () => {
+  // Subscribing suppresses automatic exit so the tray remains available.
 });
 
 app.on('before-quit', (e) => {
@@ -185,5 +207,6 @@ app.on('before-quit', (e) => {
 });
 
 app.on('will-quit', () => {
+  updates?.dispose();
   globalShortcut.unregisterAll();
 });
