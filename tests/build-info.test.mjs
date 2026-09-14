@@ -20,3 +20,18 @@ test('source archives explicitly report unavailable commit metadata', async (t) 
   await writeFile(join(root, 'package.json'), JSON.stringify({ version: '2.3.4' }));
   assert.deepEqual(getBuildInfo(root), { version: '2.3.4', commit: null, dirty: false });
 });
+
+test('temporary electron-vite loaders do not mark a clean release as modified', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'pa-build-clean-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  await writeFile(join(root, 'package.json'), JSON.stringify({ version: '1.0.0' }));
+  await writeFile(join(root, '.gitignore'), await readFile(new URL('../.gitignore', import.meta.url)));
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=Release Test', '-c', 'user.email=release-test@example.invalid', 'commit', '-qm', 'fixture');
+  await writeFile(join(root, 'electron.vite.config.1234567890123.mjs'), '// generated loader');
+  assert.equal(getBuildInfo(root).dirty, false);
+  await writeFile(join(root, 'unfinished.ts'), '// real uncommitted source');
+  assert.equal(getBuildInfo(root).dirty, true);
+});
