@@ -1,9 +1,8 @@
-import { createReadStream } from 'fs';
 import { readdir, stat, readFile, rm } from 'fs/promises';
-import { createInterface } from 'readline';
 import { join, normalize } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject } from './config';
+import { readCopilotSessionStart } from './session-metadata.ts';
 import type { Project, AgentId } from '../shared/types';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
@@ -76,72 +75,8 @@ function normalizeProjectPath(p: string): string {
   return process.platform === 'win32' ? n.toLowerCase() : n;
 }
 
-interface CopilotSessionStartMeta {
-  sessionId: string | null;
-  projectPath: string;
-  timestamp: number;
-}
-
-async function readCopilotSessionStart(eventsPath: string): Promise<CopilotSessionStartMeta | null> {
-  return new Promise((resolve) => {
-    const rl = createInterface({
-      input: createReadStream(eventsPath, { encoding: 'utf-8' }),
-      crlfDelay: Infinity,
-    });
-    let done = false;
-    let scanned = 0;
-    rl.on('line', (line) => {
-      if (done || !line.trim()) return;
-      scanned++;
-      let rec: any;
-      try {
-        rec = JSON.parse(line);
-      } catch {
-        if (scanned >= 20) {
-          done = true;
-          rl.close();
-          resolve(null);
-        }
-        return;
-      }
-      if (rec?.type !== 'session.start') {
-        if (scanned >= 20) {
-          done = true;
-          rl.close();
-          resolve(null);
-        }
-        return;
-      }
-      const ctx = rec?.data?.context;
-      const rawProjectPath = typeof ctx?.gitRoot === 'string' && ctx.gitRoot
-        ? ctx.gitRoot
-        : (typeof ctx?.cwd === 'string' && ctx.cwd ? ctx.cwd : null);
-      if (!rawProjectPath) {
-        done = true;
-        rl.close();
-        resolve(null);
-        return;
-      }
-      const rawTs = typeof rec?.data?.startTime === 'string'
-        ? Date.parse(rec.data.startTime)
-        : NaN;
-      done = true;
-      rl.close();
-      resolve({
-        sessionId: typeof rec?.data?.sessionId === 'string' ? rec.data.sessionId : null,
-        projectPath: normalize(rawProjectPath),
-        timestamp: Number.isFinite(rawTs) ? rawTs : 0,
-      });
-    });
-    rl.on('close', () => {
-      if (!done) resolve(null);
-    });
-    rl.on('error', () => resolve(null));
-  });
-}
-
 async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
-  let entries: string[] = [];
+  let entries: string[];
   try {
     entries = await readdir(CLAUDE_ROOT);
   } catch {
@@ -192,7 +127,7 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
 }
 
 async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
-  let entries: string[] = [];
+  let entries: string[];
   try {
     entries = await readdir(GEMINI_TMP_ROOT);
   } catch {
@@ -208,7 +143,7 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
       continue;
     }
 
-    let realPath = '';
+    let realPath: string;
     try {
       realPath = (await readFile(join(full, '.project_root'), 'utf-8')).trim();
     } catch {
@@ -250,18 +185,21 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
 }
 
 async function listCopilotProjects(pinned: Set<string>, hidden: Set<string>): Promise<Project[]> {
-  let entries: string[] = [];
+  let entries: string[];
   try {
     entries = await readdir(COPILOT_SESSION_STATE_ROOT);
   } catch {
     return [];
   }
 
-  const grouped = new Map<string, {
-    realPath: string;
-    sessionCount: number;
-    lastActivity: number | null;
-  }>();
+  const grouped = new Map<
+    string,
+    {
+      realPath: string;
+      sessionCount: number;
+      lastActivity: number | null;
+    }
+  >();
 
   for (const dirName of entries) {
     const sessionDir = join(COPILOT_SESSION_STATE_ROOT, dirName);
@@ -363,14 +301,21 @@ export async function deleteProject(projectId: string): Promise<void> {
     await rm(join(GEMINI_TMP_ROOT, dirName), { recursive: true, force: true });
   } else if (agent === 'copilot') {
     const target = normalizeProjectPath(dirName);
-    let entries: string[] = [];
+    let entries: string[];
     try {
       entries = await readdir(COPILOT_SESSION_STATE_ROOT);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
       entries = [];
     }
     for (const sessionDirName of entries) {
       const sessionDir = join(COPILOT_SESSION_STATE_ROOT, sessionDirName);
+      try {
+        if (!(await stat(sessionDir)).isDirectory()) continue;
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+        throw error;
+      }
       const eventsPath = join(sessionDir, 'events.jsonl');
       const meta = await readCopilotSessionStart(eventsPath);
       if (!meta) continue;

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jelllove/Parallel-Agents/schemas/validation-report.v1.schema.json",
+  "title": "Validation workflow receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceSource",
+    "generatedAt",
+    "platform",
+    "status",
+    "checks",
+    "guidance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "evidenceSource": { "const": "workflow-step-outcomes" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "platform": { "enum": ["Windows", "Linux"] },
+    "status": { "enum": ["success", "failure", "cancelled", "incomplete"] },
+    "checks": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "command", "outcome", "required"],
+        "properties": {
+          "name": {
+            "enum": [
+              "install",
+              "lint",
+              "format",
+              "typecheck",
+              "tests",
+              "docs",
+              "build",
+              "native",
+              "audit"
+            ]
+          },
+          "command": { "type": "string", "minLength": 1 },
+          "outcome": { "enum": ["success", "failure", "cancelled", "skipped"] },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "guidance": { "type": "array", "items": { "type": "string" } }
+  }
+}

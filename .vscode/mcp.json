@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "parallel-agents-engineering": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/mcp-server.mjs"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

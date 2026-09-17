@@ -1,0 +1,4 @@
+title = "Parallel Agents source secret detection"
+
+[extend]
+useDefault = true

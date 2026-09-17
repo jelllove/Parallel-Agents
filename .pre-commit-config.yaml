@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: repository-check
+        name: Repository validation (read-only working-tree checks)
+        language: system
+        entry: npm run check
+        pass_filenames: false
+        always_run: true

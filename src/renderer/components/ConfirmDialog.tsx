@@ -56,7 +56,9 @@ export function ConfirmDialog({
           </label>
         </div>
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
           <button
             className={destructive ? 'btn-danger' : 'btn-primary'}
             disabled={!canConfirm}

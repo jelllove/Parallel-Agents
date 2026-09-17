@@ -12,7 +12,23 @@ import {
   revealInExplorer,
   openWithDefault,
 } from './fs-explorer';
-import { loadConfig, saveConfig, setLastAgent, getLastAgent, setProjectOrder, getLayout, setLayout, getTheme, setTheme, getConfirmOnCloseTab, setConfirmOnCloseTab, getTerminalMultilineEnter, setTerminalMultilineEnter, getTerminalCopyPaste, setTerminalCopyPaste } from './config';
+import {
+  setProjectPinned,
+  setProjectHidden,
+  setLastAgent,
+  getLastAgent,
+  setProjectOrder,
+  getLayout,
+  setLayout,
+  getTheme,
+  setTheme,
+  getConfirmOnCloseTab,
+  setConfirmOnCloseTab,
+  getTerminalMultilineEnter,
+  setTerminalMultilineEnter,
+  getTerminalCopyPaste,
+  setTerminalCopyPaste,
+} from './config';
 import { ptyManager } from './pty-manager';
 import { checkAllAgents, listAgents } from './agent-providers';
 import * as git from './git';
@@ -24,19 +40,11 @@ export function registerIpc(win: BrowserWindow) {
 
   ipcMain.handle('projects:list', () => listProjects());
 
-  ipcMain.handle('projects:pin', async (_e, id: string, pinned: boolean) => {
-    const cfg = await loadConfig();
-    const set = new Set(cfg.pinned);
-    if (pinned) set.add(id); else set.delete(id);
-    await saveConfig({ ...cfg, pinned: [...set] });
-  });
+  ipcMain.handle('projects:pin', (_e, id: string, pinned: boolean) => setProjectPinned(id, pinned));
 
-  ipcMain.handle('projects:hide', async (_e, id: string, hidden: boolean) => {
-    const cfg = await loadConfig();
-    const set = new Set(cfg.hidden);
-    if (hidden) set.add(id); else set.delete(id);
-    await saveConfig({ ...cfg, hidden: [...set] });
-  });
+  ipcMain.handle('projects:hide', (_e, id: string, hidden: boolean) =>
+    setProjectHidden(id, hidden),
+  );
 
   ipcMain.handle('projects:delete', (_e, id: string) => deleteProject(id));
   ipcMain.handle('projects:setOrder', (_e, agent: AgentId, ids: string[]) =>
@@ -62,9 +70,29 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle('pty:spawn', (_e, opts: { projectId: string; cwd: string; cols: number; rows: number; initialCommand?: string; extraPath?: string[] }) => {
-    ptyManager.spawn(opts.projectId, opts.cwd, opts.cols, opts.rows, opts.initialCommand, opts.extraPath);
-  });
+  ipcMain.handle(
+    'pty:spawn',
+    (
+      _e,
+      opts: {
+        projectId: string;
+        cwd: string;
+        cols: number;
+        rows: number;
+        initialCommand?: string;
+        extraPath?: string[];
+      },
+    ) => {
+      ptyManager.spawn(
+        opts.projectId,
+        opts.cwd,
+        opts.cols,
+        opts.rows,
+        opts.initialCommand,
+        opts.extraPath,
+      );
+    },
+  );
   ipcMain.handle('pty:write', (_e, projectId: string, data: string) => {
     ptyManager.write(projectId, data);
   });
@@ -98,7 +126,9 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('config:getConfirmOnCloseTab', () => getConfirmOnCloseTab());
   ipcMain.handle('config:setConfirmOnCloseTab', (_e, v: boolean) => setConfirmOnCloseTab(v));
   ipcMain.handle('config:getTerminalMultilineEnter', () => getTerminalMultilineEnter());
-  ipcMain.handle('config:setTerminalMultilineEnter', (_e, v: boolean) => setTerminalMultilineEnter(v));
+  ipcMain.handle('config:setTerminalMultilineEnter', (_e, v: boolean) =>
+    setTerminalMultilineEnter(v),
+  );
   ipcMain.handle('config:getTerminalCopyPaste', () => getTerminalCopyPaste());
   ipcMain.handle('config:setTerminalCopyPaste', (_e, v: boolean) => setTerminalCopyPaste(v));
 
@@ -106,7 +136,9 @@ export function registerIpc(win: BrowserWindow) {
   ipcMain.handle('git:diff', (_e, repoPath: string, filePath: string, staged: boolean) =>
     git.getDiff(repoPath, filePath, staged),
   );
-  ipcMain.handle('git:stage', (_e, repoPath: string, files: string[]) => git.stage(repoPath, files));
+  ipcMain.handle('git:stage', (_e, repoPath: string, files: string[]) =>
+    git.stage(repoPath, files),
+  );
   ipcMain.handle('git:unstage', (_e, repoPath: string, files: string[]) =>
     git.unstage(repoPath, files),
   );

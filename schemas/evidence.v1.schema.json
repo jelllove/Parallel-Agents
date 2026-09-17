@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source-bound engineering evidence envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "origin",
+    "generatedAt",
+    "source",
+    "artifacts",
+    "independentExecutionProof"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "origin": { "enum": ["workflow-step-outcomes", "local-command", "local-maintenance-fixture"] },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "independentExecutionProof": { "const": false },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "contentSha256", "dirty", "paths", "scope"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
+        "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "dirty": { "type": "boolean" },
+        "paths": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "scope": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "bytes"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0, "maximum": 4194304 }
+        }
+      }
+    }
+  }
+}

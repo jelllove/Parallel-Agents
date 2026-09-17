@@ -20,7 +20,9 @@ export function AboutDialog({ onClose }: Props) {
         <div className="modal-header">
           <ClaudeIcon size={20} />
           <span>About Parallel Agents</span>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={onClose}>
+            ×
+          </button>
         </div>
         <div className="modal-body">
           <p className="about-tagline">
@@ -39,7 +41,9 @@ export function AboutDialog({ onClose }: Props) {
                   e.preventDefault();
                   window.api.shell?.openExternal('mailto:jelllove@gmail.com');
                 }}
-              >jelllove@gmail.com</a>
+              >
+                jelllove@gmail.com
+              </a>
             </dd>
             <dt>Built with</dt>
             <dd>Electron · React · xterm.js · node-pty</dd>

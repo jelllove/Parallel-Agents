@@ -1,20 +1,24 @@
-# docs/
+# Documentation assets
 
-This folder hosts images referenced by the project README:
+Current behavior and contributor commands are documented in the
+[project README](../README.md), [architecture](../ARCHITECTURE.md), and
+[contribution guide](../CONTRIBUTING.md). Historical design material under
+`superpowers` is not an executable description of the current application.
 
-| File | Purpose | Suggested size |
-|---|---|---|
-| `hero.png` | Top banner / hero screenshot at the top of `README.md` | 1600 × 900 |
-| `screenshot-main.png` | Main window — three-column layout | 1280 × 800 |
-| `screenshot-diff.png` | Monaco diff window | 1280 × 800 |
-| `screenshot-layout.png` | Layout picker popover | 1280 × 800 |
-| `screenshot-explorer.png` | Explorer right-click menu | 1280 × 800 |
+Screenshot placeholder files are not supplied. The README's demo artwork is
+separate from screenshots of a verified running build.
 
-## How to capture
+## Capture review evidence
 
-1. Run `npm run release` and launch `release/latest/Parallel Agents.exe`.
-2. Use the Windows **Snipping Tool** (`Win + Shift + S`) or **ShareX** for higher quality.
-3. Save as PNG into this folder using the filenames above — the README will pick them up automatically.
-4. For an animated hero, replace `hero.png` with `hero.gif` (≤ 5 MB recommended) and update the `<img>` tag in `README.md`.
+1. On Windows, run `npm run build` followed by `npm run test:smoke`.
+2. Inspect the generated `reports/smoke.json` and `reports/smoke.png`.
+   These show isolated fixture data and inert CLI shims, not live AI-provider
+   sessions. `npm run pack` also generates packaged-payload smoke evidence.
+3. For interactive changes, capture the affected feature with the Windows
+   Snipping Tool or ShareX. Use a consistent window size and identify the theme.
+4. Remove private paths, prompts, credentials, and session content before sharing.
+   Attach before/after evidence to the pull request.
 
-> Tip: for the cleanest look, set the window to a fixed size (e.g. 1280×800) before capturing, and use the default dark theme.
+Generated reports are ignored by Git. If an approved screenshot is intentionally
+added here, update its README reference explicitly; files are not discovered or
+published automatically.

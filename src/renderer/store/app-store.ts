@@ -1,6 +1,15 @@
 import { create } from 'zustand';
-import type { Project, Session, AgentId, AgentInfo, AgentStatus, GitStatus, LayoutConfig, ThemeMode } from '../../shared/types';
-import { startCommandFor, resumeCommandFor, extraPathFor } from '../icons/agentIcons';
+import type {
+  Project,
+  Session,
+  AgentId,
+  AgentInfo,
+  AgentStatus,
+  GitStatus,
+  LayoutConfig,
+  ThemeMode,
+} from '../../shared/types';
+import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/agent-commands.ts';
 
 interface PendingLaunch {
   command: string;
@@ -44,7 +53,12 @@ interface AppState {
   selectProject: (id: string) => Promise<void>;
   openProjectFromList: (id: string) => Promise<void>;
   requestSessionSelection: (projectId: string) => void;
-  openTabWithAgent: (projectId: string, agentId: AgentId, startCommand: string, extraPath?: string[]) => Promise<void>;
+  openTabWithAgent: (
+    projectId: string,
+    agentId: AgentId,
+    startCommand: string,
+    extraPath?: string[],
+  ) => Promise<void>;
   setActiveTab: (id: string) => void;
   closeTab: (id: string) => void;
   setShowHidden: (v: boolean) => void;
@@ -55,7 +69,11 @@ interface AppState {
   reorderProjects: (agent: AgentId, fromId: string, toId: string) => Promise<void>;
   loadSessions: (projectId: string) => Promise<void>;
   deleteSession: (projectId: string, sessionId: string) => Promise<void>;
-  newSessionFromDialog: (agentId: AgentId, startCommand: string, extraPath?: string[]) => Promise<void>;
+  newSessionFromDialog: (
+    agentId: AgentId,
+    startCommand: string,
+    extraPath?: string[],
+  ) => Promise<void>;
   consumePendingCommand: (projectId: string) => PendingLaunch | undefined;
   findProject: (id: string) => Project | undefined;
   getProjectAgent: (projectId: string) => Promise<AgentId>;
@@ -72,7 +90,12 @@ interface AppState {
   setTerminalMultilineEnter: (v: boolean) => Promise<void>;
   setTerminalCopyPaste: (v: boolean) => Promise<void>;
   reorderTabs: (fromId: string, toId: string) => void;
-  restartTabWithCommand: (projectId: string, agentId: AgentId, command: string, extraPath?: string[]) => Promise<void>;
+  restartTabWithCommand: (
+    projectId: string,
+    agentId: AgentId,
+    command: string,
+    extraPath?: string[],
+  ) => Promise<void>;
 }
 
 function displayNameFor(realPath: string): string {
@@ -141,11 +164,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().inventoryRefreshing) return;
     set({ inventoryRefreshing: true });
     try {
-      await Promise.all([
-        get().loadProjects(),
-        get().loadAgents(),
-        get().checkAgents(),
-      ]);
+      await Promise.all([get().loadProjects(), get().loadAgents(), get().checkAgents()]);
 
       const selectedId = get().selectedProjectId;
       if (!selectedId) return;
@@ -221,8 +240,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async openTabWithAgent(projectId, agentId, startCommand, extraPath = []) {
-    const { openTabs } = get();
     await window.api.config.setLastAgent(projectId, agentId);
+    const { openTabs } = get();
     const pending: PendingLaunch = { command: startCommand, extraPath };
     const next: Partial<AppState> = {
       tabAgent: { ...get().tabAgent, [projectId]: agentId },
@@ -232,7 +251,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!openTabs.includes(projectId)) {
       next.openTabs = [...openTabs, projectId];
     }
-    set(next as AppState);
+    set(next);
   },
 
   closeTab(id) {
@@ -245,12 +264,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     window.api.pty.kill(id);
     const nextTabAgent = { ...tabAgent };
+    const pendingInitialCommand = { ...get().pendingInitialCommand };
+    const tabRespawnNonce = { ...get().tabRespawnNonce };
     delete nextTabAgent[id];
+    delete pendingInitialCommand[id];
+    delete tabRespawnNonce[id];
     set({
       openTabs: next,
       activeTabId: nextActive,
       adhocProjects: adhocProjects.filter((p) => p.id !== id),
       tabAgent: nextTabAgent,
+      pendingInitialCommand,
+      tabRespawnNonce,
     });
   },
 
@@ -303,7 +328,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async reorderProjects(agent, fromId, toId) {
     if (fromId === toId) return;
-    const groupIds = get().projects.filter((p) => p.agent === agent).map((p) => p.id);
+    const groupIds = get()
+      .projects.filter((p) => p.agent === agent)
+      .map((p) => p.id);
     const fromIdx = groupIds.indexOf(fromId);
     const toIdx = groupIds.indexOf(toId);
     if (fromIdx < 0 || toIdx < 0) return;
@@ -393,7 +420,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async setLayout(layout) {
     set({ layout });
-    if (layoutWriteTimer) { clearTimeout(layoutWriteTimer); layoutWriteTimer = null; }
+    if (layoutWriteTimer) {
+      clearTimeout(layoutWriteTimer);
+      layoutWriteTimer = null;
+    }
     await window.api.config.setLayout(layout);
   },
 
@@ -472,7 +502,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabAgent: { ...get().tabAgent, [projectId]: agentId },
         activeTabId: projectId,
         pendingInitialCommand: { ...get().pendingInitialCommand, [projectId]: pending },
-        tabRespawnNonce: { ...get().tabRespawnNonce, [projectId]: (get().tabRespawnNonce[projectId] ?? 0) + 1 },
+        tabRespawnNonce: {
+          ...get().tabRespawnNonce,
+          [projectId]: (get().tabRespawnNonce[projectId] ?? 0) + 1,
+        },
       });
     } else {
       set({

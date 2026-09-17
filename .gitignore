@@ -7,6 +7,8 @@ dist/
 release/
 .vite/
 *.tsbuildinfo
+coverage/
+reports/
 
 # Logs
 *.log
@@ -17,7 +19,11 @@ yarn-error.log*
 # Editor / OS
 .DS_Store
 Thumbs.db
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/mcp.json
 .idea/
 *.swp
 *~
@@ -28,7 +34,8 @@ Thumbs.db
 !.env.example
 
 # Local app data
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Misc
 *.zip

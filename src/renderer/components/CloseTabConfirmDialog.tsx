@@ -26,7 +26,8 @@ export function CloseTabConfirmDialog({ projectName, onConfirm, onCancel }: Prop
         <div className="modal-title">Close this tab?</div>
         <div className="modal-body">
           <div>
-            The tab <b>"{projectName}"</b> will be closed. Any running CLI process in this tab will also stop.
+            The tab <b>"{projectName}"</b> will be closed. Any running CLI process in this tab will
+            also stop.
           </div>
           <label className="modal-check" style={{ marginTop: 12 }}>
             <input
@@ -38,7 +39,9 @@ export function CloseTabConfirmDialog({ projectName, onConfirm, onCancel }: Prop
           </label>
         </div>
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
           <button
             ref={confirmBtnRef}
             className="btn-primary"

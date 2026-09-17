@@ -33,7 +33,9 @@ export function AgentsBanner() {
           </button>
         );
       })}
-      <button className="ab-recheck" onClick={() => recheck()}>Re-check</button>
+      <button className="ab-recheck" onClick={() => recheck()}>
+        Re-check
+      </button>
     </div>
   );
 }

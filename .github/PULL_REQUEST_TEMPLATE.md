@@ -23,14 +23,15 @@ For UI changes, please attach a before/after screenshot or short clip.
 <!-- For any UI change, paste before/after images here. Delete the section otherwise. -->
 
 | Before | After |
-|---|---|
-|  |  |
+| ------ | ----- |
+|        |       |
 
 ## Checklist
 
-- [ ] `npm run build` passes
-- [ ] `npm run release` produces a working `release/latest/Parallel Agents.exe`
-- [ ] I manually exercised the affected feature in the running app
+- [ ] `npm run check` passes (lint, formatting, types, regression tests, and documentation contracts)
+- [ ] `npm run build` passes for source, dependency, or build-configuration changes
+- [ ] For native, UI, runtime-dependency, or packaging changes, `npm run pack` passes on Windows, including both native smoke checks
+- [ ] I manually exercised affected interactive behavior, or explained why a manual check is not applicable
 - [ ] If I added a new IPC channel, all four layers (shared / main / preload / renderer) are updated
 - [ ] If this changes user-facing behavior, I updated `README.md` and/or `SPEC.md`
 - [ ] If this changes architecture, I updated `ARCHITECTURE.md`

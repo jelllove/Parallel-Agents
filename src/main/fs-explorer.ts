@@ -17,7 +17,7 @@ export async function readDir(path: string): Promise<FsNode[]> {
   for (const name of entries) {
     if (IGNORE.has(name)) continue;
     const full = join(path, name);
-    let isDir = false;
+    let isDir: boolean;
     try {
       isDir = (await stat(full)).isDirectory();
     } catch {
@@ -68,9 +68,9 @@ export async function movePath(srcPath: string, destPath: string): Promise<void>
   if (await exists(destPath)) throw new Error(`Target exists: ${destPath}`);
   try {
     await fsRename(srcPath, destPath);
-  } catch (err: any) {
+  } catch (err) {
     // EXDEV: cross-device link not permitted — fall back to copy + remove
-    if (err?.code !== 'EXDEV') throw err;
+    if (!(err instanceof Error) || !('code' in err) || err.code !== 'EXDEV') throw err;
     await cp(srcPath, destPath, { recursive: true, errorOnExist: true, force: false });
     await rm(srcPath, { recursive: true, force: true });
   }

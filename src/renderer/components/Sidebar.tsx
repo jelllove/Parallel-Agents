@@ -73,7 +73,9 @@ export function Sidebar({ onAbout }: Props) {
           </Panel>
           <PanelResizeHandle className="resize-handle-h" />
           <Panel defaultSize={40} minSize={15}>
-            <div className={`sidebar-section scrollable sessions${sessionsFlashing ? ' sessions-guide-flash' : ''}`}>
+            <div
+              className={`sidebar-section scrollable sessions${sessionsFlashing ? ' sessions-guide-flash' : ''}`}
+            >
               <div className="sidebar-title section-sessions">
                 <span className="section-glyph">⏱</span>
                 <span>Recent Sessions</span>

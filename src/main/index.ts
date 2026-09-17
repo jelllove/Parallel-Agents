@@ -1,4 +1,13 @@
-import { app, BrowserWindow, shell, Tray, Menu, dialog, globalShortcut, nativeImage } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  shell,
+  Tray,
+  Menu,
+  dialog,
+  globalShortcut,
+  nativeImage,
+} from 'electron';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { registerIpc } from './ipc';
@@ -6,7 +15,6 @@ import { ptyManager } from './pty-manager';
 import * as git from './git';
 
 let mainWindow: BrowserWindow | null = null;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let tray: Tray | null = null;
 let isQuitting = false;
 const APP_USER_MODEL_ID = 'com.jelllove.parallelagents';
@@ -22,11 +30,11 @@ function prepareToQuit(): void {
 function getIconPath(name: string): string {
   const candidates = app.isPackaged
     ? [
-      // Preferred: copied via electron-builder extraResources.
-      join(process.resourcesPath, name),
-      // Backward-compatible fallback for previous package layouts.
-      join(app.getAppPath(), 'resources', name),
-    ]
+        // Preferred: copied via electron-builder extraResources.
+        join(process.resourcesPath, name),
+        // Backward-compatible fallback for previous package layouts.
+        join(app.getAppPath(), 'resources', name),
+      ]
     : [join(__dirname, '../../resources', name)];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -48,7 +56,7 @@ function createWindow(): void {
     icon: getIconPath(windowIcon),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -171,8 +179,8 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', (e: Event) => {
-  if (!isQuitting) e.preventDefault();
+app.on('window-all-closed', () => {
+  // Registering a listener keeps the tray app alive; this event is not cancelable.
 });
 
 app.on('before-quit', (e) => {

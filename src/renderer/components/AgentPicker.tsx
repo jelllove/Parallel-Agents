@@ -24,7 +24,9 @@ export function AgentPicker({ agents, status, onPick, onClose, anchorX, anchorY,
   }, [anchorX, anchorY, agents.length]);
 
   useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
@@ -32,7 +34,11 @@ export function AgentPicker({ agents, status, onPick, onClose, anchorX, anchorY,
   return (
     <>
       <div className="agent-picker-backdrop" onClick={onClose} />
-      <div className="agent-picker" style={{ left: pos.x, top: pos.y }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="agent-picker"
+        style={{ left: pos.x, top: pos.y }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {title && <div className="agent-picker-title">{title}</div>}
         {agents.map((a) => {
           const st = status[a.id];
@@ -41,14 +47,23 @@ export function AgentPicker({ agents, status, onPick, onClose, anchorX, anchorY,
             <div
               key={a.id}
               className={`agent-picker-row${available ? '' : ' unavailable'}`}
-              onClick={() => { if (available) onPick(a.id); }}
-              title={available ? a.displayName : `${a.displayName} not installed — ${a.installHint}`}
+              onClick={() => {
+                if (available) onPick(a.id);
+              }}
+              title={
+                available ? a.displayName : `${a.displayName} not installed — ${a.installHint}`
+              }
             >
-              <img src={agentIconUrl(a.id)} className="agent-picker-icon" alt="" draggable={false} />
+              <img
+                src={agentIconUrl(a.id)}
+                className="agent-picker-icon"
+                alt=""
+                draggable={false}
+              />
               <div className="agent-picker-text">
                 <div className="agent-picker-name">{a.displayName}</div>
                 <div className="agent-picker-sub">
-                  {available ? (st?.path || 'installed') : 'not installed'}
+                  {available ? st?.path || 'installed' : 'not installed'}
                 </div>
               </div>
             </div>

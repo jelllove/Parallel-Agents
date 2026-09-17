@@ -1,0 +1,329 @@
+import { readFile, readdir, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+
+const excludedRoots = new Set([
+  'out',
+  'dist',
+  'release',
+  'coverage',
+  'reports',
+  '.vite',
+  'Hackathon',
+  'docs/superpowers',
+]);
+const shellLanguages = new Set([
+  '',
+  'sh',
+  'bash',
+  'shell',
+  'console',
+  'powershell',
+  'pwsh',
+  'ps1',
+  'cmd',
+  'bat',
+  'batch',
+]);
+
+const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const portablePath = (path) => path.split(sep).join('/');
+const blank = (text) => text.replace(/[^\n]/g, ' ');
+const lineAt = (text, index) => text.slice(0, index).split('\n').length;
+const labelKey = (label) => label.trim().replace(/\s+/g, ' ').toLowerCase();
+
+async function readText(root, file) {
+  try {
+    return await readFile(resolve(root, file), 'utf8');
+  } catch (error) {
+    throw new Error(`${file}: cannot read file (${error.code ?? error.message}).`, {
+      cause: error,
+    });
+  }
+}
+
+async function readScripts(root) {
+  const text = await readText(root, 'package.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`package.json: invalid JSON (${error.message}).`, { cause: error });
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('package.json: expected a JSON object.');
+  }
+  const scripts = Object.hasOwn(manifest, 'scripts') ? manifest.scripts : {};
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) {
+    throw new Error('package.json: scripts must be an object of command strings.');
+  }
+  for (const [name, command] of Object.entries(scripts)) {
+    if (typeof command !== 'string' || !command.trim()) {
+      throw new Error(`package.json: script "${name}" must be a nonempty command string.`);
+    }
+  }
+  return new Set(Object.keys(scripts));
+}
+
+async function discoverMarkdown(root, directory = '') {
+  let entries;
+  try {
+    entries = await readdir(resolve(root, directory), { withFileTypes: true });
+  } catch (error) {
+    throw new Error(
+      `${directory || '.'}: cannot read documentation directory (${error.code ?? error.message}).`,
+      { cause: error },
+    );
+  }
+  const files = [];
+  for (const entry of entries.sort((a, b) => compare(a.name, b.name))) {
+    const file = directory ? `${directory}/${entry.name}` : entry.name;
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      if (entry.name === '.git' || entry.name === 'node_modules' || excludedRoots.has(file))
+        continue;
+      files.push(...(await discoverMarkdown(root, file)));
+    } else if (entry.isFile() && /\.md$/i.test(entry.name)) {
+      files.push(file);
+    }
+  }
+  return files.sort(compare);
+}
+
+function visibleMarkdown(markdown, checkCommands) {
+  const withoutComments = markdown.replace(/<!--[\s\S]*?(?:-->|$)/g, blank);
+  let fence;
+  return withoutComments
+    .split('\n')
+    .map((line, index) => {
+      const marker = line.match(/^[ \t]*(`{3,}|~{3,})(.*)$/);
+      if (fence) {
+        if (
+          marker &&
+          marker[1][0] === fence.marker &&
+          marker[1].length >= fence.length &&
+          !marker[2].trim()
+        ) {
+          fence = undefined;
+        } else if (fence.commands) {
+          checkCommands(line, index + 1);
+        }
+        return blank(line);
+      }
+      if (marker) {
+        const language = marker[2].trim().split(/\s+/, 1)[0].toLowerCase();
+        fence = {
+          marker: marker[1][0],
+          length: marker[1].length,
+          commands: shellLanguages.has(language),
+        };
+        return blank(line);
+      }
+      return line;
+    })
+    .join('\n');
+}
+
+function commandSegments(text) {
+  const segments = [];
+  let quote = '';
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (quote) {
+      if (character === quote && !['\\', '`'].includes(text[index - 1])) quote = '';
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '#' && (index === 0 || /\s/.test(text[index - 1]))) {
+      segments.push(text.slice(start, index));
+      return segments;
+    } else if (/[;&|]/.test(character)) {
+      segments.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  segments.push(text.slice(start));
+  return segments;
+}
+
+function npmScripts(text) {
+  const input = text.replace(/^\s*(?:PS [^>]*>|[a-z]:[\\/][^>]*>|[$>])\s*/i, '');
+  if (/^\s*(?:rem(?:\s|$)|::)/i.test(input)) return [];
+  const names = [];
+  for (const command of commandSegments(input)) {
+    // Explicit package scoping belongs to that package, not the root manifest.
+    const invocation = command.split(/\s+--(?:\s|$)/, 1)[0];
+    if (/(?:^|\s)(?:--prefix|--workspace|--workspaces|-w)(?:=|\s|$)/.test(invocation)) continue;
+    const match = command.match(
+      /^\s*npm(?:\.cmd)?(?:\s+(?:--silent|-s))*\s+(?:(?:run|run-script)(?:\s+(?:--silent|-s))*\s+([\w@][\w:@./-]*)|(test|start|stop|restart))(?=$|\s)/,
+    );
+    if (match) names.push(match[1] ?? match[2]);
+  }
+  return names;
+}
+
+function outsideRoot(root, target) {
+  const path = relative(root, target);
+  return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
+}
+
+async function checkReference(root, file, reference, report) {
+  const { destination, line, source = false } = reference;
+  const windowsAbsolute = (path) => /^[a-z]:[\\/]|^\\\\/i.test(path);
+  if (!windowsAbsolute(destination) && /^(?:[a-z][a-z\d+.-]*:|\/\/|#|\?)/i.test(destination)) {
+    return;
+  }
+  let path = destination.split(/[?#]/, 1)[0];
+  if (source) {
+    path = path.replace(/:\d+(?::\d+)?(?:-\d+(?::\d+)?)?$/, '');
+  } else {
+    try {
+      path = decodeURIComponent(path.replaceAll('&amp;', '&'));
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error;
+      report(
+        line,
+        `Local reference "${destination}" has invalid percent-encoding; correct the URL.`,
+      );
+      return;
+    }
+  }
+  if (!path) return;
+  if (path.includes('\0')) {
+    report(line, `Local reference "${destination}" contains a null byte; correct the URL.`);
+    return;
+  }
+  if (windowsAbsolute(path)) {
+    report(
+      line,
+      `Local reference "${destination}" must be repository-relative, not an absolute user path.`,
+    );
+    return;
+  }
+  path = path.replaceAll('\\', '/');
+  const base = source || path.startsWith('/') ? root : dirname(resolve(root, file));
+  const target = resolve(base, path.replace(/^\//, ''));
+  if (outsideRoot(root, target)) {
+    report(
+      line,
+      `Local reference "${destination}" escapes the repository; use a repository-relative path.`,
+    );
+    return;
+  }
+  try {
+    const canonical = await realpath(target);
+    if (outsideRoot(root, canonical)) {
+      report(
+        line,
+        `Local reference "${destination}" resolves outside the repository through a symlink.`,
+      );
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') {
+      throw new Error(
+        `${file}:${line}: cannot inspect reference "${destination}" (${error.code ?? error.message}).`,
+        { cause: error },
+      );
+    }
+    report(
+      line,
+      `Local reference "${destination}" does not exist (${portablePath(relative(root, target))}); update the path or add the intended file.`,
+    );
+  }
+}
+
+async function checkMarkdown(root, file, scripts, issues) {
+  const markdown = await readText(root, file);
+  const report = (line, message) => issues.push({ file, line, message });
+  const checkCommands = (text, line) => {
+    for (const name of npmScripts(text)) {
+      if (!scripts.has(name)) {
+        report(
+          line,
+          `Unknown npm script "${name}" in package.json; update the command to a declared script.`,
+        );
+      }
+    }
+  };
+  const references = [];
+  const prose = visibleMarkdown(markdown, checkCommands).replace(
+    /(`+)([^\n]*?)\1(?!`)/g,
+    (match, delimiter, content, index) => {
+      const line = lineAt(markdown, index);
+      const code = content.trim();
+      checkCommands(code, line);
+      if (/^(?:\.[\\/])?(?:src|scripts|tests)[\\/]/.test(code) && !/[*?<>{}$]|\.\.\./.test(code)) {
+        references.push({ destination: code, line, source: true });
+      }
+      return blank(match);
+    },
+  );
+
+  // This intentionally recognizes single-line destinations, not a full Markdown grammar.
+  const inlineLinks =
+    /\]\([ \t]*(?:<([^>\n]+)>|((?:[^()\s]|\([^()\n]*\))+))(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\)/g;
+  for (const match of prose.matchAll(inlineLinks)) {
+    references.push({ destination: match[1] ?? match[2], line: lineAt(prose, match.index) });
+  }
+  const definitions = new Set();
+  for (const match of prose.matchAll(/^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(?:<([^>\n]+)>|(\S+))/gm)) {
+    if (match[1].startsWith('^')) continue;
+    definitions.add(labelKey(match[1]));
+    references.push({ destination: match[2] ?? match[3], line: lineAt(prose, match.index) });
+  }
+  for (const match of prose.matchAll(/!?\[([^\]\n]+)\][ \t]*\[([^\]\n]*)\]/g)) {
+    const label = labelKey(match[2] || match[1]);
+    if (!definitions.has(label)) {
+      report(
+        lineAt(prose, match.index),
+        `undefined link reference "${label}"; add its [${label}]: destination definition.`,
+      );
+    }
+  }
+  for (const tag of prose.matchAll(/<(?:a|img)\b[^>]*>/gi)) {
+    for (const attribute of tag[0].matchAll(/\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+      references.push({
+        destination: attribute[1] ?? attribute[2],
+        line: lineAt(prose, tag.index + attribute.index),
+      });
+    }
+  }
+  for (const reference of references) await checkReference(root, file, reference, report);
+}
+
+export async function checkDocs(directory = process.cwd()) {
+  const root = await realpath(directory);
+  const scripts = await readScripts(root);
+  const files = await discoverMarkdown(root);
+  if (!files.length) throw new Error('No active Markdown files found; check the repository root.');
+  const issues = [];
+  for (const file of files) await checkMarkdown(root, file, scripts, issues);
+  issues.sort(
+    (a, b) => compare(a.file, b.file) || a.line - b.line || compare(a.message, b.message),
+  );
+  return {
+    files,
+    errors: issues.map(({ file, line, message }) => `${file}:${line}: ${message}`),
+  };
+}
+
+if (import.meta.main) {
+  try {
+    if (process.argv.length > 2) {
+      throw new Error(
+        'Run node scripts\\check-docs.mjs without arguments from the repository root.',
+      );
+    }
+    const { files, errors } = await checkDocs();
+    if (errors.length) {
+      console.error(errors.join('\n'));
+      process.exitCode = 1;
+    } else {
+      console.log(
+        `Checked ${files.length} Markdown file${files.length === 1 ? '' : 's'}: npm script names and local references passed.`,
+      );
+    }
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+}

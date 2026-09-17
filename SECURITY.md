@@ -7,10 +7,10 @@ Parallel Agents is pre-1.0 software. Only the **latest** released version on the
 for security fixes. If you are running an older build, please update before
 filing a report.
 
-| Version | Supported |
-| ------- | --------- |
-| Latest release | ✅ |
-| Older releases | ❌ |
+| Version        | Supported |
+| -------------- | --------- |
+| Latest release | ✅        |
+| Older releases | ❌        |
 
 ## Reporting a Vulnerability
 

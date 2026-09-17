@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { AgentId, AgentInfo, AgentStatus } from '../shared/types';
@@ -73,7 +73,6 @@ const PROVIDERS: Record<AgentId, ProviderDef> = {
       const wingetPackages = join(local, 'Microsoft', 'WinGet', 'Packages');
       const out: string[] = [join(local, 'Microsoft', 'WinGet', 'Links', 'copilot.exe')];
       try {
-        const { readdirSync } = require('fs') as typeof import('fs');
         for (const dir of readdirSync(wingetPackages)) {
           if (dir.startsWith('GitHub.Copilot')) out.push(join(wingetPackages, dir, 'copilot.exe'));
         }
@@ -132,6 +131,8 @@ async function detectOne(id: AgentId): Promise<AgentStatus> {
 }
 
 export async function checkAllAgents(): Promise<Record<AgentId, AgentStatus>> {
-  const entries = await Promise.all(AGENT_IDS.map(async (id) => [id, await detectOne(id)] as const));
+  const entries = await Promise.all(
+    AGENT_IDS.map(async (id) => [id, await detectOne(id)] as const),
+  );
   return Object.fromEntries(entries) as Record<AgentId, AgentStatus>;
 }

@@ -1,0 +1,40 @@
+name: Maintenance recovery verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    name: Verify bounded detection, repair, validation and rollback
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install locked validation dependencies
+        run: npm ci
+      - name: Exercise real formatter failure, one repair, successful revalidation and negative rollback
+        run: npm run test:maintenance-loop
+      - name: Retain local-fixture recovery receipts and diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maintenance-recovery-evidence
+          path: reports/maintenance-loop/
+          retention-days: 14
+          if-no-files-found: warn

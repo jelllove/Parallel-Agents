@@ -1,268 +1,197 @@
 <div align="center">
   <img src="resources/app-icon.png" alt="Parallel Agents" width="120" />
-
   <h1>Parallel Agents</h1>
-
+  <p><strong>CLI coding agents in one Windows desktop window.</strong></p>
   <p>
-    <strong>One window. Every AI coding agent. Side by side.</strong>
-  </p>
-
-  <p>
-    Run <a href="https://www.anthropic.com/claude-code">Claude Code</a>, <a href="https://github.com/openai/codex">Codex</a>, <a href="https://github.com/google-gemini/gemini-cli">Gemini CLI</a> and friends in a single Electron window — with a project switcher, file explorer, and Git panel built in.
-  </p>
-
-  <p>
-    <a href="https://github.com/jelllove/ParallelAgents/releases"><img src="https://img.shields.io/github/v/release/jelllove/ParallelAgents?color=0e639c&label=release" alt="release" /></a>
-    <a href="https://github.com/jelllove/ParallelAgents/stargazers"><img src="https://img.shields.io/github/stars/jelllove/ParallelAgents?style=flat&color=f59e0b" alt="stars" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/jelllove/ParallelAgents?color=73c991" alt="license" /></a>
+    <a href="https://github.com/jelllove/Parallel-Agents/releases"><img src="https://img.shields.io/github/v/release/jelllove/Parallel-Agents?color=0e639c&label=release" alt="release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/jelllove/Parallel-Agents?color=73c991" alt="license" /></a>
     <img src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows" alt="platform" />
-    <img src="https://img.shields.io/badge/Electron-32-47848F?logo=electron&logoColor=white" alt="electron" />
-    <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="react" />
+    <img src="https://img.shields.io/badge/Electron-43.6.0-47848F?logo=electron" alt="Electron 43.6.0" />
   </p>
-
-  <p>
-    <a href="#-quick-start">Quick Start</a> ·
-    <a href="#-features">Features</a> ·
-    <a href="#-screenshots">Screenshots</a> ·
-    <a href="SPEC.md">Spec</a> ·
-    <a href="ARCHITECTURE.md">Architecture</a>
-  </p>
-
-  <br />
-
-  <!-- Replace docs/hero.png with your own screenshot or GIF (1600x900 recommended) -->
-  <img src="Hackathon/parallel-agents-dark/01-poster-overview.png" alt="Parallel Agents — hero screenshot" width="900" />
 </div>
 
-<br />
+Parallel Agents hosts locally installed coding CLIs in real terminals, with a project/session
+sidebar, file explorer, and Git panel. It does not replace the agents or supply an AI service.
+Launching an agent uses that CLI's own installation, authentication, and permissions.
 
-## ✨ Why Parallel Agents?
+[Quick start](#quick-start) · [Supported agents](#supported-agents) ·
+[Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Agent guide](AGENTS.md)
 
-Modern coding agents are **terminal-first** — every CLI insists on owning its own window. If you use more than one, your desktop becomes a forest of look-alike black rectangles. Their session histories scatter across `~/.claude/`, `~/.gemini/`, `~/.codex/`, and nobody remembers which agent you used for which project last time.
+## Features
 
-**Parallel Agents** collapses all of that into a single, VS Code–style window:
+- **Project and session discovery** for supported Claude Code, Copilot CLI, and Gemini CLI history formats.
+- **Project tabs backed by real PTYs**, with agent start/resume commands and remembered agent choices.
+- **File explorer** with create, rename, copy, move, trash, reveal, and default-application actions.
+- **Git panel** for status, staging, unstaging, discarding, commits, and read-only Monaco diffs
+  using locally bundled editor assets loaded on demand.
+- **Configurable layout**, including six column orders, saved pane sizes, and dark/light themes.
+- **Tray lifecycle**: closing the window hides it; use the tray's Quit action to exit. F11 toggles fullscreen.
 
-- 📂 **Unified project list** across Claude Code, Copilot CLI, and Gemini CLI — grouped by agent, sorted by you.
-- 🪟 **Tabbed terminals** so you can run Claude on one tab and Codex on the next, on the same repo.
-- 📁 **File explorer** with proper file ops (create, rename, cut/copy/paste, trash, reveal in OS, open with default).
-- 🌿 **Git panel** in the spirit of VS Code Source Control — stage, unstage, discard, commit, and double-click for a Monaco diff.
-- 🧠 **Remembered context** — last-used agent per project, custom project order, window layout, all persisted.
-- 🎨 **Swappable layout** — pick any of the 6 left/center/right permutations from the status bar.
+Tabs and PTYs are currently keyed by project ID. Reopening the same ID reuses or restarts its tab;
+this is not arbitrary multiple independent tabs for the same project ID. Different provider project
+IDs can refer to the same directory. See the [identity and terminal flow](ARCHITECTURE.md#identity-and-terminal-flow).
 
-> Built for individual developers who juggle multiple AI agents and don't want their workflow held hostage by tab chaos.
+## Quick start
 
-<br />
+### Use a release
 
-## 🚀 Quick Start
+Choose a Windows asset from [Releases](https://github.com/jelllove/Parallel-Agents/releases).
+For a portable archive, extract the whole directory before running `Parallel Agents.exe`; use the
+installer if that is the asset provided. Available artifacts depend on the release.
 
-### Option A: Download a pre-built release
+### Develop from source
 
-1. Grab the latest Windows build from [**Releases**](https://github.com/jelllove/ParallelAgents/releases).
-2. Unzip and run **`Parallel Agents.exe`**. That's it — no installer, fully portable.
+Use **Windows x64**, **Node.js 24**, **npm 11**, and **Git on PATH**.
+[.node-version](.node-version) pins **24.17.0** for reproducible setup; the compatible engine ranges
+in [package.json](package.json) are Node `^24.17.0` and npm `>=11 <12`.
+The desktop runtime is **Electron 43** (`^43.6.0`), separate from the Node installation used for
+development tooling.
 
-### Option B: Build from source
+From PowerShell:
 
-```bash
-git clone https://github.com/jelllove/ParallelAgents.git
-cd ParallelAgents
-npm install
-npm run dev          # hot-reload dev mode
-npm run release      # produces release/latest/Parallel Agents.exe
-```
-
-> Requires Node.js 20+ and Windows Build Tools (for `node-pty`). The repo ships `install-vs-buildtools.ps1` if you need them.
-
-<br />
-
-## 🤖 Supported Agents
-
-| Agent | CLI | Status |
-|---|---|---|
-| <img src="src/renderer/assets/agents/copilot.svg" width="16" valign="middle" /> **Copilot CLI** | `gh copilot` | ✅ Sessions auto-detected from `~/.copilot/session-state/` |
-| <img src="src/renderer/assets/agents/codex.png" width="16" valign="middle" /> **Codex** | `codex` | ✅ Detected via `which / where` |
-| <img src="src/renderer/assets/agents/claude.png" width="16" valign="middle" /> **Claude Code** | `claude` | ✅ Sessions auto-detected from `~/.claude/projects/` |
-| <img src="src/renderer/assets/agents/gemini.svg" width="16" valign="middle" /> **Gemini CLI** | `gemini` | ✅ Sessions auto-detected from `~/.gemini/tmp/` |
-| <img src="src/renderer/assets/agents/aider.svg" width="16" valign="middle" /> Aider | `aider` | 🚧 Launch only (no session scan yet) |
-
-Don't have one installed? Parallel Agents shows a banner at the top with a one-click install hint.
-
-<br />
-
-## 🎯 Features
-
-### Sidebar — Projects & Sessions
-- Tree grouped by agent, collapsible per group
-- Pin / Hide / **Delete** (triple-confirm: type the project name + check "I understand")
-- **Drag & drop** to reorder projects within the same agent group
-- **Refresh Projects & Agents** button + automatic background refresh every 60 seconds
-- Click project behavior: one session auto-resumes, multiple sessions trigger a visual cue in **Recent Sessions** so you can choose explicitly
-- Per-session × button with the same confirm flow
-
-### Terminal Tabs
-- Independent PTY per tab via `node-pty`
-- Same project can be opened with multiple agents simultaneously
-- "Last used agent" remembered per project so re-opening is one click
-- `PATH` augmented at spawn time so globally-installed CLIs are always found
-
-### Explorer
-- Right-click menu: New File / New Folder / Rename / Cut / Copy / Paste / Open / Reveal / **Delete to Recycle Bin**
-- Double-click any file or folder to open with the **Windows default program**
-- Keyboard shortcuts: `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `F2` / `Delete`
-
-### Git Panel
-- Branch, ahead/behind, staged / unstaged / untracked groups
-- Stage / unstage / discard per file or whole group; commit message + Commit button
-- Double-click a changed file → full-screen **Monaco Diff Editor**
-- Auto-refreshes on disk changes via `fs.watch` on `.git/index` + 5s polling fallback
-
-### Layout
-- Click `⊞` in the status bar to switch the 3-column order — 6 permutations
-- Each column keeps **its own current size proportion** when moved
-- Order + sizes are persisted to `~/.claude/parallel-agents.json` and restored on next launch
-
-<br />
-
-## 📸 Screenshots
-
-> _Drop your screenshots into `docs/` to populate this section._
-
-<table>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshot-main.png" alt="Main window" width="420" /><br />
-      <sub><b>Main window</b> — Sidebar · Terminal · Explorer + Git</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshot-diff.png" alt="Monaco diff" width="420" /><br />
-      <sub><b>Diff window</b> — double-click any changed file</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshot-layout.png" alt="Layout picker" width="420" /><br />
-      <sub><b>Layout picker</b> — 6 permutations, sizes follow each pane</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshot-explorer.png" alt="Explorer context menu" width="420" /><br />
-      <sub><b>Explorer</b> — full file ops with right-click menu</sub>
-    </td>
-  </tr>
-</table>
-
-<br />
-
-## 🏗 Architecture (TL;DR)
-
-```mermaid
-flowchart LR
-    subgraph Renderer["🖥 Renderer (React + Zustand)"]
-        SB[Sidebar]
-        TT[Terminal Tabs]
-        EX[Explorer + Git]
-    end
-    subgraph Preload["🔒 Preload (contextBridge)"]
-        API[window.api]
-    end
-    subgraph Main["⚙️ Main (Node)"]
-        P[projects]
-        S[sessions]
-        G[git]
-        PTY[pty-manager]
-        FS[fs-explorer]
-        CFG[config]
-    end
-    Disk[(~/.claude/<br/>~/.gemini/<br/>git CLI)]
-
-    SB & TT & EX --> API
-    API --> P & S & G & PTY & FS & CFG
-    P & S & G & PTY & FS & CFG --> Disk
-```
-
-See [**ARCHITECTURE.md**](ARCHITECTURE.md) for the full diagram, IPC channel table, and critical flows.
-
-<br />
-
-## ⚙️ Persistence
-
-All user state lives in a single file: `~/.claude/parallel-agents.json`
-
-```jsonc
-{
-  "pinned": ["claude:C--user-myrepo"],
-  "hidden": [],
-  "lastAgentByProject": { "claude:C--user-myrepo": "claude" },
-  "projectOrder": { "claude": ["..."], "gemini": [] },
-  "layout": {
-    "order": ["sidebar", "middle", "right"],
-    "sizes": [20, 58, 22]
-  }
-}
-```
-
-Delete it at any time to reset to factory defaults — no data loss, just a fresh layout.
-
-<br />
-
-## 🛣 Roadmap
-
-- [ ] macOS / Linux builds
-- [ ] Cross-session full-text search
-- [ ] Light theme
-- [ ] First-run wizard to install missing CLIs
-- [ ] Agent extension API (add your own CLI in 30 lines)
-- [ ] Per-tab terminal split
-
-Have an idea? [Open an issue](https://github.com/jelllove/ParallelAgents/issues/new) — feature requests welcome.
-
-<br />
-
-## 🛠 Tech Stack
-
-| Layer | Choice | Why |
-|---|---|---|
-| Shell | [Electron 32](https://www.electronjs.org/) | Native PTY + filesystem + system menus |
-| Bundler | [electron-vite](https://electron-vite.org/) | Fast HMR for main/preload/renderer |
-| UI | [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) | |
-| State | [Zustand](https://zustand-demo.pmnd.rs/) | Single-store simplicity, no boilerplate |
-| Terminal | [xterm.js](https://xtermjs.org/) + [node-pty](https://github.com/microsoft/node-pty) | Real PTY semantics, not a fake shell |
-| Layout | [react-resizable-panels](https://github.com/bvaughn/react-resizable-panels) | Drag-to-resize columns |
-| Diff | [Monaco Editor](https://github.com/microsoft/monaco-editor) | The same diff UI as VS Code |
-| Packaging | [electron-builder](https://www.electron.build/) | `--dir` output → portable folder |
-
-<br />
-
-## 🤝 Contributing
-
-PRs welcome! For anything non-trivial, please open an issue first to discuss the change.
-
-```bash
-npm install
+```powershell
+git clone https://github.com/jelllove/Parallel-Agents.git
+Set-Location .\Parallel-Agents
+npm ci
 npm run dev
-# Open a PR against main
 ```
 
-A few house rules:
+Dependency installation may download Electron and native packages. Standard Windows x64 installation
+and packaging use the official N-API prebuilds shipped with `node-pty` 1.2.0-beta.13, including
+`win32-x64`; a local C++ compiler is not required for this path. Windows Build Tools and matching
+Spectre libraries are only prerequisites for an explicit `npm run rebuild` or other source build.
+See [native-terminal troubleshooting](CONTRIBUTING.md#native-terminal-troubleshooting); do not
+modify system tools or disable Spectre mitigations to make ordinary packaging succeed.
 
-- Keep dependencies lean — every new dep should pull its weight.
-- IPC channels are the API surface; adding one means adding a type in `src/shared/types.ts` and wiring all three layers (main / preload / renderer).
-- For UI changes, please attach a before/after screenshot in the PR description.
+The running app reads your local provider history and settings. Use disposable projects and an
+isolated test profile for destructive/manual testing, not your real session history.
 
-<br />
+For repeatable onboarding, `npm run doctor` reports prerequisites and `npm run setup` performs
+the explicit locked installation/check sequence. A native PowerShell entry point, versioned VS Code
+tasks, and an optional non-GUI container are described in the
+[development environment guide](docs/development-environment.md). None installs hooks or global tools.
 
-## 📄 License
+### Local validation
 
-[MIT](LICENSE) © [jelllove](https://github.com/jelllove)
+```powershell
+npm run check
+npm run build
+```
 
-<br />
+`check` runs lint, formatting verification, TypeScript checking, local tests, and the documentation
+contract check. `build` type-checks and produces the Electron bundles in `out`.
+`npm run validate` combines both. These checks do not require AI provider credentials or make live
+agent requests; passing them does not prove native terminal behavior or provider compatibility.
+Optional `npm run test:coverage` adds Node's built-in coverage reporting for modules loaded by the
+tests, not whole-repository or native-runtime coverage.
+The complete command reference and targeted test workflow are in [CONTRIBUTING.md](CONTRIBUTING.md#local-commands).
 
-## 🙏 Acknowledgements
+`npm run test:ci` adds JUnit/LCOV artifacts, and `npm run test:e2e` is the conventional alias for
+the existing Windows native smoke. Optional hook setup starts as a preview and requires explicit
+opt-in; security and agent-environment workflows remain separate from application behavior.
+See the [engineering automation guide](docs/automation.md) for receipts, prerequisites, and
+the distinction between configured workflows and actual hosted enforcement.
 
-- The Claude Code, Codex, and Gemini CLI teams for shipping the agents this project orbits around.
-- [VS Code](https://github.com/microsoft/vscode) — the layout that everyone (including this app) borrows from.
-- [Warp](https://warp.dev/) and [Tabby](https://github.com/Eugeny/tabby) for showing that terminals can be beautiful.
+For Windows-only native integration checks, run `npm run test:smoke` **after `npm run build`**.
+It launches real Electron and a native command-shell PTY with generated disposable data and inert
+AI-provider CLI shims, not real agent CLIs or provider accounts. The fixture selects its generated
+Claude project in the UI and opens a diff with HTTP(S) blocked in the test window's Electron session,
+asserting that both revisions render offline. It is separate from both `check` and `validate`.
+See the [native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) for prerequisites,
+scope, and the generated `reports\smoke.json` and `reports\smoke.png` artifacts.
 
-<br />
+## Supported agents
 
-<div align="center">
-  <sub>If Parallel Agents saves you a window or two, please consider ⭐ starring the repo — it really helps.</sub>
-</div>
+| Agent              | Executable | History discovered by this app                                                     |
+| ------------------ | ---------- | ---------------------------------------------------------------------------------- |
+| GitHub Copilot CLI | `copilot`  | `$HOME\.copilot\session-state\<session>\events.jsonl`                              |
+| Claude Code        | `claude`   | `$HOME\.claude\projects\<project>\*.jsonl`                                         |
+| Gemini CLI         | `gemini`   | `$HOME\.gemini\tmp\<project>\chats\*.jsonl`, with `.project_root` project metadata |
+| Codex CLI          | `codex`    | No automatic history scan; launch/resume command support                           |
+| Aider              | `aider`    | No automatic history scan; launch/restore command support                          |
+
+The Copilot executable is standalone **`copilot`**, not a GitHub CLI subcommand.
+[Provider definitions](src/main/agent-providers.ts) describe binary detection and installation links;
+[shared command builders](src/shared/agent-commands.ts) define launch/resume syntax.
+The missing-CLI banner opens installation guidance rather than installing tools for you.
+Provider log formats may change; detection is limited to the formats the current readers support.
+
+## Architecture
+
+| Boundary                                | Responsibility                                                                           |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Main](src/main/index.ts)               | Electron lifecycle, IPC handlers, provider history, filesystem, Git, configuration, PTYs |
+| [Preload](src/preload/index.ts)         | Typed `window.api` bridge from renderer to main                                          |
+| [Renderer](src/renderer/App.tsx)        | React UI, Zustand application state, xterm terminals, local Monaco editor bundle         |
+| [Shared contracts](src/shared/types.ts) | API and data types used across the boundaries                                            |
+
+The current window explicitly enables `sandbox` and `contextIsolation` and disables
+`nodeIntegration`. These process boundaries do not replace validation of privileged IPC inputs.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for IPC contracts, data flows, and persistence details.
+The [runtime and build toolchain](ARCHITECTURE.md#runtime-and-build-toolchain) records the confirmed
+baseline; the manifest and lockfile remain authoritative for dependency ranges and resolved versions.
+The [offline diff loader](ARCHITECTURE.md#offline-diff-loading) lazy-loads local Monaco and worker
+assets instead of fetching the editor from a CDN. This concerns the diff viewer, not the network
+requirements of whichever external coding agent you choose to run.
+
+## User data and destructive actions
+
+App settings live at `$HOME\.claude\parallel-agents.json`. They include pinned/hidden projects,
+remembered agents, project order, main-pane layout, theme, and terminal/tab preferences.
+The Explorer/Git vertical splitter also uses Chromium local storage. Agent histories and files in
+your selected projects are separate data, not contents of the settings file.
+
+- **Hide** changes a visibility preference.
+- **Delete project/session** can permanently remove provider history. This is not the Explorer's
+  recycle-bin action.
+- **Explorer trash**, file moves, and **Git discard/commit** operate on real selected project files.
+
+Do not delete settings or provider directories as a routine troubleshooting step. Quit the app and
+back up the relevant data before intentional recovery or migration work. Invalid existing settings
+are reported rather than silently replaced; there is no automatic recovery promise.
+
+## Demo artwork
+
+These checked-in hackathon illustrations are historical presentation assets, **not screenshots
+verifying the current build**.
+
+| Dark presentation                                                                      | Light presentation                                                                       |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| ![Historical dark presentation](Hackathon/parallel-agents-dark/01-poster-overview.png) | ![Historical light presentation](Hackathon/parallel-agents-light/01-poster-overview.png) |
+
+## Packaging
+
+Packaging is optional for normal development. `npm run pack` requests a local unpacked build and
+`npm run dist` requests configured distribution artifacts. Both run **build → native smoke →
+electron-builder with `--publish never` → `test:packaged`**. `build.npmRebuild: false` retains the
+upstream N-API prebuilds instead of recompiling them unnecessarily; native smoke gates remain required.
+`test:packaged` repeats the same native/offline UI checks against the real `app.asar` bundle with a
+fresh isolated home, producing `reports\packaged-smoke.json` and `reports\packaged-smoke.png`.
+Script wiring is not evidence of a successful run or installer verification.
+
+`npm run release` is local packaging and promotion, **not network publishing**. It additionally
+replaces the existing `release\latest` directory via
+[the promotion script](scripts/promote-latest.cjs). Only run it when you intend to replace those
+local artifacts. `pack` and `dist` explicitly retain `--publish never`; packaging may still need
+dependency/tool downloads even though publishing is disabled.
+
+## Contributing and project intent
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, local checks, and the bounded documentation checker.
+[AGENTS.md](AGENTS.md) is the shared guide for coding agents. Changes should preserve existing user
+data and unrelated working-tree edits.
+
+The [CI definitions](.github/workflows/ci.yml) configure Windows and Linux validation jobs.
+Linux covers non-GUI checks/builds, not a supported desktop runtime. Workflow and CODEOWNERS files
+are not evidence that CI ran or that required reviews/checks are enforced; those settings remain
+an owner action after publishing. See [CI boundaries](CONTRIBUTING.md#ci-definitions-and-owner-settings).
+
+[SPEC.md](SPEC.md) records product intent, including historical descriptions; use current source
+and [ARCHITECTURE.md](ARCHITECTURE.md) for implemented behavior.
+Discuss larger changes in [issues](https://github.com/jelllove/Parallel-Agents/issues).
+For security reports, follow [SECURITY.md](SECURITY.md), not a public issue.
+Contributors are expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[MIT](LICENSE) © [jelllove](https://github.com/jelllove).

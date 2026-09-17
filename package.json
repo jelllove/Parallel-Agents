@@ -8,15 +8,44 @@
     "email": "jelllove@gmail.com"
   },
   "license": "MIT",
+  "engines": {
+    "node": "^24.17.0",
+    "npm": ">=11 <12"
+  },
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "test": "node --test --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/*.test.mjs",
+    "build": "npm run typecheck && electron-vite build",
+    "test": "node --test --test-concurrency=4 --import ./tests/helpers/isolated-git.mjs --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/*.test.mjs",
+    "test:coverage": "node --test --test-concurrency=4 --import ./tests/helpers/isolated-git.mjs --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-coverage tests/*.test.mjs",
+    "pretest:ci": "node scripts/ci-report.mjs --prepare",
+    "test:ci": "node scripts/test-ci.mjs",
+    "test:e2e": "node scripts/smoke.mjs",
+    "test:maintenance-loop": "node --test tests/e2e/maintenance-loop.e2e.mjs",
+    "test:security": "node --test --import ./tests/helpers/isolated-git.mjs tests/security/*.test.mjs",
+    "test:smoke": "node scripts/smoke.mjs",
+    "test:packaged": "node scripts/smoke.mjs --packaged",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:secrets": "node scripts/scan-secrets.mjs",
+    "ci:prepare": "node scripts/ci-report.mjs --prepare",
+    "ci:report": "node scripts/ci-report.mjs",
+    "evidence:verify": "node scripts/verify-evidence.mjs",
+    "agent:serve": "node scripts/mcp-server.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "setup": "node scripts/setup.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "maintenance:check": "node scripts/maintenance.mjs",
+    "maintenance:apply": "node scripts/maintenance.mjs --apply",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run check:docs",
+    "validate": "npm run check && npm run build",
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "pack": "electron-vite build && electron-builder --dir",
-    "dist": "electron-vite build && electron-builder",
-    "release": "electron-vite build && electron-builder --dir && node scripts/promote-latest.cjs",
+    "pack": "npm run build && npm run test:smoke && electron-builder --dir --publish never && npm run test:packaged",
+    "dist": "npm run build && npm run test:smoke && electron-builder --publish never && npm run test:packaged",
+    "release": "npm run pack && node scripts/promote-latest.cjs",
     "build:icons": "node scripts/build-icons.cjs"
   },
   "dependencies": {
@@ -33,20 +62,32 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.6.0",
+    "@electron/rebuild": "^4.2.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
-    "electron": "^32.1.2",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^2.3.0",
+    "electron": "^43.6.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
     "png-to-ico": "^3.0.1",
-    "sharp": "^0.34.5",
+    "prettier": "^3.9.6",
+    "sharp": "^0.35.4",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8"
+    "typescript-eslint": "^8.70.0",
+    "vite": "^7.3.6"
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "^3.4.15"
+    }
   },
   "build": {
+    "npmRebuild": false,
     "appId": "com.jelllove.parallelagents",
     "productName": "Parallel Agents",
     "directories": {

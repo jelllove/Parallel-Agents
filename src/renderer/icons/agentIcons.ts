@@ -4,7 +4,7 @@ import codexUrl from '../assets/agents/codex.png';
 import geminiUrl from '../assets/agents/gemini.svg';
 import aiderUrl from '../assets/agents/aider.svg';
 import copilotUrl from '../assets/agents/copilot.svg';
-export { resumeCommandFor, startCommandFor } from '../../shared/agent-commands';
+export { extraPathFor, resumeCommandFor, startCommandFor } from '../../shared/agent-commands';
 
 export const AGENT_ICON: Record<AgentId, string> = {
   claude: claudeUrl,
@@ -16,10 +16,4 @@ export const AGENT_ICON: Record<AgentId, string> = {
 
 export function agentIconUrl(id: AgentId): string {
   return AGENT_ICON[id];
-}
-
-export function extraPathFor(resolvedPath?: string | null): string[] {
-  if (!resolvedPath) return [];
-  const m = resolvedPath.match(/^(.*)[\\/][^\\/]+$/);
-  return m ? [m[1]] : [];
 }
