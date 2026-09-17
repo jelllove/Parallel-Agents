@@ -16,3 +16,7 @@ the test artifacts or a claim of production, provider, or remote-policy qualific
 
 Consumers should dispatch on `schemaVersion`. Incompatible changes require a new version rather
 than silently reinterpreting existing receipts.
+
+[evidence.v1.schema.json](evidence.v1.schema.json) defines separate source/content binding for
+validation artifacts. Its [protocol](../docs/specs/evidence-v1.md) distinguishes artifact integrity
+from execution authority; a valid hash does not certify that a declared check actually ran.

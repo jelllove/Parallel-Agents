@@ -22,6 +22,7 @@ export async function runTests(root) {
   const coveragePath = join(directory, 'coverage.lcov');
   const args = [
     '--test',
+    '--test-concurrency=4',
     '--import',
     pathToFileURL(isolation).href,
     '--experimental-strip-types',
@@ -70,6 +71,7 @@ export async function runTests(root) {
         startedAt,
         finishedAt: new Date().toISOString(),
         exitCode,
+        command: [process.execPath, ...args],
         scope: 'Node unit and regression tests; native Electron and live providers are separate.',
         junitPath,
         coveragePath,

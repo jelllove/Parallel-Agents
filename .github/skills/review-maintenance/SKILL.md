@@ -41,6 +41,11 @@ and report the conflict rather than forcing rollback.
 
 ## Human decision
 
+Before changing the maintenance driver or its safety boundaries, run `npm run test:maintenance-loop`
+on Windows. This [whole-candidate recovery experiment](../../../docs/self-healing-ci.md) must prove
+actual failure detection, repair/revalidation and byte-exact rollback while leaving the original
+checkout untouched. It is intentionally separate from the validation command run during repairs.
+
 The [proposal workflow](../../workflows/maintenance.yml) handles scheduled/manual requests and
 failed default-branch push validation from this repository. It always checks out the current
 trusted default branch, never a fork/PR or event-supplied head, with read-only repository permissions.

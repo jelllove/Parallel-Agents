@@ -52,6 +52,9 @@ source scope. Go is a prerequisite; no provider authentication is needed.
 ## Report evidence
 
 State the exact commands, exit status, test counts, relevant artifact paths, and unverified boundaries.
+When an evidence envelope is available, run `npm run evidence:verify --` with its existing report
+path to check current source/artifact binding. Valid hashes do not turn declared outcomes into
+independent proof; stale or mismatched evidence must remain a visible failure.
 Distinguish local success from hosted CI execution, required-review enforcement, installer/signing
 qualification, and live-provider compatibility. Do not commit, push, merge, or promote releases
 unless that action was requested.

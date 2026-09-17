@@ -20,6 +20,17 @@ The [version-one JSON schema](../schemas/validation-report.v1.schema.json) is th
 The report describes workflow-step outcomes; it is not independent proof of a live provider,
 installer/signing qualification, or remote branch-policy enforcement.
 
+CI requests an additional [source-bound evidence envelope](specs/evidence-v1.md) with
+`--with-provenance`. It requires an unchanged committed checkout and binds the outcome receipt
+to current source/artifact hashes. It does not upgrade caller-supplied outcomes into independent proof.
+The [bounded local MCP tools](agent-tools.md) expose the same diagnostics, read-only maintenance
+inspection, fixed validation, and evidence verification without arbitrary commands or mutation APIs.
+
+[Documentation contracts](../.github/workflows/documentation.yml) also run as a small standalone PR
+check without dependency installation. This keeps a broken package install or an unrelated native
+job from hiding stale links/commands. The checker still deliberately covers a narrow executable
+contract, not all prose semantics; required-check enforcement remains an owner decision.
+
 ## Opt-in local hooks
 
 ```powershell
@@ -113,6 +124,12 @@ the older triggering CI run was repaired or rerun successfully.
 Use the [maintenance review skill](../.github/skills/review-maintenance/SKILL.md) and
 [version-one protocol](specs/maintenance-v1.md) before accepting a proposal. This is a bounded
 formatting loop, not general self-healing application code or proof of active remote enforcement.
+
+The separate [maintenance recovery verifier](self-healing-ci.md) exercises real detection,
+repair, revalidation and negative rollback on disposable whole-candidate copies. Its
+`npm run test:maintenance-loop` command is Windows-only and deliberately outside the recursive
+`check` graph. The dedicated read-only workflow retains source-bound local-fixture receipts;
+neither the verifier nor its artifacts imply autonomous merging or production recovery.
 
 ## Owner-controlled enforcement
 

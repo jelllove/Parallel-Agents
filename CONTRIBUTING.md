@@ -66,6 +66,10 @@ investigating a local check failure.
 
 Run these at the repository root. The definitions in [package.json](package.json) are authoritative.
 
+For optional agent-driven tooling, see [bounded local MCP tools](docs/agent-tools.md).
+They expose diagnostics, read-only maintenance inspection, fixed validation commands and source-bound
+evidence verification; they cannot install, publish, run arbitrary commands, or apply maintenance.
+
 | Command                     | Contract                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
 | `npm ci`                    | Install the locked dependency graph                                                         |
@@ -124,6 +128,9 @@ Test stale callbacks, normal forwarding/bounds/cleanup, and explicit resize/kill
 at this deterministic seam; use smoke tests separately for the real native binding.
 
 `npm test` does not require ambient AI-provider access.
+Normal, coverage and CI test runs cap Node's test-file workers at four. The suite creates many
+independent Git/process fixtures; the bound limits contention on shared Windows hosts without
+removing tests or extending maintenance validation deadlines.
 
 The [engineering automation guide](docs/automation.md) explains optional hooks, security-tool
 prerequisites, workflow receipts, and human approval boundaries. Neither setup nor ordinary checks

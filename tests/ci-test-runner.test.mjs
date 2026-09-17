@@ -35,6 +35,11 @@ test('test reporters never follow old predictable output-file links', async (t) 
   assert.equal(await readFile(join(outside, 'junit.xml'), 'utf8'), 'preserve XML');
   assert.equal(await readFile(join(outside, 'coverage.lcov'), 'utf8'), 'preserve LCOV');
   assert.match(await readFile(result.junitPath, 'utf8'), /testsuite/);
+  const receipt = JSON.parse(await readFile(result.receiptPath, 'utf8'));
+  assert.ok(
+    receipt.command?.includes('--test-concurrency=4'),
+    'CI must bound its Git-heavy test workers',
+  );
 });
 
 test('failing tests keep a failing exit code and retain their own diagnostics', async (t) => {

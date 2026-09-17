@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFile, lstat, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { captureCandidate, sealEvidence } from './evidence/provenance.mjs';
 
 const commands = {
   install: 'npm ci',
@@ -149,7 +150,9 @@ async function main() {
     console.log(await prepareReports(process.cwd()));
     return;
   }
-  if (args.length) throw new Error('Usage: node scripts/ci-report.mjs [--prepare]');
+  const withProvenance = args.length === 1 && args[0] === '--with-provenance';
+  if (args.length && !withProvenance)
+    throw new Error('Usage: node scripts/ci-report.mjs [--prepare | --with-provenance]');
   let results;
   try {
     results = JSON.parse(process.env.CI_STEPS_JSON ?? '');
@@ -159,7 +162,21 @@ async function main() {
     });
   }
   const report = summarizeResults(process.env.CI_PLATFORM, results);
+  const source = withProvenance ? await captureCandidate(process.cwd()) : null;
+  if (source?.dirty)
+    throw new Error('Workflow provenance requires an unchanged committed checkout.');
   const written = await writeReport(process.cwd(), report);
+  if (source) {
+    const path = (file) => relative(process.cwd(), file).split(sep).join('/');
+    const output = path(join(written.jsonPath, '..', 'evidence.json'));
+    await sealEvidence(process.cwd(), {
+      source,
+      origin: 'workflow-step-outcomes',
+      artifacts: [path(written.jsonPath)],
+      output,
+    });
+    console.log(`Evidence: ${output}`);
+  }
   if (process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_STEP_SUMMARY) {
     await appendGitHubSummary(
       process.env.GITHUB_STEP_SUMMARY,
