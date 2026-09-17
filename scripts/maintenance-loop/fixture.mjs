@@ -176,6 +176,7 @@ async function recoverAllocation(run) {
 export async function createRunDirectory(sourceRoot, commands) {
   sourceRoot = await canonicalRoot(sourceRoot);
   const relativePath = `reports/maintenance-loop/${Date.now()}-${randomUUID()}`;
+  await safePath(sourceRoot, relativePath, { missing: true });
   const ignored = nulNames(
     await commands.git(sourceRoot, ['check-ignore', '-z', '--stdin'], 'report-ignore-contract', {
       input: Buffer.from(`${relativePath}/receipt.json\0`),
