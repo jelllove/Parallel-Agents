@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Doctor: check prerequisites",
+      "type": "npm",
+      "script": "doctor",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: locked install and local checks",
+      "type": "npm",
+      "script": "setup",
+      "options": { "cwd": "${workspaceFolder}" },
+      "detail": "Runs npm ci and non-GUI checks; does not install global tools or Git hooks.",
+      "problemMatcher": []
+    },
+    {
+      "label": "Check: lint, format, types, tests and docs",
+      "type": "npm",
+      "script": "check",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$eslint-stylish", "$tsc"]
+    },
+    {
+      "label": "Typecheck",
+      "type": "npm",
+      "script": "typecheck",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Test: local Node fixtures",
+      "type": "npm",
+      "script": "test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: bundles only, no desktop launch",
+      "type": "npm",
+      "script": "build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

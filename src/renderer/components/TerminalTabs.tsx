@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useAppStore } from '../store/app-store';
-import { TerminalPane } from './TerminalPane';
 import { CloseTabConfirmDialog } from './CloseTabConfirmDialog';
 import { agentIconUrl } from '../icons/agentIcons';
 import type { AgentId, Project } from '../../shared/types';
+
+const TerminalPane = lazy(async () => {
+  const module = await import('./TerminalPane');
+  return { default: module.TerminalPane };
+});
 
 export function TerminalTabs() {
   const openTabs = useAppStore((s) => s.openTabs);
@@ -11,7 +15,6 @@ export function TerminalTabs() {
   const findProject = useAppStore((s) => s.findProject);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const closeTab = useAppStore((s) => s.closeTab);
-  const consumePendingCommand = useAppStore((s) => s.consumePendingCommand);
   const tabAgent = useAppStore((s) => s.tabAgent);
   const tabRespawnNonce = useAppStore((s) => s.tabRespawnNonce);
   const confirmOnCloseTab = useAppStore((s) => s.confirmOnCloseTab);
@@ -26,7 +29,10 @@ export function TerminalTabs() {
 
   function handleCloseClick(p: Project, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirmOnCloseTab) { closeTab(p.id); return; }
+    if (!confirmOnCloseTab) {
+      closeTab(p.id);
+      return;
+    }
     setPending({ id: p.id, name: p.displayName });
   }
 
@@ -70,16 +76,22 @@ export function TerminalTabs() {
                 'tab',
                 activeTabId === p.id ? 'active' : '',
                 dragOverId === p.id ? 'drag-over' : '',
-              ].filter(Boolean).join(' ')}
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onClick={() => setActiveTab(p.id)}
               title={`${p.realPath} · ${ag}`}
             >
-              <img src={agentIconUrl(ag)} className="tab-icon" width={16} height={16} alt="" draggable={false} />
+              <img
+                src={agentIconUrl(ag)}
+                className="tab-icon"
+                width={16}
+                height={16}
+                alt=""
+                draggable={false}
+              />
               <span>{p.displayName}</span>
-              <span
-                className="close"
-                onClick={(e) => handleCloseClick(p, e)}
-              >
+              <span className="close" onClick={(e) => handleCloseClick(p, e)}>
                 ×
               </span>
             </div>
@@ -90,23 +102,21 @@ export function TerminalTabs() {
         {openTabs.length === 0 ? (
           <div className="empty-state">
             Click <b>+ New Project</b> to pick a folder and launch an agent CLI.
-            <br />Or select a project on the left to see its history.
+            <br />
+            Or select a project on the left to see its history.
           </div>
         ) : (
           openTabs.map((id) => {
             const p = findProject(id);
             if (!p) return null;
-            const pendingCmd = consumePendingCommand(id);
             const nonce = tabRespawnNonce[id] ?? 0;
             return (
-              <TerminalPane
+              <Suspense
                 key={`${id}#${nonce}`}
-                projectId={id}
-                cwd={p.realPath}
-                visible={activeTabId === id}
-                initialCommand={pendingCmd?.command}
-                extraPath={pendingCmd?.extraPath}
-              />
+                fallback={<div className="empty-state">Loading terminal...</div>}
+              >
+                <TerminalPane projectId={id} cwd={p.realPath} visible={activeTabId === id} />
+              </Suspense>
             );
           })
         )}

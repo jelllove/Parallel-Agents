@@ -49,7 +49,8 @@ const api: Api = {
   },
   config: {
     getLastAgent: (projectId) => ipcRenderer.invoke('config:getLastAgent', projectId),
-    setLastAgent: (projectId, agentId) => ipcRenderer.invoke('config:setLastAgent', projectId, agentId),
+    setLastAgent: (projectId, agentId) =>
+      ipcRenderer.invoke('config:setLastAgent', projectId, agentId),
     getLayout: () => ipcRenderer.invoke('config:getLayout'),
     setLayout: (layout) => ipcRenderer.invoke('config:setLayout', layout),
     getTheme: () => ipcRenderer.invoke('config:getTheme'),
@@ -63,7 +64,8 @@ const api: Api = {
   },
   git: {
     status: (repoPath) => ipcRenderer.invoke('git:status', repoPath),
-    diff: (repoPath, filePath, staged) => ipcRenderer.invoke('git:diff', repoPath, filePath, staged),
+    diff: (repoPath, filePath, staged) =>
+      ipcRenderer.invoke('git:diff', repoPath, filePath, staged),
     stage: (repoPath, files) => ipcRenderer.invoke('git:stage', repoPath, files),
     unstage: (repoPath, files) => ipcRenderer.invoke('git:unstage', repoPath, files),
     discard: (repoPath, files) => ipcRenderer.invoke('git:discard', repoPath, files),

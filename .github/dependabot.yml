@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      development-tools:
+        patterns:
+          - '@eslint/*'
+          - 'eslint*'
+          - 'typescript-eslint'
+          - 'prettier'
+          - '@types/*'
+        update-types: [minor, patch]
+      electron-toolchain:
+        patterns:
+          - 'electron'
+          - 'electron-builder'
+          - 'electron-vite'
+          - '@electron/rebuild'
+          - 'vite'
+          - '@vitejs/plugin-react'
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

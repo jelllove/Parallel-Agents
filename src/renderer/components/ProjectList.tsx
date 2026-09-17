@@ -46,16 +46,17 @@ export function ProjectList() {
 
   const grouped = useMemo(() => {
     const out: Record<AgentId, Project[]> = {
-      claude: [], codex: [], gemini: [], aider: [], copilot: [],
+      claude: [],
+      codex: [],
+      gemini: [],
+      aider: [],
+      copilot: [],
     };
     for (const p of projects) out[p.agent].push(p);
     return out;
   }, [projects]);
 
-  const hiddenCount = useMemo(
-    () => projects.filter((p) => p.hidden).length,
-    [projects],
-  );
+  const hiddenCount = useMemo(() => projects.filter((p) => p.hidden).length, [projects]);
 
   function agentName(id: AgentId): string {
     return agents.find((a) => a.id === id)?.displayName ?? id;
@@ -141,7 +142,9 @@ export function ProjectList() {
                       !p.exists ? 'missing' : '',
                       p.hidden ? 'hidden-proj' : '',
                       dragOverId === p.id ? 'drag-over' : '',
-                    ].filter(Boolean).join(' ')}
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     onClick={() => handleClick(p)}
                     onContextMenu={(e) => handleContext(e, p)}
                     title={p.realPath + (p.exists ? '' : ' (directory not found)')}
@@ -154,7 +157,8 @@ export function ProjectList() {
                     />
                     <div className="project-text">
                       <div className="list-item-title">
-                        {p.pinned ? '📌 ' : ''}{p.displayName}
+                        {p.pinned ? '📌 ' : ''}
+                        {p.displayName}
                       </div>
                       <div className="list-item-sub">{p.realPath}</div>
                     </div>

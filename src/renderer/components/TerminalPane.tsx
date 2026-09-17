@@ -9,8 +9,6 @@ interface Props {
   projectId: string;
   cwd: string;
   visible: boolean;
-  initialCommand?: string;
-  extraPath?: string[];
 }
 
 function xtermThemeFor(mode: ThemeMode) {
@@ -29,7 +27,7 @@ function xtermThemeFor(mode: ThemeMode) {
       };
 }
 
-export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPath }: Props) {
+export function TerminalPane({ projectId, cwd, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -41,8 +39,12 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
   const copyPasteRef = useRef(copyPaste);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
-  useEffect(() => { multilineRef.current = multilineEnter; }, [multilineEnter]);
-  useEffect(() => { copyPasteRef.current = copyPaste; }, [copyPaste]);
+  useEffect(() => {
+    multilineRef.current = multilineEnter;
+  }, [multilineEnter]);
+  useEffect(() => {
+    copyPasteRef.current = copyPaste;
+  }, [copyPaste]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -106,9 +108,19 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
       window.api.pty.write(projectId, data);
     });
 
-    window.api.pty.spawn({ projectId, cwd, cols, rows, initialCommand, extraPath }).then(() => {
-      spawnedRef.current = true;
-    });
+    const pending = useAppStore.getState().consumePendingCommand(projectId);
+    window.api.pty
+      .spawn({
+        projectId,
+        cwd,
+        cols,
+        rows,
+        initialCommand: pending?.command,
+        extraPath: pending?.extraPath,
+      })
+      .then(() => {
+        spawnedRef.current = true;
+      });
 
     const ro = new ResizeObserver(() => {
       try {
@@ -172,7 +184,9 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
       ref={containerRef}
       className={`terminal-instance ${visible ? '' : 'hidden'}`}
       onContextMenu={onContextMenu}
-      onClick={() => { if (menu) setMenu(null); }}
+      onClick={() => {
+        if (menu) setMenu(null);
+      }}
     >
       {menu && (
         <div
@@ -180,8 +194,12 @@ export function TerminalPane({ projectId, cwd, visible, initialCommand, extraPat
           style={{ left: menu.x, top: menu.y, position: 'fixed' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ctx-menu-item" onClick={() => void doCopy()}>Copy</div>
-          <div className="ctx-menu-item" onClick={() => void doPaste()}>Paste</div>
+          <div className="ctx-menu-item" onClick={() => void doCopy()}>
+            Copy
+          </div>
+          <div className="ctx-menu-item" onClick={() => void doPaste()}>
+            Paste
+          </div>
         </div>
       )}
     </div>

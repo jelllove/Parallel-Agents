@@ -33,7 +33,10 @@ export function StatusBar() {
         className="sb-btn"
         title="Settings"
         onClick={() => {
-          if (settingsRect) { setSettingsRect(null); return; }
+          if (settingsRect) {
+            setSettingsRect(null);
+            return;
+          }
           const r = settingsBtnRef.current?.getBoundingClientRect();
           if (r) setSettingsRect(r);
         }}
@@ -45,16 +48,17 @@ export function StatusBar() {
         className="sb-btn"
         title="Window layout"
         onClick={() => {
-          if (pickerRect) { setPickerRect(null); return; }
+          if (pickerRect) {
+            setPickerRect(null);
+            return;
+          }
           const r = layoutBtnRef.current?.getBoundingClientRect();
           if (r) setPickerRect(r);
         }}
       >
         ⊞
       </button>
-      {pickerRect && (
-        <LayoutPicker anchorRect={pickerRect} onClose={() => setPickerRect(null)} />
-      )}
+      {pickerRect && <LayoutPicker anchorRect={pickerRect} onClose={() => setPickerRect(null)} />}
       {settingsRect && (
         <SettingsPicker anchorRect={settingsRect} onClose={() => setSettingsRect(null)} />
       )}

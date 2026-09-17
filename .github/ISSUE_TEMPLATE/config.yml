@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Questions & Discussions
-    url: https://github.com/jelllove/ParallelAgents/discussions
+    url: https://github.com/jelllove/Parallel-Agents/discussions
     about: Have a question, want to share a use case, or just chat? Use Discussions.
   - name: 🔒 Security vulnerability
-    url: https://github.com/jelllove/ParallelAgents/security/advisories/new
+    url: https://github.com/jelllove/Parallel-Agents/blob/main/SECURITY.md
     about: Please report security issues privately, not as a public issue.

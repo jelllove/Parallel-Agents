@@ -14,7 +14,7 @@ function materialIconsPlugin(): Plugin {
       server.middlewares.use((req, res, next) => {
         if (!req.url || !req.url.startsWith(PREFIX)) return next();
         const name = req.url.slice(PREFIX.length).split('?')[0];
-        if (!/^[\w.\-]+\.svg$/.test(name)) return next();
+        if (!/^[\w.-]+\.svg$/.test(name)) return next();
         const file = join(ICONS_DIR, name);
         try {
           statSync(file);
@@ -62,6 +62,7 @@ export default defineConfig({
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react(), materialIconsPlugin()],
     build: {
+      minify: 'esbuild',
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),
       },

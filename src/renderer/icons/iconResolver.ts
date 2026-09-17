@@ -16,7 +16,7 @@ interface Manifest {
   folderExpanded: string;
 }
 
-const m = manifest as unknown as Manifest;
+const m: Manifest = manifest;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 

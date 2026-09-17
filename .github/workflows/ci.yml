@@ -1,0 +1,96 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          - os: ubuntu-latest
+            label: Linux
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install locked dependencies
+        id: install
+        run: npm ci
+
+      - name: Prepare validation artifacts
+        run: npm run ci:prepare
+
+      - name: Lint
+        id: lint
+        run: npm run lint
+
+      - name: Verify formatting
+        id: format
+        run: npm run format:check
+
+      - name: Check types
+        id: typecheck
+        run: npm run typecheck
+
+      - name: Regression tests and machine-readable coverage
+        id: tests
+        run: npm run test:ci
+
+      - name: Fail on stale documentation contracts
+        id: docs
+        run: npm run check:docs
+
+      - name: Build the application
+        id: build
+        run: npm run build
+
+      - name: Package and exercise native Electron and PTY
+        id: native
+        if: runner.os == 'Windows'
+        run: npm run pack
+
+      - name: Check known dependency advisories
+        id: audit
+        run: npm audit --json --audit-level=high > reports/audit.json
+
+      - name: Record outcomes and failure reproduction guidance
+        if: always()
+        env:
+          CI_PLATFORM: ${{ matrix.label }}
+          CI_STEPS_JSON: >-
+            {"install":"${{ steps.install.outcome }}","lint":"${{ steps.lint.outcome }}","format":"${{ steps.format.outcome }}","typecheck":"${{ steps.typecheck.outcome }}","tests":"${{ steps.tests.outcome }}","docs":"${{ steps.docs.outcome }}","build":"${{ steps.build.outcome }}","native":"${{ steps.native.outcome }}","audit":"${{ steps.audit.outcome }}"}
+        run: npm run ci:report
+
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-${{ matrix.label }}
+          path: reports/
+          retention-days: 7
+          if-no-files-found: warn

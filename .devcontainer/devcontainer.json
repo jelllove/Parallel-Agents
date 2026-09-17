@@ -1,0 +1,21 @@
+{
+  "name": "Parallel Agents — Linux non-GUI checks",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/parallel-agents,type=bind",
+  "workspaceFolder": "/workspaces/parallel-agents",
+  "remoteUser": "node",
+  "mounts": [
+    "type=volume,target=/workspaces/parallel-agents/node_modules",
+    "type=volume,target=/workspaces/parallel-agents/out",
+    "type=volume,target=/workspaces/parallel-agents/reports"
+  ],
+  "postCreateCommand": "npm run setup",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

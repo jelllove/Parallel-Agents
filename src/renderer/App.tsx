@@ -66,23 +66,30 @@ export default function App() {
       openTabs.map((id) => findProject(id)?.displayName ?? id);
   }, [openTabs, findProject]);
 
-  const panes = useMemo(() => ({
-    sidebar: {
-      node: <Sidebar onAbout={() => setAboutOpen(true)} />,
-      minSize: 14,
-      maxSize: 40 as number | undefined,
-    },
-    middle: {
-      node: <div className="middle"><TerminalTabs /></div>,
-      minSize: 20,
-      maxSize: undefined as number | undefined,
-    },
-    right: {
-      node: <RightColumn />,
-      minSize: 14,
-      maxSize: 50 as number | undefined,
-    },
-  }), []);
+  const panes = useMemo(
+    () => ({
+      sidebar: {
+        node: <Sidebar onAbout={() => setAboutOpen(true)} />,
+        minSize: 14,
+        maxSize: 40 as number | undefined,
+      },
+      middle: {
+        node: (
+          <div className="middle">
+            <TerminalTabs />
+          </div>
+        ),
+        minSize: 20,
+        maxSize: undefined as number | undefined,
+      },
+      right: {
+        node: <RightColumn />,
+        minSize: 14,
+        maxSize: 50 as number | undefined,
+      },
+    }),
+    [],
+  );
 
   const order: [PaneId, PaneId, PaneId] = layout?.order ?? ['sidebar', 'middle', 'right'];
   const sizes: [number, number, number] = layout?.sizes ?? [20, 58, 22];
@@ -98,25 +105,15 @@ export default function App() {
       )}
       <AgentsBanner />
       <div className="app-body">
-        <PanelGroup
-          key={groupKey}
-          direction="horizontal"
-          onLayout={(s) => updateLayoutSizes(s)}
-        >
+        <PanelGroup key={groupKey} direction="horizontal" onLayout={(s) => updateLayoutSizes(s)}>
           {order.map((paneId, i) => {
             const pane = panes[paneId];
             return (
               <Fragment key={paneId}>
-                <Panel
-                  defaultSize={sizes[i]}
-                  minSize={pane.minSize}
-                  maxSize={pane.maxSize}
-                >
+                <Panel defaultSize={sizes[i]} minSize={pane.minSize} maxSize={pane.maxSize}>
                   {pane.node}
                 </Panel>
-                {i < order.length - 1 && (
-                  <PanelResizeHandle className="resize-handle" />
-                )}
+                {i < order.length - 1 && <PanelResizeHandle className="resize-handle" />}
               </Fragment>
             );
           })}

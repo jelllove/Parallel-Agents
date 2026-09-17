@@ -1,310 +1,312 @@
 # Parallel Agents — Architecture
 
-Electron 应用，分三个进程角色：**main**（Node 端，IPC/PTY/Git）、**preload**（contextBridge 桥）、**renderer**（React + Zustand UI）。
+This is an implementation map, not a claim of live runtime verification. The current source and
+[package.json](package.json) are authoritative for behavior, versions, and scripts.
+[SPEC.md](SPEC.md) records product intent and contains historical descriptions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and validation.
 
-- **Author**: jelllove ([jelllove@gmail.com](mailto:jelllove@gmail.com))
-- **Stack**: Electron 32 · electron-vite · React 18 · TypeScript · Zustand · xterm.js · node-pty · Monaco · react-resizable-panels
+## Process boundaries
 
----
-
-## 1. High-Level Diagram
-
-```
-┌─────────────────────────── Renderer (Chromium) ───────────────────────────┐
-│  React + Zustand store                                                    │
-│  ┌──────────────┐  ┌────────────────────┐  ┌──────────────────────────┐   │
-│  │ Sidebar      │  │ TerminalTabs       │  │ Explorer + GitPanel      │   │
-│  │ ProjectList  │  │  xterm.js (1 per   │  │ DiffWindow (Monaco lazy) │   │
-│  │ SessionList  │  │  tab) ←→ pty       │  │ LayoutPicker             │   │
-│  │ AgentPicker  │  │                    │  │ ConfirmDialog            │   │
-│  └──────────────┘  └────────────────────┘  └──────────────────────────┘   │
-│                            │                                              │
-│                       window.api (contextBridge)                          │
-└────────────────────────────│──────────────────────────────────────────────┘
-                             │  ipcRenderer.invoke / on
-┌────────────────────────────▼──────────────────────────────────────────────┐
-│                       Preload (sandboxed Node)                            │
-│  src/preload/index.ts — 单纯把 ipcRenderer.invoke 包成 Api 表面             │
-└────────────────────────────│──────────────────────────────────────────────┘
-                             │  ipcMain.handle / webContents.send
-┌────────────────────────────▼──────────────────────────────────────────────┐
-│                         Main (Node, Electron)                             │
-│  ┌──────────────┐  ┌────────────┐  ┌─────────┐  ┌─────────────┐           │
-│  │ projects     │  │ sessions   │  │ git     │  │ pty-manager │           │
-│  │ (scan ~/.    │  │ (parse     │  │ (CLI    │  │ (node-pty)  │           │
-│  │  claude/     │  │  jsonl)    │  │ exec +  │  │             │           │
-│  │  .gemini/)   │  │            │  │ watch)  │  │             │           │
-│  └──────────────┘  └────────────┘  └─────────┘  └─────────────┘           │
-│  ┌──────────────┐  ┌────────────┐  ┌────────────────────────┐             │
-│  │ fs-explorer  │  │ config     │  │ agent-providers        │             │
-│  │ (CRUD +      │  │ (load/save │  │ (which / where)        │             │
-│  │  shell ops)  │  │  JSON +    │  │                        │             │
-│  │              │  │  migrate)  │  │                        │             │
-│  └──────────────┘  └────────────┘  └────────────────────────┘             │
-└───────────────────────────────────────────────────────────────────────────┘
-                             │ fs / child_process
-              ┌──────────────┴──────────────┐
-        ~/.claude/projects/         ~/.gemini/tmp/         ~/.copilot/session-state/
-        ~/.claude/parallel-agents.json (config)
-        git CLI · Windows shell APIs
+```mermaid
+flowchart TB
+    UI["Renderer: React, Zustand, xterm, Monaco"]
+    API["Preload: typed window.api"]
+    IPC["Main: IPC handlers"]
+    Services["History readers, config store, filesystem, Git, PTY manager"]
+    Local["User files, provider history, Git CLI, native shell"]
+    UI --> API
+    API --> IPC
+    IPC --> Services
+    Services --> Local
+    Services -->|"PTY / Git / window events"| API
 ```
 
-## 2. Source Tree
+- [src/main/index.ts](src/main/index.ts) owns the BrowserWindow, tray, fullscreen shortcut, and quit
+  lifecycle. Closing the window normally hides it. Quitting detaches event targets, closes Git
+  watchers, and kills PTYs.
+- [src/preload/index.ts](src/preload/index.ts) exposes `window.api` through `contextBridge`.
+  Requests use `ipcRenderer.invoke`; event subscriptions return unsubscribe callbacks.
+- [src/renderer/App.tsx](src/renderer/App.tsx) assembles the React panels.
+  [The Zustand store](src/renderer/store/app-store.ts) coordinates domain state and actions, while
+  components also own local UI state, effects, and timers. Privileged operations go through `window.api`.
+- [src/shared/types.ts](src/shared/types.ts) defines the `Api`, project/session, config, PTY, and Git types.
+  These are compile-time contracts, not runtime validation of arbitrary incoming data.
 
-```
-src/
-├── main/                       Main process
-│   ├── index.ts                BrowserWindow + registerIpc()
-│   ├── ipc.ts                  ALL ipcMain.handle channels
-│   ├── projects.ts             list / delete / sort projects
-│   ├── sessions.ts             list / delete sessions (jsonl parsing)
-│   ├── fs-explorer.ts          readDir + create/rename/copy/move/trash/reveal/openDefault
-│   ├── git.ts                  status / diff / stage / unstage / discard / commit + watcher
-│   ├── pty-manager.ts          node-pty wrapper, multiplexed by projectId
-│   ├── agent-providers.ts      list agents + checkAll (which/where lookup)
-│   └── config.ts               JSON load/save with migration helpers
-│
-├── preload/
-│   └── index.ts                contextBridge.exposeInMainWorld('api', ...)
-│
-├── renderer/
-│   ├── App.tsx                 Top-level layout (PanelGroup × order)
-│   ├── store/
-│   │   └── app-store.ts        Zustand store (single store)
-│   ├── components/
-│   │   ├── Sidebar.tsx
-│   │   ├── ProjectList.tsx     drag/drop reorder + delete ctx-menu
-│   │   ├── SessionList.tsx     delete × button
-│   │   ├── AgentPicker.tsx
-│   │   ├── AgentsBanner.tsx    missing-CLI banner
-│   │   ├── TerminalTabs.tsx    tab bar + N × TerminalPane
-│   │   ├── TerminalPane.tsx    xterm + fit/web-links addons
-│   │   ├── Explorer.tsx        file tree + ctx menu + keybindings
-│   │   ├── GitPanel.tsx        VSCode-style source control
-│   │   ├── DiffWindow.tsx      Monaco DiffEditor (lazy)
-│   │   ├── LayoutPicker.tsx    6-permutation popover
-│   │   ├── ConfirmDialog.tsx   type-name destructive modal
-│   │   ├── StatusBar.tsx       bottom bar + layout button
-│   │   └── AboutDialog.tsx
-│   ├── icons/agentIcons.ts
-│   ├── assets/agents/          PNG/SVG per agent
-│   └── styles/theme.css        single global stylesheet
-│
-└── shared/
-    └── types.ts                Project/Session/AppConfig/Api 等共享类型
-```
+The window explicitly enables `sandbox` and `contextIsolation` and disables `nodeIntegration`.
+The sandboxed preload exposes only the typed bridge; these flags do not validate IPC arguments.
+Filesystem, process, and Git channels remain privileged operations.
 
-## 3. Process Boundaries
+## Runtime and build toolchain
 
-### 3.1 Main
-- 入口 `src/main/index.ts` 创建唯一 `BrowserWindow`
-- 调用 `registerIpc(win)` 一次性注册所有 `ipcMain.handle('xxx:yyy', ...)` 通道
-- 把 `win` 传给 `ptyManager.attachWindow(win)` 和 `git.attachWindow(win)` 供它们 `webContents.send` 事件给 renderer
+The confirmed stable refresh uses these declared ranges in [package.json](package.json).
+[package-lock.json](package-lock.json) records the exact resolved dependency graph.
 
-### 3.2 Preload
-- contextIsolation 开启，只暴露 `window.api`（类型 `Api`，在 `shared/types.ts`）
-- Preload 不写业务，只是 ipc 通道的 thin wrapper
+| Package             | Declared range | Role                                      |
+| ------------------- | -------------- | ----------------------------------------- |
+| `electron`          | `^43.6.0`      | Desktop runtime                           |
+| `electron-vite`     | `^5.0.0`       | Main/preload/renderer build orchestration |
+| `vite`              | `^7.3.6`       | Bundling and development tooling          |
+| `electron-builder`  | `^26.15.3`     | Local unpacked/distribution packaging     |
+| `@electron/rebuild` | `^4.2.0`       | Explicit native source rebuilds           |
+| `sharp`             | `^0.35.4`      | Image processing for icon generation      |
 
-### 3.3 Renderer
-- React 18 + Zustand 单 store（`app-store.ts`），所有 UI 状态集中
-- 唯一异步源：`window.api.*` —— 不直接碰 Node API
+Node **24.17.0** remains the pinned host-tooling baseline; Electron supplies its own runtime.
+The installed `node-pty` 1.2.0-beta.13 uses `node-addon-api` and ships official N-API prebuilds,
+including `win32-x64`. Standard Windows installation/packaging retains these upstream binaries,
+which have passed the Electron 43.6 native PTY fixture, instead of recompiling them for a
+different host/Electron version number.
 
-## 4. IPC Channels（按命名空间）
+`build.npmRebuild: false` prevents electron-builder's unnecessary source rebuild; it is not a
+Spectre-disable flag or a system modification. Windows C++ Build Tools and matching MSVC Spectre
+libraries are needed only for explicit `npm run rebuild` / source builds. See
+[native-terminal troubleshooting](CONTRIBUTING.md#native-terminal-troubleshooting).
+This tooling refresh leaves the React 18, xterm, and Monaco API contracts unchanged; an installation
+or audit result alone is not native or packaged-runtime verification.
 
-| Namespace | Channel | Direction | 说明 |
-|---|---|---|---|
-| `projects` | `list` / `pin` / `hide` / `delete` / `setOrder` | renderer → main | 项目元信息 CRUD |
-| `sessions` | `listForProject` / `delete` | renderer → main | session jsonl |
-| `pty` | `spawn` / `write` / `resize` / `kill` | renderer → main | 终端控制 |
-| `pty` | `pty:data` / `pty:exit` | main → renderer | PTY 输出 / 退出 |
-| `fs` | `readDir` / `createFile` / `createDir` / `rename` / `copy` / `move` / `trash` / `reveal` / `openDefault` | renderer → main | 文件操作 |
-| `git` | `status` / `diff` / `stage` / `unstage` / `discard` / `commit` / `watch` | renderer → main | git 操作 |
-| `git` | `git:changed` | main → renderer | 仓库变化广播 |
-| `dialog` | `pickDirectory` | renderer → main | 系统目录选择器 |
-| `agents` | `list` / `checkAll` | renderer → main | agent 元信息 + 安装检测 |
-| `config` | `getLastAgent` / `setLastAgent` / `getLayout` / `setLayout` | renderer → main | 用户配置读写 |
-| `shell` | `openExternal` | renderer → main | 系统打开 URL |
-| `window` | `window:fullscreen` | main → renderer | 全屏状态变化 |
+The manifest scopes a `dompurify: ^3.4.15` override to `monaco-editor`. Monaco's pinned transitive
+dependency could not be made safe by a normal compatible `npm audit fix` alone; the scoped override
+updates that subtree without imposing a global DOMPurify override. Remove it only when upstream
+Monaco allows a safe version and the refreshed lockfile resolves it without the override.
+The [dependency-maintenance procedure](CONTRIBUTING.md#dependency-maintenance) gives the verification
+and removal conditions.
 
-事件型（main → renderer）用 `webContents.send`，renderer 通过 `ipcRenderer.on` 订阅，preload 返回 unsubscribe 函数确保 cleanup。
+`pack` and `dist` run build → native smoke → electron-builder with `--publish never` →
+`test:packaged`; `pack` adds `--dir` for unpacked output. `test:packaged` runs the same native/offline
+UI fixture against the real `app.asar` bundle with fresh isolated data and emits
+`reports\packaged-smoke.json` / `reports\packaged-smoke.png`.
+`release` runs `pack` and promotes to `release\latest` only after both smoke gates succeed.
+It does not publish over the network, but it can replace existing local artifacts.
 
-## 5. State Management
+## Source map
 
-### 5.1 Zustand Store (`app-store.ts`)
+| Module                                                             | Responsibility                                                                                                  |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [src/main/ipc.ts](src/main/ipc.ts)                                 | Register IPC handlers and attach main-process event destinations                                                |
+| [src/main/projects.ts](src/main/projects.ts)                       | Discover supported provider projects, apply saved pin/hide/order preferences, remove provider project history   |
+| [src/main/sessions.ts](src/main/sessions.ts)                       | List/delete provider sessions and map metadata into the shared session model                                    |
+| [src/main/session-metadata.ts](src/main/session-metadata.ts)       | Read and validate Claude, Copilot, and Gemini JSONL metadata without Electron                                   |
+| [src/main/agent-providers.ts](src/main/agent-providers.ts)         | Agent catalogue, installation guidance, binary discovery via `where`/`which` and Windows Copilot fallback paths |
+| [src/shared/agent-commands.ts](src/shared/agent-commands.ts)       | Pure start/resume commands and executable-directory PATH hints                                                  |
+| [src/main/pty-manager.ts](src/main/pty-manager.ts)                 | Bind the PTY manager to the native `node-pty` spawn implementation                                              |
+| [src/main/pty-session-manager.ts](src/main/pty-session-manager.ts) | Manage keyed PTYs, initial-command timers, resize, exit, and cleanup; accepts an injected launcher              |
+| [src/main/window-messenger.ts](src/main/window-messenger.ts)       | Send events only to usable window/webContents targets                                                           |
+| [src/main/fs-explorer.ts](src/main/fs-explorer.ts)                 | Filesystem operations plus Electron trash/reveal/default-application integration                                |
+| [src/main/git.ts](src/main/git.ts)                                 | Local Git commands, NUL-delimited status, diff content, and repository watchers                                 |
+| [src/main/config.ts](src/main/config.ts)                           | Electron home-path adapter for the config store                                                                 |
+| [src/main/config-schema.ts](src/main/config-schema.ts)             | Defaults, persisted-value validation, and legacy project-ID migration                                           |
+| [src/main/config-store.ts](src/main/config-store.ts)               | Path-injected, queued configuration reads/updates and staged-file replacement                                   |
+| [src/renderer/store/app-store.ts](src/renderer/store/app-store.ts) | Projects, sessions, tabs, agent choices, preferences, and Git state                                             |
+| [src/renderer/monaco.ts](src/renderer/monaco.ts)                   | Local Monaco editor/worker setup used by the diff UI                                                            |
+| [src/renderer/styles/theme.css](src/renderer/styles/theme.css)     | Shared styling and theme variables                                                                              |
 
-```ts
-{
-  // 数据
-  projects, adhocProjects, sessions, agents, agentStatus,
-  // 选择
-  selectedProjectId, openTabs, activeTabId, tabAgent,
-  // UI
-  collapsedAgents, showHidden, clipboard, gitStatusByPath, layout,
-  // 启动 actions
-  loadProjects, loadAgents, checkAgents, loadLayout,
-  // 项目操作
-  pinProject, hideProject, deleteProject, reorderProjects,
-  // session
-  loadSessions, deleteSession,
-  // tab
-  openTabWithAgent, closeTab, setActiveTab,
-  // git
-  loadGitStatus, subscribeGitChanges,
-  // layout
-  setLayout, updateLayoutSizes(debounced),
-}
-```
+## IPC contract
 
-只有一个 store；组件 `useAppStore((s) => s.field)` 按字段订阅。
+For any API change, keep the shared `Api`, main handler, preload wrapper, and renderer caller aligned.
+The table lists suffixes under each namespace; main-to-renderer event names are shown in full.
 
-### 5.2 Layout 持久化
+| Namespace  | Requests (renderer → main)                                                                                                                                                                                                                 | Events (main → renderer) |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| `projects` | `list`, `pin`, `hide`, `delete`, `setOrder`                                                                                                                                                                                                | —                        |
+| `sessions` | `listForProject`, `delete`                                                                                                                                                                                                                 | —                        |
+| `pty`      | `spawn`, `write`, `resize`, `kill`                                                                                                                                                                                                         | `pty:data`, `pty:exit`   |
+| `fs`       | `readDir`, `createFile`, `createDir`, `rename`, `copy`, `move`, `trash`, `reveal`, `openDefault`                                                                                                                                           | —                        |
+| `git`      | `status`, `diff`, `stage`, `unstage`, `discard`, `commit`, `watch`                                                                                                                                                                         | `git:changed`            |
+| `dialog`   | `pickDirectory`                                                                                                                                                                                                                            | —                        |
+| `agents`   | `list`, `checkAll`                                                                                                                                                                                                                         | —                        |
+| `config`   | `getLastAgent`, `setLastAgent`, `getLayout`, `setLayout`, `getTheme`, `setTheme`, `getConfirmOnCloseTab`, `setConfirmOnCloseTab`, `getTerminalMultilineEnter`, `setTerminalMultilineEnter`, `getTerminalCopyPaste`, `setTerminalCopyPaste` | —                        |
+| `shell`    | `openExternal`                                                                                                                                                                                                                             | —                        |
+| `window`   | —                                                                                                                                                                                                                                          | `window:fullscreen`      |
 
-- `App.tsx` 启动 `loadLayout()` → store 写入 `layout`
-- `PanelGroup` 受控渲染：`defaultSize={layout.sizes[i]}`、`key={order.join('-')}` 顺序变了强制重挂
-- 拖手柄触发 `onLayout(sizes)` → `updateLayoutSizes(sizes)` → store 即更新，**300ms debounce** 后写盘
-- `LayoutPicker` 切顺序时 sizes 按 `pid` 重映射保持每栏比例不变
+PTY events carry the same project ID used to spawn the PTY. Git events carry a repository path.
+Callers must release subscriptions when effects unmount; quitting the app cleans up main-process
+watchers and PTYs. A channel's TypeScript annotation does not validate an arbitrary runtime payload.
 
-**关键**：不使用 `react-resizable-panels` 的 `autoSaveId`，避免它 localStorage 缓存覆盖我们 config 持久化。
+## Identity and terminal flow
 
-## 6. Modules
+The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:
+it exports the `ptyManager` singleton using `node-pty`'s real `spawn`.
+[src/main/pty-session-manager.ts](src/main/pty-session-manager.ts) owns the lifecycle class and
+accepts an injected spawn function. Deterministic tests import that class, not the native singleton.
 
-### 6.1 projects.ts
-- 扫 `~/.claude/projects/`、`~/.gemini/tmp/` 和 `~/.copilot/session-state/`
-- `dirName` 编码规则：`C--jelllove-Foo` → `C:\jelllove\Foo`（首字母作 drive，剩下 `-` → `\`）
-- 排序：pinned 优先；同 agent 组内按 `projectOrder` 应用用户拖拽顺序
-- `deleteProject(id)`：rm -rf agent 目录 + `forgetProject(id)`（清 pinned/hidden/lastAgent/projectOrder）
+Discovered project IDs are provider-namespaced. Claude/Gemini IDs use their provider directory name;
+Copilot projects are grouped by the project path recorded in session metadata. Directory-picker
+projects can use an `adhoc:` prefix. The `realPath` field is the filesystem location; do not derive
+every real path by splitting the project ID or decoding a provider directory name.
 
-### 6.2 sessions.ts
-- Claude: `<dirName>/<sessionId>.jsonl` —— 文件名就是 sessionId，直接 rm
-- Gemini: `<dirName>/chats/*.jsonl` —— 文件名 ≠ sessionId，遍历读 jsonl head 匹配 sessionId 字段后 rm
+**Current invariant:** `openTabs`, `tabAgent`, pending launches, and the PTY map use **project ID** as
+the key. Reopening/resuming a project ID reuses or restarts that entry; it does not allocate an
+arbitrary second independent terminal for the same ID.
 
-### 6.3 fs-explorer.ts
-- 标准 `fs/promises` 包装 + Electron `shell` API
-- `move()`：先 `rename`，捕获 `EXDEV` 跨设备错时回退到 `cp` + `rm`
-- `trash()`：`shell.trashItem(path)` 走系统回收站
-- `openDefault()`：`shell.openPath(path)` Windows 默认关联
+1. Selecting a project loads its sessions and requests Git status/watch for an existing directory.
+2. Opening it from the project list resumes a single known session, requests explicit selection
+   when there are multiple sessions, or starts the project's agent when there is no resumable session.
+3. The store remembers the selected agent and holds a pending command plus PATH hints.
+   [TerminalPane](src/renderer/components/TerminalPane.tsx) consumes this pending launch and requests a PTY.
+4. The manager starts `cmd.exe` on Windows (the configured shell or `bash` on other platforms), with
+   the project working directory, minimum terminal dimensions, and optional PATH additions.
+   The initial command is sent after a short timer.
+5. PTY data and exit events return through preload to xterm. Close/restart/quit paths must cancel
+   obsolete timers and prevent late events from a previous PTY affecting a replacement.
 
-### 6.4 git.ts
-- 用 `child_process.execFile` 直接 shell out 到 `git`，不引 `simple-git`
-- `getStatus`：`git -C <path> branch --show-current` + `git rev-list --left-right --count @{u}...HEAD` + `git status --porcelain=v1 -z` 解析（NUL 分隔，R/C 记录有 oldPath）
-- `getDiff(repo, file, staged)`：staged 用 `HEAD:<file>` vs `:<file>`；working 用 `HEAD:<file>` vs 工作树
-- **Watcher**：`fs.watch` 监听 `<repo>/.git/index` 和 `<repo>/.git/HEAD`，加 5s 兜底轮询；事件 debounce 800ms 后 `webContents.send('git:changed', repoPath)`
-- 同时只为每个 repoPath 起一个 watcher（map 缓存）
+[The lifecycle tests](tests/pty-session-manager.test.mjs) use mocked timers and injected PTYs to
+cover stale exit/data/startup-command races, current-session forwarding, minimum dimensions, and
+cleanup. Caught native resize/kill failures are logged explicitly; a failed kill must not prevent
+cleanup of other entries. These unit tests do not load native `node-pty` or contact an agent.
 
-### 6.5 pty-manager.ts
-- node-pty 多路复用：`projectId → IPty` map
-- `spawn(projectId, cwd, cols, rows, initialCommand?, extraPath?)` —— extraPath prepend 到 `PATH`，让 agent 找到 npm global bin
-- 输出/退出走 `webContents.send('pty:data' | 'pty:exit', projectId, ...)`
-- `kill(projectId)` 在 closeTab / deleteProject 时调用
+Start commands are `claude`, `copilot`, `gemini`, `codex`, and `aider`; Copilot is not a `gh` subcommand.
+The command-builder module, not this prose, is the exact resume-syntax authority.
+Binary detection does not verify authentication or a live provider response.
 
-### 6.6 agent-providers.ts
-- `listAgents()` 返回固定的 5 个 agent 元信息
-- `checkAllAgents()` 对每个 agent 跑 `where <bin>` 或 `which`，返回 `{available, path}`
+## History and persistence
 
-### 6.7 config.ts
-- `~/.claude/parallel-agents.json` 单文件
-- `loadConfig()` 有内存 cache；首次加载跑 `migrate()` 补默认字段、把老 bare dirName 加 `claude:` 前缀
-- 所有 setter 都先 load → merge → save
+| Location                             | Data and ownership                                                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `$HOME\.claude\parallel-agents.json` | Application preferences: pin/hide state, last agent, project order, horizontal layout, theme, tab-close and terminal options |
+| `$HOME\.claude\projects`             | Claude project/session JSONL history                                                                                         |
+| `$HOME\.gemini\tmp`                  | Gemini project roots and the supported JSONL chat format                                                                     |
+| `$HOME\.copilot\session-state`       | Copilot session directories with `events.jsonl`                                                                              |
+| Chromium local storage               | The Explorer/Git vertical panel group's `autoSaveId` layout                                                                  |
+| Selected project directories         | Real working files and Git metadata, owned by the user                                                                       |
 
-## 7. Critical Flows
+The app scans Claude, Gemini, and Copilot histories, not Codex or Aider histories. The session readers
+validate the fields they consume, tolerate unusable records, and distinguish missing files from
+other I/O failures. Provider format compatibility is bounded by those readers; there is no universal
+provider schema or live-provider compatibility guarantee.
 
-### 7.1 Open a tab
-```
-User clicks project + agent
- └→ store.openTabWithAgent(projectId, agentId, cmd, extraPath)
-     ├→ config.setLastAgent(...)             (持久化)
-     ├→ openTabs += projectId, activeTabId = projectId
-     └→ pendingInitialCommand[projectId] = { cmd, extraPath }
-TerminalPane mount
- └→ store.consumePendingCommand(projectId)
- └→ pty.spawn({ projectId, cwd, cols, rows, initialCommand, extraPath })
-Main: pty-manager creates IPty, pipes data → webContents.send('pty:data', ...)
-Renderer: xterm.write(data)
-```
+Configuration is a separate boundary:
 
-### 7.2 Delete project（三次确认）
-```
-Right-click → ctx menu Delete...
- → ConfirmDialog 弹出
- → 输入 displayName 完全匹配 + 勾选 "I understand"
- → store.deleteProject(id)
-     ├→ pty.kill(id) (若 tab 开着)
-     ├→ projects.delete(id) IPC
-     │   ├→ rm -rf agent 目录
-     │   └→ forgetProject(id)  config 清理
-     ├→ 清 openTabs/tabAgent/sessions/selectedProjectId
-     └→ loadProjects() 刷新
-```
+- The schema supplies defaults for missing settings and validates present values, including layout
+  permutations/percentages and known agent IDs.
+- The store serializes operations **within that store instance**, works on snapshots, and stages a
+  write beside the config before replacing it. Its queue is not an inter-process lock.
+- Missing config uses defaults. Invalid JSON/schema or operational I/O failures are reported, not
+  treated as permission to overwrite existing user data with defaults.
+- Legacy bare Claude project IDs are migrated in the supported preference fields. Migration/save
+  failures must be visible; a cache update is not proof that persistence succeeded.
 
-### 7.3 Git status auto-refresh
-```
-selectProject(id)
- └→ loadGitStatus(realPath)
- └→ git.watch(realPath) IPC
-     └→ main: git.watchRepo(repo) 启动 fs.watch + poll
-File changes on disk
- └→ fs.watch fires / poll detects mtime change
- └→ debounce 800ms
- └→ webContents.send('git:changed', repoPath)
-Renderer: subscribeGitChanges callback
- └→ loadGitStatus(repoPath) 重拉
-```
+The main horizontal panel layout is loaded from config; changing column order remaps sizes by pane
+identity. Drag updates are debounced before persistence. The vertical Explorer/Git splitter is a
+separate local-storage setting, so "all user state is in one JSON file" would be inaccurate.
 
-### 7.4 Layout switch
-```
-User clicks ⊞ in StatusBar
- → LayoutPicker 弹层 (6 行)
- → User picks newOrder
- → reorderedSizes = newOrder.map(pid => currentSizes[oldOrder.indexOf(pid)])
- → store.setLayout({ order, sizes })
-     ├→ set({ layout })  (React 重渲染)
-     ├→ App.tsx 的 PanelGroup key 变 → 重挂 → defaultSize 重新生效
-     └→ config.setLayout 立即写盘
-```
+### Destructive operations
 
-## 8. Persistence Layout
+Explorer deletion uses Electron's trash operation. Project/session deletion instead removes provider
+history directly; it is not a recycle-bin operation. Git discard and file moves alter real work.
+Keep the existing confirmation UI and test these flows only with disposable fixture data.
+Never delete home config or histories automatically to make a test, migration, or troubleshooting
+step succeed. Close the app and back up data before intentional manual recovery.
 
-`~/.claude/parallel-agents.json`：
+## Git flow
 
-```jsonc
-{
-  "pinned": ["claude:C--jelllove-foo"],
-  "hidden": [],
-  "lastAgentByProject": { "claude:C--jelllove-foo": "claude" },
-  "projectOrder": {
-    "claude": ["claude:C--jelllove-foo", "claude:C--jelllove-bar"],
-    "gemini": []
-  },
-  "layout": {
-    "order": ["sidebar", "middle", "right"],
-    "sizes": [20, 58, 22]
-  }
-}
-```
+[src/main/git.ts](src/main/git.ts) executes local Git commands and parses NUL-delimited status
+records so spaces, renames, and unusual filenames are not split as ordinary lines.
 
-迁移见 `config.ts#migrate`：缺字段补默认；老 key 加 `claude:` 前缀。
+- **Staged diff:** HEAD → index, accounting for a staged rename's original path.
+- **Unstaged diff:** index → working tree, not HEAD → working tree.
+- The command wrapper supplies `--literal-pathspecs`; file operations also separate filenames from
+  options with `--`. Staging a filename containing brackets therefore stages that literal filename,
+  not other files matched by Git pathspec syntax.
+- Missing old/new files produce the appropriate empty side; operational Git/filesystem failures
+  must not masquerade as a successful empty diff.
+- Watchers monitor the Git metadata directory, not a permanently opened index file. For a linked
+  worktree, the `.git` pointer is resolved to that worktree's metadata directory. Directory
+  notifications observe index replacement; the existing five-second polling fallback remains.
+  Events are throttled to at most one per 800 ms for each watched repository.
+- `git:changed` causes the store to reload status. Watchers are cached by repository path and
+  released during application quit.
 
-## 9. Build & Release
+These are local operations, not automatic fetch/push/publish behavior.
 
-- **dev**: `npm run dev` —— electron-vite dev server，main/preload/renderer 全部 hot reload
-- **build**: `npm run build` —— 三个 vite 子构建到 `out/`
-- **release**: `npm run release` =
-  1. `electron-vite build`
-  2. `electron-builder --dir` → `release/win-unpacked/`
-  3. `node scripts/promote-latest.cjs` → `release/latest/`（用户固定路径）
-- 原生依赖 node-pty 用 `@electron/rebuild` 在 release 阶段自动 rebuild 到 Electron ABI
+## Offline diff loading
 
-## 10. Security / Sandboxing
+[DiffWindow](src/renderer/components/DiffWindow.tsx) uses `React.lazy` to import both
+`@monaco-editor/react` and [src/renderer/monaco.ts](src/renderer/monaco.ts) on demand.
+Before returning the `DiffEditor` component, it calls `loader.config({ monaco })` with the local
+Monaco module. This avoids the wrapper's remote editor-loader path while keeping the heavy
+editor payload behind the diff's lazy-loading boundary.
 
-- contextIsolation: 开
-- nodeIntegration: 关
-- Renderer 不能直接 require Node 模块；所有系统能力走 IPC
-- 删除走系统回收站（非永久 rm）—— 给 user 一次反悔机会
-- Project Delete 永久删除，靠输入名字 + 勾选硬验证防误删
+The local Monaco module supplies `MonacoEnvironment.getWorker` using Vite `?worker` imports:
+an editor worker plus JSON, CSS-family, HTML-family, and TypeScript/JavaScript workers.
+Those worker factories are bundled locally and instantiate workers when Monaco requests them.
+Keep this module behind the lazy diff import rather than moving it into renderer startup.
 
-## 11. Known Limitations
+The existing read-only diff model and Git revision semantics are unchanged. Local editor assets
+allow the built diff viewer to render without a CDN connection; this does not make external
+AI-provider CLIs offline or remove their own authentication/network requirements.
+The native smoke fixture checks real UI diff rendering with HTTP(S) blocked, not just the presence
+of a locally bundled Monaco dependency.
 
-- 仅 Windows 路径编码（drive 首字母 + `-` → `\`）。macOS/Linux 需要扩展 `decodeDirName`。
-- `react-resizable-panels` 在某些极端 size 组合下会自动夹紧，可能与持久化值轻微偏移（next onLayout 会把夹紧后的值回写）。
-- Git watcher 在 Windows network drive 上 fs.watch 不稳，靠 5s poll 兜底。
-- Monaco bundle ~1.2MB JS，lazy load 避免首屏拖慢；首次打开 diff 有 ~200ms 延迟。
+## Verification surfaces
+
+The linked tests and command entry points identify verification surfaces, not completed runs.
+The development baseline is Node **24.17.0**, pinned by [.node-version](.node-version), with the
+manifest permitting Node `^24.17.0` and npm `>=11 <12`.
+
+| Surface                                                    | Local evidence                                                                                                                               |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent command construction                                 | [tests/agent-commands.test.mjs](tests/agent-commands.test.mjs)                                                                               |
+| Configuration defaults, migration, validation, persistence | [tests/config.test.mjs](tests/config.test.mjs)                                                                                               |
+| Provider metadata and session mapping                      | [tests/session-metadata.test.mjs](tests/session-metadata.test.mjs), [tests/sessions.test.mjs](tests/sessions.test.mjs)                       |
+| PTY lifecycle and event destinations                       | [tests/pty-session-manager.test.mjs](tests/pty-session-manager.test.mjs), [tests/window-messenger.test.mjs](tests/window-messenger.test.mjs) |
+| Renderer store regressions                                 | [tests/renderer-store.test.mjs](tests/renderer-store.test.mjs)                                                                               |
+| Git index/diff/watch behavior                              | [tests/git.test.mjs](tests/git.test.mjs)                                                                                                     |
+| Bounded documentation contracts                            | [tests/check-docs.test.mjs](tests/check-docs.test.mjs)                                                                                       |
+| Native/bundled smoke harness                               | [scripts/smoke.mjs](scripts/smoke.mjs), [tests/e2e/electron.e2e.cjs](tests/e2e/electron.e2e.cjs)                                             |
+
+`npm run check` combines lint, formatting verification, type checking, Node tests, and documentation
+checks. `npm run build` runs `tsc --noEmit` through `typecheck` before electron-vite bundles the main,
+preload, and renderer outputs. `npm run validate` runs `check` followed by `build`.
+The TypeScript configuration uses `verbatimModuleSyntax`; type-only references must use
+`import type` rather than leaving runtime imports for interfaces or annotations.
+
+Optional `npm run test:coverage` adds Node's built-in coverage instrumentation to the same test
+selection. This reports **tested-module coverage**, not whole-repository coverage: modules never
+loaded by the tests are not thereby proven covered. It does not establish native PTY/Electron or
+live-provider coverage, and it is not included in `check` or `validate`.
+
+### Windows native smoke
+
+Run `npm run build` before the Windows-only `npm run test:smoke`. This is a separate native
+integration surface, not part of the fast `check` gate or `validate` (which remains check plus build).
+The runner launches real Electron against the built application, with generated temporary
+home/userData/sessionData directories, Claude history, and a disposable Git repository.
+HOME/USERPROFILE and provider roots are isolated; PATH begins with inert provider `.cmd` shims.
+Real Git and a native command shell are used, but no real AI-provider CLIs or accounts are contacted.
+
+The fixture exercises preload/renderer boundaries, concurrent settings updates, Git's
+index-to-working-tree diff, filesystem IPC, native `cmd.exe` PTY echo/exit, and the
+`window-all-closed` tray lifecycle event. It selects the generated Claude project through the UI,
+checks delivery of the inert initial terminal command, and opens the Git diff. HTTP(S) requests
+are blocked in that Electron session, and the fixture asserts that both revisions render in
+Monaco offline. This is not a host-wide network sandbox or complete UI/tray coverage.
+
+The runner cleans its temporary home. Successful runs produce `reports\smoke.json` and
+`reports\smoke.png`; inspect the current exit status and report before claiming verification.
+See [CONTRIBUTING.md](CONTRIBUTING.md#windows-native-smoke-test) for prerequisites and failure/report
+handling. The JSON records the Electron version and whether the input was the unpacked bundle.
+A successful ordinary smoke run (`packaged: false`) does not prove packaging or installer startup,
+and neither smoke mode proves live-provider compatibility.
+
+### Documentation contract scope
+
+The documentation checker verifies selected command names and local references, not the semantic
+accuracy of this architecture or the IPC table. See its
+[coverage and exclusions](CONTRIBUTING.md#documentation-contract-check).
+Passing static tests/builds does not demonstrate that a live UI, native binary, remote CI run, or
+AI provider was exercised.
+
+### CI configuration boundary
+
+[The CI workflow](.github/workflows/ci.yml) configures `Validate (Windows)` and `Validate (Linux)`
+for pull requests, `main` pushes, and manual dispatch. Both install locked dependencies, run
+`check`, build, and audit at the high-advisory threshold. Windows additionally invokes `npm run pack`,
+which includes native smoke and local unpacked-bundle packaging/testing with `--publish never`.
+Linux is a non-GUI validation/build target, not a supported product runtime or a native smoke target.
+
+The definitions use SHA-pinned actions, read-only repository contents permissions, cancellation
+of superseded workflow/ref runs, 20-minute job timeouts, and report artifacts/job summaries.
+[CODEOWNERS](.github/CODEOWNERS) and [Dependabot](.github/dependabot.yml) supply review routing and
+bounded weekly dependency-update configuration. They do not prove remote CI execution or enforce
+branch protection by themselves. Requiring both status checks and Code Owner review remains a
+repository-owner action after publishing; see the
+[owner-settings guidance](CONTRIBUTING.md#ci-definitions-and-owner-settings).

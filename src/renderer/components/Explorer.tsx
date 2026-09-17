@@ -4,7 +4,8 @@ import type { FsNode } from '../../shared/types';
 import { fileIconUrl, folderIconUrl } from '../icons/iconResolver';
 import { ConfirmDialog } from './ConfirmDialog';
 
-type Pending = { kind: 'newFile' | 'newDir'; parentPath: string } | { kind: 'rename'; node: FsNode } | null;
+type Pending =
+  { kind: 'newFile' | 'newDir'; parentPath: string } | { kind: 'rename'; node: FsNode } | null;
 
 function joinPath(parent: string, name: string): string {
   // Cross-platform join — keep it simple, use the parent's separator
@@ -19,8 +20,9 @@ function dirName(p: string): string {
 }
 
 export function Explorer() {
-  const selectedId = useAppStore((s) => s.activeTabId ?? s.selectedProjectId);
-  const project = useAppStore((s) => s.projects.find((p) => p.id === (s.activeTabId ?? s.selectedProjectId)));
+  const project = useAppStore((s) =>
+    s.projects.find((p) => p.id === (s.activeTabId ?? s.selectedProjectId)),
+  );
   const clipboard = useAppStore((s) => s.clipboard);
   const setClipboard = useAppStore((s) => s.setClipboard);
 
@@ -31,7 +33,9 @@ export function Explorer() {
   const [selectedIsDir, setSelectedIsDir] = useState<boolean>(false);
   const [pending, setPending] = useState<Pending>(null);
   const [pendingInput, setPendingInput] = useState('');
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: FsNode | null } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: FsNode | null } | null>(
+    null,
+  );
   const [confirmDelete, setConfirmDelete] = useState<FsNode | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -50,18 +54,21 @@ export function Explorer() {
     void reloadDir(rootPath);
   }, [rootPath, project?.exists, project, reloadDir]);
 
-  const toggleExpand = useCallback(async (node: FsNode) => {
-    if (!node.isDirectory) return;
-    setExpanded((cur) => {
-      const next = new Set(cur);
-      if (next.has(node.path)) next.delete(node.path);
-      else next.add(node.path);
-      return next;
-    });
-    if (children[node.path] === undefined || children[node.path] === null) {
-      await reloadDir(node.path);
-    }
-  }, [children, reloadDir]);
+  const toggleExpand = useCallback(
+    async (node: FsNode) => {
+      if (!node.isDirectory) return;
+      setExpanded((cur) => {
+        const next = new Set(cur);
+        if (next.has(node.path)) next.delete(node.path);
+        else next.add(node.path);
+        return next;
+      });
+      if (children[node.path] === undefined || children[node.path] === null) {
+        await reloadDir(node.path);
+      }
+    },
+    [children, reloadDir],
+  );
 
   function select(node: FsNode) {
     setSelectedPath(node.path);
@@ -102,8 +109,8 @@ export function Explorer() {
           if (clipboard.mode === 'copy') await window.api.fs.copy(src, dest);
           else await window.api.fs.move(src, dest);
           break;
-        } catch (err: any) {
-          if (!String(err?.message ?? err).includes('exists')) throw err;
+        } catch (err) {
+          if (!(err instanceof Error) || !err.message.includes('exists')) throw err;
           const dot = name.lastIndexOf('.');
           const base = dot > 0 ? name.slice(0, dot) : name;
           const ext = dot > 0 ? name.slice(dot) : '';
@@ -134,16 +141,27 @@ export function Explorer() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const el = containerRef.current;
-      if (!el || !el.contains(document.activeElement) && document.activeElement !== el) return;
+      if (!el || (!el.contains(document.activeElement) && document.activeElement !== el)) return;
       if (pending) return; // don't intercept while editing
       if (!selectedPath) return;
-      const sel: FsNode = { name: selectedPath.split(/[\\/]/).pop() || selectedPath, path: selectedPath, isDirectory: selectedIsDir };
-      if (e.key === 'F2') { e.preventDefault(); setPending({ kind: 'rename', node: sel }); setPendingInput(sel.name); }
-      else if (e.key === 'Delete') { e.preventDefault(); setConfirmDelete(sel); }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        e.preventDefault(); setClipboard({ mode: 'copy', paths: [selectedPath] });
+      const sel: FsNode = {
+        name: selectedPath.split(/[\\/]/).pop() || selectedPath,
+        path: selectedPath,
+        isDirectory: selectedIsDir,
+      };
+      if (e.key === 'F2') {
+        e.preventDefault();
+        setPending({ kind: 'rename', node: sel });
+        setPendingInput(sel.name);
+      } else if (e.key === 'Delete') {
+        e.preventDefault();
+        setConfirmDelete(sel);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        setClipboard({ mode: 'copy', paths: [selectedPath] });
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
-        e.preventDefault(); setClipboard({ mode: 'cut', paths: [selectedPath] });
+        e.preventDefault();
+        setClipboard({ mode: 'cut', paths: [selectedPath] });
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
         e.preventDefault();
         const target = selectedIsDir ? selectedPath : dirName(selectedPath);
@@ -172,9 +190,14 @@ export function Explorer() {
               node.isDirectory ? 'dir' : 'file',
               selectedPath === node.path ? 'selected' : '',
               isCut ? 'cut' : '',
-            ].filter(Boolean).join(' ')}
+            ]
+              .filter(Boolean)
+              .join(' ')}
             style={{ paddingLeft: 8 + level * 12 }}
-            onClick={() => { select(node); if (node.isDirectory) void toggleExpand(node); }}
+            onClick={() => {
+              select(node);
+              if (node.isDirectory) void toggleExpand(node);
+            }}
             onDoubleClick={() => {
               if (node.isDirectory) void window.api.fs.openDefault(node.path);
               else void window.api.fs.openDefault(node.path);
@@ -182,9 +205,7 @@ export function Explorer() {
             onContextMenu={(e) => ctxMenuFor(e, node)}
             title={node.path}
           >
-            <span className="twisty">
-              {node.isDirectory ? (isExpanded ? '▾' : '▸') : ''}
-            </span>
+            <span className="twisty">{node.isDirectory ? (isExpanded ? '▾' : '▸') : ''}</span>
             <img className="file-icon" src={iconUrl} alt="" draggable={false} />
             {isRenaming ? (
               <input
@@ -209,30 +230,38 @@ export function Explorer() {
             )}
           </div>
           {node.isDirectory && isExpanded && renderTree(node.path, level + 1)}
-          {pending && pending.kind !== 'rename' && pending.parentPath === node.path && node.isDirectory && isExpanded && (
-            <div className="tree-node file" style={{ paddingLeft: 8 + (level + 1) * 12 }}>
-              <span className="twisty"></span>
-              <img className="file-icon" src={pending.kind === 'newDir' ? folderIconUrl('', false) : fileIconUrl('')} alt="" />
-              <input
-                autoFocus
-                className="explorer-input"
-                value={pendingInput}
-                onChange={(e) => setPendingInput(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter') {
-                    const name = pendingInput.trim();
-                    const kind = pending.kind;
-                    const parent = pending.parentPath;
-                    setPending(null);
-                    if (name) await doCreate(parent, name, kind === 'newDir');
-                  } else if (e.key === 'Escape') {
-                    setPending(null);
-                  }
-                }}
-                onBlur={() => setPending(null)}
-              />
-            </div>
-          )}
+          {pending &&
+            pending.kind !== 'rename' &&
+            pending.parentPath === node.path &&
+            node.isDirectory &&
+            isExpanded && (
+              <div className="tree-node file" style={{ paddingLeft: 8 + (level + 1) * 12 }}>
+                <span className="twisty"></span>
+                <img
+                  className="file-icon"
+                  src={pending.kind === 'newDir' ? folderIconUrl('', false) : fileIconUrl('')}
+                  alt=""
+                />
+                <input
+                  autoFocus
+                  className="explorer-input"
+                  value={pendingInput}
+                  onChange={(e) => setPendingInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      const name = pendingInput.trim();
+                      const kind = pending.kind;
+                      const parent = pending.parentPath;
+                      setPending(null);
+                      if (name) await doCreate(parent, name, kind === 'newDir');
+                    } else if (e.key === 'Escape') {
+                      setPending(null);
+                    }
+                  }}
+                  onBlur={() => setPending(null)}
+                />
+              </div>
+            )}
         </div>
       );
     });
@@ -251,16 +280,24 @@ export function Explorer() {
         onContextMenu={(e) => ctxMenuFor(e, null)}
       >
         {!project ? (
-          <div className="list-item-sub" style={{ padding: '8px 12px' }}>No project selected.</div>
+          <div className="list-item-sub" style={{ padding: '8px 12px' }}>
+            No project selected.
+          </div>
         ) : !project.exists ? (
-          <div className="list-item-sub" style={{ padding: '8px 12px' }}>Directory not found on disk.</div>
+          <div className="list-item-sub" style={{ padding: '8px 12px' }}>
+            Directory not found on disk.
+          </div>
         ) : !rootPath ? null : (
           <>
             {/* Root-level new-file/folder pending entry */}
             {pending && pending.kind !== 'rename' && pending.parentPath === rootPath && (
               <div className="tree-node file" style={{ paddingLeft: 8 }}>
                 <span className="twisty"></span>
-                <img className="file-icon" src={pending.kind === 'newDir' ? folderIconUrl('', false) : fileIconUrl('')} alt="" />
+                <img
+                  className="file-icon"
+                  src={pending.kind === 'newDir' ? folderIconUrl('', false) : fileIconUrl('')}
+                  alt=""
+                />
                 <input
                   autoFocus
                   className="explorer-input"
@@ -290,58 +327,103 @@ export function Explorer() {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ctx-menu-item" onClick={() => {
-            setPending({ kind: 'newFile', parentPath: ctxTargetDir });
-            setPendingInput('');
-            if (ctxTargetDir !== rootPath) setExpanded((cur) => new Set(cur).add(ctxTargetDir));
-            setCtxMenu(null);
-          }}>New File</div>
-          <div className="ctx-menu-item" onClick={() => {
-            setPending({ kind: 'newDir', parentPath: ctxTargetDir });
-            setPendingInput('');
-            if (ctxTargetDir !== rootPath) setExpanded((cur) => new Set(cur).add(ctxTargetDir));
-            setCtxMenu(null);
-          }}>New Folder</div>
+          <div
+            className="ctx-menu-item"
+            onClick={() => {
+              setPending({ kind: 'newFile', parentPath: ctxTargetDir });
+              setPendingInput('');
+              if (ctxTargetDir !== rootPath) setExpanded((cur) => new Set(cur).add(ctxTargetDir));
+              setCtxMenu(null);
+            }}
+          >
+            New File
+          </div>
+          <div
+            className="ctx-menu-item"
+            onClick={() => {
+              setPending({ kind: 'newDir', parentPath: ctxTargetDir });
+              setPendingInput('');
+              if (ctxTargetDir !== rootPath) setExpanded((cur) => new Set(cur).add(ctxTargetDir));
+              setCtxMenu(null);
+            }}
+          >
+            New Folder
+          </div>
           {ctxMenu.node && (
             <>
               <div className="ctx-menu-divider" />
-              <div className="ctx-menu-item" onClick={() => {
-                setPending({ kind: 'rename', node: ctxMenu.node! });
-                setPendingInput(ctxMenu.node!.name);
-                setCtxMenu(null);
-              }}>Rename</div>
-              <div className="ctx-menu-item" onClick={() => {
-                setClipboard({ mode: 'copy', paths: [ctxMenu.node!.path] });
-                setCtxMenu(null);
-              }}>Copy</div>
-              <div className="ctx-menu-item" onClick={() => {
-                setClipboard({ mode: 'cut', paths: [ctxMenu.node!.path] });
-                setCtxMenu(null);
-              }}>Cut</div>
+              <div
+                className="ctx-menu-item"
+                onClick={() => {
+                  setPending({ kind: 'rename', node: ctxMenu.node! });
+                  setPendingInput(ctxMenu.node!.name);
+                  setCtxMenu(null);
+                }}
+              >
+                Rename
+              </div>
+              <div
+                className="ctx-menu-item"
+                onClick={() => {
+                  setClipboard({ mode: 'copy', paths: [ctxMenu.node!.path] });
+                  setCtxMenu(null);
+                }}
+              >
+                Copy
+              </div>
+              <div
+                className="ctx-menu-item"
+                onClick={() => {
+                  setClipboard({ mode: 'cut', paths: [ctxMenu.node!.path] });
+                  setCtxMenu(null);
+                }}
+              >
+                Cut
+              </div>
             </>
           )}
           {clipboard && clipboard.paths.length > 0 && (
-            <div className="ctx-menu-item" onClick={() => {
-              void doPaste(ctxTargetDir);
-              setCtxMenu(null);
-            }}>Paste</div>
+            <div
+              className="ctx-menu-item"
+              onClick={() => {
+                void doPaste(ctxTargetDir);
+                setCtxMenu(null);
+              }}
+            >
+              Paste
+            </div>
           )}
           {ctxMenu.node && (
             <>
               <div className="ctx-menu-divider" />
-              <div className="ctx-menu-item" onClick={() => {
-                void window.api.fs.openDefault(ctxMenu.node!.path);
-                setCtxMenu(null);
-              }}>Open</div>
-              <div className="ctx-menu-item" onClick={() => {
-                void window.api.fs.reveal(ctxMenu.node!.path);
-                setCtxMenu(null);
-              }}>Reveal in File Explorer</div>
+              <div
+                className="ctx-menu-item"
+                onClick={() => {
+                  void window.api.fs.openDefault(ctxMenu.node!.path);
+                  setCtxMenu(null);
+                }}
+              >
+                Open
+              </div>
+              <div
+                className="ctx-menu-item"
+                onClick={() => {
+                  void window.api.fs.reveal(ctxMenu.node!.path);
+                  setCtxMenu(null);
+                }}
+              >
+                Reveal in File Explorer
+              </div>
               <div className="ctx-menu-divider" />
-              <div className="ctx-menu-item danger" onClick={() => {
-                setConfirmDelete(ctxMenu.node);
-                setCtxMenu(null);
-              }}>Delete (move to Recycle Bin)</div>
+              <div
+                className="ctx-menu-item danger"
+                onClick={() => {
+                  setConfirmDelete(ctxMenu.node);
+                  setCtxMenu(null);
+                }}
+              >
+                Delete (move to Recycle Bin)
+              </div>
             </>
           )}
         </div>

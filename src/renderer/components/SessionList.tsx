@@ -17,7 +17,7 @@ function formatTime(ts: number): string {
 
 export function SessionList() {
   const selectedId = useAppStore((s) => s.selectedProjectId);
-  const sessions = useAppStore((s) => (selectedId ? s.sessions[selectedId] ?? [] : []));
+  const sessions = useAppStore((s) => (selectedId ? (s.sessions[selectedId] ?? []) : []));
   const restartTabWithCommand = useAppStore((s) => s.restartTabWithCommand);
   const project = useAppStore((s) => s.projects.find((p) => p.id === selectedId));
   const status = useAppStore((s) => s.agentStatus);
@@ -26,11 +26,19 @@ export function SessionList() {
   const [confirmDelete, setConfirmDelete] = useState<Session | null>(null);
 
   if (!selectedId) {
-    return <div className="list-item-sub" style={{ padding: '4px 12px' }}>Select a project to view its sessions.</div>;
+    return (
+      <div className="list-item-sub" style={{ padding: '4px 12px' }}>
+        Select a project to view its sessions.
+      </div>
+    );
   }
 
   if (sessions.length === 0) {
-    return <div className="list-item-sub" style={{ padding: '4px 12px' }}>No sessions yet.</div>;
+    return (
+      <div className="list-item-sub" style={{ padding: '4px 12px' }}>
+        No sessions yet.
+      </div>
+    );
   }
 
   async function resume(s: Session) {

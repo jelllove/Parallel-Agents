@@ -54,7 +54,10 @@ export function LayoutPicker({ anchorRect, onClose }: Props) {
   const left = Math.max(8, Math.min(window.innerWidth - size.w - 8, anchorRect.right - size.w));
 
   function pick(newOrder: [PaneId, PaneId, PaneId]) {
-    if (ordersEqual(newOrder, currentOrder)) { onClose(); return; }
+    if (ordersEqual(newOrder, currentOrder)) {
+      onClose();
+      return;
+    }
     const reorderedSizes: [number, number, number] = [
       currentSizes[currentOrder.indexOf(newOrder[0])],
       currentSizes[currentOrder.indexOf(newOrder[1])],
@@ -65,10 +68,14 @@ export function LayoutPicker({ anchorRect, onClose }: Props) {
     onClose();
   }
 
-  const rows = useMemo(() => ALL_ORDERS.map((order) => ({
-    order,
-    active: ordersEqual(order, currentOrder as [PaneId, PaneId, PaneId]),
-  })), [currentOrder]);
+  const rows = useMemo(
+    () =>
+      ALL_ORDERS.map((order) => ({
+        order,
+        active: ordersEqual(order, currentOrder as [PaneId, PaneId, PaneId]),
+      })),
+    [currentOrder],
+  );
 
   return (
     <>
@@ -88,11 +95,7 @@ export function LayoutPicker({ anchorRect, onClose }: Props) {
           >
             <span className="layout-cells">
               {order.map((pid, i) => (
-                <span
-                  key={i}
-                  className="layout-cell"
-                  style={{ background: PANE_META[pid].color }}
-                >
+                <span key={i} className="layout-cell" style={{ background: PANE_META[pid].color }}>
                   {PANE_META[pid].letter}
                 </span>
               ))}

@@ -18,20 +18,14 @@ async function main() {
   const { default: pngToIco } = await import('png-to-ico');
   const svg = fs.readFileSync(SVG);
 
-  await sharp(svg, { density: 384 })
-    .resize(APP_PNG_SIZE, APP_PNG_SIZE)
-    .png()
-    .toFile(OUT_PNG);
+  await sharp(svg, { density: 384 }).resize(APP_PNG_SIZE, APP_PNG_SIZE).png().toFile(OUT_PNG);
 
   await sharp(svg, { density: 384 })
     .resize(TRAY_PNG_SIZE, TRAY_PNG_SIZE)
     .png()
     .toFile(OUT_TRAY_PNG);
 
-  await sharp(svg, { density: 384 })
-    .resize(ICON_96_SIZE, ICON_96_SIZE)
-    .png()
-    .toFile(OUT_96_PNG);
+  await sharp(svg, { density: 384 }).resize(ICON_96_SIZE, ICON_96_SIZE).png().toFile(OUT_96_PNG);
 
   const buffers = [];
   for (const size of ICO_SIZES) {
@@ -45,9 +39,16 @@ async function main() {
   fs.writeFileSync(OUT_ICO, ico);
 
   console.log('[build-icons] wrote', OUT_PNG, '(' + fs.statSync(OUT_PNG).size + ' bytes)');
-  console.log('[build-icons] wrote', OUT_TRAY_PNG, '(' + fs.statSync(OUT_TRAY_PNG).size + ' bytes)');
+  console.log(
+    '[build-icons] wrote',
+    OUT_TRAY_PNG,
+    '(' + fs.statSync(OUT_TRAY_PNG).size + ' bytes)',
+  );
   console.log('[build-icons] wrote', OUT_96_PNG, '(' + fs.statSync(OUT_96_PNG).size + ' bytes)');
   console.log('[build-icons] wrote', OUT_ICO, '(' + fs.statSync(OUT_ICO).size + ' bytes)');
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

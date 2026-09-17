@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  resumeCommandFor,
-  startCommandFor,
-} from '../src/shared/agent-commands.ts';
+import { resumeCommandFor, startCommandFor } from '../src/shared/agent-commands.ts';
 
 test('starts a new Copilot session without resume arguments', () => {
   assert.equal(startCommandFor('copilot'), 'copilot');
