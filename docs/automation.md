@@ -59,8 +59,9 @@ fixtures also isolate it: `git -C` alone does not override an absolute inherited
 ## Security checks
 
 [Security checks](../.github/workflows/security.yml) defines official CodeQL analysis without an
-application build, dependency-change review, and a pinned local Gitleaks source scan. CodeQL gets
-only the permission needed to upload security findings; the other jobs do not get repository write access.
+application build, a pinned local Gitleaks source scan, and dependency-change review only when
+GitHub Dependency Graph is available for the repository. CodeQL gets only the permission needed
+to upload security findings; the other jobs do not get repository write access.
 Configured triggers include PRs, main-branch pushes, weekly checks, and manual runs.
 
 ```powershell
@@ -80,6 +81,9 @@ does not appear in the SARIF output. Its expected finding is synthetic, not a re
 No reported findings does not mean every historical commit, binary asset, or live environment was scanned.
 CodeQL and dependency-review definitions still require hosted execution; local validation does not
 claim that those remote analyses already ran.
+If Dependency Graph is disabled, the dependency-review job records that owner setting and skips the
+unsupported action instead of failing every PR for an unavailable service. The required dependency
+security gate remains `npm audit --audit-level=high` in validation.
 
 ## Copilot workflows
 

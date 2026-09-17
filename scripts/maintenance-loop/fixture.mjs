@@ -177,12 +177,10 @@ export async function createRunDirectory(sourceRoot, commands) {
   sourceRoot = await canonicalRoot(sourceRoot);
   const relativePath = `reports/maintenance-loop/${Date.now()}-${randomUUID()}`;
   const ignored = nulNames(
-    await commands.git(
-      sourceRoot,
-      ['check-ignore', '--no-index', '-z', '--stdin'],
-      'report-ignore-contract',
-      { input: Buffer.from(`${relativePath}/receipt.json\0`), accepted: [0, 1] },
-    ),
+    await commands.git(sourceRoot, ['check-ignore', '-z', '--stdin'], 'report-ignore-contract', {
+      input: Buffer.from(`${relativePath}/receipt.json\0`),
+      accepted: [0, 1],
+    }),
   );
   if (!ignored.includes(`${relativePath}/receipt.json`)) {
     fail('unsafe-output', 'The verifier requires Git-ignored reports/maintenance-loop output.');
