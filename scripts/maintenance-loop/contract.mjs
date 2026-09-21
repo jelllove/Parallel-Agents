@@ -9,7 +9,7 @@ import { validationEnvironment } from '../maintenance/process.mjs';
 export const LOOP_LIMITS = Object.freeze({
   totalTimeoutMs: 540_000,
   maintenanceTimeoutMs: 240_000,
-  validationTimeoutMs: 120_000,
+  validationTimeoutMs: 180_000,
   gitTimeoutMs: 10_000,
   maxCommands: 128,
   maxConcurrentDirectCommands: 1,
@@ -101,7 +101,7 @@ const requiredScripts = Object.freeze({
   'format:check': 'prettier --check .',
   typecheck: 'tsc --noEmit',
   test: 'node --test --test-concurrency=4 --import ./tests/helpers/isolated-git.mjs --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/*.test.mjs',
-  'check:docs': 'node scripts/check-docs.mjs',
+  'check:docs': 'node scripts/check-docs.mjs --check-contract',
   'check:agent-corpus': 'node scripts/check-agent-corpus.mjs',
 });
 
