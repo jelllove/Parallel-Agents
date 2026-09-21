@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -403,6 +403,61 @@ test('CLI succeeds for valid fixtures and exits nonzero with actionable errors f
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /README\.md:1:.*npm script "removed".*package\.json/);
   assert.doesNotMatch(bad.stdout, /Checked.*passed/);
+});
+
+test('CLI checks and writes the documentation contract inventory', async (t) => {
+  const root = await fixture(t);
+  const contract = join(root, 'docs', 'documentation-contracts.md');
+  const run = (...args) =>
+    spawnSync(process.execPath, [checker, ...args], { cwd: root, encoding: 'utf8' });
+
+  const missing = run('--check-contract');
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /documentation contract inventory is stale/i);
+  assert.match(missing.stderr, /npm run docs:contracts:write/);
+
+  const write = run('--write-contract');
+  assert.equal(write.status, 0, write.stderr);
+  assert.match(await readFile(contract, 'utf8'), /README\.md/);
+
+  const current = run('--check-contract');
+  assert.equal(current.status, 0, current.stderr);
+
+  await writeFiles(root, { 'docs/new.md': '# New active document\n' });
+  const stale = run('--check-contract');
+  assert.equal(stale.status, 1);
+  assert.match(stale.stderr, /documentation contract inventory is stale/i);
+});
+
+test('CLI refuses to write the documentation contract through linked targets', async (t) => {
+  const root = await fixture(t, {
+    'docs/target.md': '# Preserve target\n',
+  });
+  const contract = join(root, 'docs', 'documentation-contracts.md');
+  const target = join(root, 'docs', 'target.md');
+  const run = (...args) =>
+    spawnSync(process.execPath, [checker, ...args], { cwd: root, encoding: 'utf8' });
+
+  await link(target, contract);
+  const hardLink = run('--write-contract');
+  assert.equal(hardLink.status, 1);
+  assert.match(hardLink.stderr, /hard-linked/i);
+  assert.equal(await readFile(target, 'utf8'), '# Preserve target\n');
+
+  await unlink(contract);
+  try {
+    await symlink(target, contract, 'file');
+  } catch (error) {
+    if (error.code === 'EPERM' || error.code === 'EACCES') {
+      t.diagnostic(`Symlink creation is unavailable on this host (${error.code}).`);
+      return;
+    }
+    throw error;
+  }
+  const symbolicLink = run('--write-contract');
+  assert.equal(symbolicLink.status, 1);
+  assert.match(symbolicLink.stderr, /symbolic link/i);
+  assert.equal(await readFile(target, 'utf8'), '# Preserve target\n');
 });
 
 test('CLI reports operational failures rather than swallowing malformed manifests', async (t) => {
