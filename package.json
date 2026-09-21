@@ -1,6 +1,6 @@
 {
   "name": "parallel-agents",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Run multiple CLI coding agents side by side in one window.",
   "main": "out/main/index.js",
   "author": {
@@ -54,6 +54,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "electron-updater": "6.8.9",
     "material-icon-theme": "^5.34.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "1.2.0-beta.13",
@@ -91,6 +92,15 @@
     "npmRebuild": false,
     "appId": "com.jelllove.parallelagents",
     "productName": "Parallel Agents",
+    "publish": {
+      "provider": "github",
+      "owner": "jelllove",
+      "repo": "Parallel-Agents",
+      "releaseType": "release"
+    },
+    "nsis": {
+      "differentialPackage": true
+    },
     "directories": {
       "output": "release",
       "buildResources": "resources"
@@ -123,6 +133,7 @@
       "**/node_modules/sqlite3/**/*"
     ],
     "win": {
+      "artifactName": "Parallel-Agents-Setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",
