@@ -19,6 +19,7 @@ import type {
   SortPanel,
 } from '../shared/types.ts';
 import { parseSortKey, type SortKey } from '../shared/sorting.ts';
+import { renameWithRetry, type RenameFile } from './atomic-rename.ts';
 
 interface Preferences {
   sessionNames: Record<string, string>;
@@ -112,26 +113,6 @@ function validateRecentFolders(value: unknown): string[] {
   return value.slice(0, MAX_RECENT_FOLDERS);
 }
 
-type RenameFile = (from: string, to: string) => Promise<void>;
-
-// Windows briefly locks a replaced file while antivirus or indexing scans it.
-const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
-const RENAME_RETRY_DELAYS_MS = [20, 50, 100, 200, 400];
-
-async function renameWithRetry(renameFile: RenameFile, from: string, to: string) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await renameFile(from, to);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code ?? '';
-      if (!TRANSIENT_RENAME_CODES.has(code) || attempt >= RENAME_RETRY_DELAYS_MS.length) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_DELAYS_MS[attempt]));
-    }
-  }
-}
-
 export class PreferencesStore {
   private pending: Promise<unknown> = Promise.resolve();
   private readonly path: string;
@@ -202,7 +183,7 @@ export class PreferencesStore {
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {
         await writeFile(temporary, JSON.stringify(next, null, 2), 'utf-8');
-        await renameWithRetry(this.renameFile, temporary, this.path);
+        await renameWithRetry(temporary, this.path, this.renameFile);
       } catch (error) {
         await unlink(temporary).catch((cleanup: NodeJS.ErrnoException) => {
           if (cleanup.code !== 'ENOENT') console.error('Preferences cleanup failed:', cleanup);

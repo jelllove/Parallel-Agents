@@ -145,16 +145,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    (window as unknown as { __getOpenTabs: () => string[] }).__getOpenTabs = () =>
-      openTabs.map((tabId) => {
-        const projectId = tabProjectId[tabId] ?? tabId;
-        const project = findProject(projectId);
-        if (!project) return tabId;
-        const sessionId = tabSessionId[tabId] ?? null;
-        if (!sessionId) return project.displayName;
-        const session = (sessions[projectId] ?? []).find((item) => item.id === sessionId);
-        return sessionTabLabelSuffix(session?.title ?? '', sessionId);
-      });
+    const label = (tabId: string) => {
+      const projectId = tabProjectId[tabId] ?? tabId;
+      const project = findProject(projectId);
+      if (!project) return tabId;
+      const sessionId = tabSessionId[tabId] ?? null;
+      if (!sessionId) return project.displayName;
+      const session = (sessions[projectId] ?? []).find((item) => item.id === sessionId);
+      return sessionTabLabelSuffix(session?.title ?? '', sessionId);
+    };
+    const running = (tabId: string) => {
+      const state = useAppStore.getState().tabActivity[tabId];
+      return state === 'running' || state === 'waiting';
+    };
+    Object.assign(window as unknown as Record<string, unknown>, {
+      __getOpenTabs: () =>
+        openTabs.map((tabId) => `${label(tabId)}${running(tabId) ? '  (still running)' : ''}`),
+      __getRunningTabCount: () => openTabs.filter(running).length,
+    });
   }, [openTabs, tabProjectId, tabSessionId, sessions, findProject]);
 
   const panes = useMemo(

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { renameWithRetry } from './atomic-rename.ts';
 import { dirname } from 'node:path';
 import type { AgentId, AppConfig, LayoutConfig, ThemeMode } from '../shared/types.ts';
 import {
@@ -47,7 +48,7 @@ export function createConfigStore(configPath: string) {
           mode: 0o600,
         });
         written = true;
-        await rename(stagingPath, configPath);
+        await renameWithRetry(stagingPath, configPath);
       } catch (error) {
         // An exclusive-open collision must not remove another writer's file.
         if (written || !hasCode(error, 'EEXIST')) {

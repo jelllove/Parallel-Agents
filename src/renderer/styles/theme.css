@@ -2056,3 +2056,33 @@ button.ctx-menu-item {
 .project-row-action.worktree {
   color: #4ec9b0;
 }
+
+.session-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.session-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-title-row .activity-badge {
+  margin-left: 0;
+}
+.session-time {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: calc(var(--app-font-size) * 0.769231);
+}
+.session-branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.session-branch svg {
+  flex-shrink: 0;
+}

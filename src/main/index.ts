@@ -65,6 +65,7 @@ function createWindow(): void {
     },
   });
 
+  mainWindow.removeMenu();
   mainWindow.on('ready-to-show', () => mainWindow?.show());
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -75,6 +76,11 @@ function createWindow(): void {
   mainWindow.on('close', (e) => {
     if (isQuitting) return;
     e.preventDefault();
+    mainWindow?.hide();
+  });
+
+  // Minimizing sends the app to the notification-area tray icon.
+  mainWindow.on('minimize', () => {
     mainWindow?.hide();
   });
 
@@ -115,6 +121,11 @@ async function quitWithConfirm(install?: () => void): Promise<boolean> {
           .executeJavaScript('window.__getOpenTabs ? window.__getOpenTabs() : []')
           .catch(() => [])
       : [];
+    const running: number = mainWindow
+      ? await mainWindow.webContents
+          .executeJavaScript('window.__getRunningTabCount ? window.__getRunningTabCount() : 0')
+          .catch(() => 0)
+      : 0;
 
     if (mainWindow && (tabs.length > 0 || install)) {
       showOrFocus();
@@ -124,7 +135,9 @@ async function quitWithConfirm(install?: () => void): Promise<boolean> {
         title: install ? 'Restart to update Parallel Agents' : 'Quit Parallel Agents',
         message: install
           ? 'Close all agent sessions and restart to install the update?'
-          : 'Close all open agent sessions and quit?',
+          : running > 0
+            ? `${running} agent session${running === 1 ? ' is' : 's are'} still running. Stop ${running === 1 ? 'it' : 'them'} and quit?`
+            : 'Close all open agent sessions and quit?',
         detail: `Open sessions (${tabs.length}):\n${list}${install ? '\n\nAll running agents and terminals will be stopped. Save your work before continuing.' : ''}`,
         buttons: [install ? 'Close all & restart' : 'Close all & quit', 'Cancel'],
         defaultId: install ? 1 : 0,

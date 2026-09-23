@@ -49,6 +49,7 @@ export function TerminalTabs() {
     title: string;
     message: string;
     confirmText: string;
+    forced?: boolean;
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -123,8 +124,24 @@ export function TerminalTabs() {
 
   function requestClose(ids: string[]) {
     if (ids.length === 0) return;
-    if (!confirmOnCloseTab) {
+    const activity = useAppStore.getState().tabActivity;
+    const busy = ids.filter((id) => activity[id] === 'running' || activity[id] === 'waiting');
+    if (!confirmOnCloseTab && busy.length === 0) {
       closeTabs(ids);
+      return;
+    }
+    if (busy.length > 0) {
+      const names = busy.map((id) => tabEntryById.get(id)?.label ?? id);
+      setPending({
+        ids,
+        title: busy.length === 1 ? 'This session is still running' : 'Sessions are still running',
+        message:
+          busy.length === 1
+            ? `"${names[0]}" is still working or waiting for input. Closing it will stop the agent. Close anyway?`
+            : `${busy.length} sessions are still working or waiting for input (${names.join(', ')}). Closing will stop them. Close anyway?`,
+        confirmText: busy.length === 1 ? 'Stop and close' : 'Stop and close all',
+        forced: true,
+      });
       return;
     }
     if (ids.length === 1) {
@@ -144,6 +161,20 @@ export function TerminalTabs() {
       confirmText: 'Close tabs',
     });
   }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      if (e.key !== 'w' && e.key !== 'W') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (pending || document.querySelector('dialog[open], .modal-backdrop')) return;
+      const active = useAppStore.getState().activeTabId;
+      if (active) requestClose([active]);
+    }
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   function handleCloseClick(tabId: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -376,6 +407,7 @@ export function TerminalTabs() {
           title={pending.title}
           message={pending.message}
           confirmText={pending.confirmText}
+          allowDontAsk={!pending.forced}
           onConfirm={(dontAsk) => {
             if (dontAsk) void setConfirmOnCloseTab(false);
             closeTabs(pending.ids);

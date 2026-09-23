@@ -15,7 +15,7 @@ const fileTime = new Date('2024-03-04T05:06:07.000Z');
 async function fixture(t) {
   const root = join(process.cwd(), `.session-fixture-${randomUUID()}`);
   await mkdir(root);
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   return root;
 }
 

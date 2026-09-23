@@ -4,6 +4,7 @@ interface Props {
   title: string;
   message: string;
   confirmText?: string;
+  allowDontAsk?: boolean;
   onConfirm: (dontAskAgain: boolean) => void;
   onCancel: () => void;
 }
@@ -12,6 +13,7 @@ export function CloseTabConfirmDialog({
   title,
   message,
   confirmText = 'Close tab',
+  allowDontAsk = true,
   onConfirm,
   onCancel,
 }: Props) {
@@ -34,14 +36,16 @@ export function CloseTabConfirmDialog({
         <div className="modal-title">{title}</div>
         <div className="modal-body">
           <div>{message}</div>
-          <label className="modal-check" style={{ marginTop: 12 }}>
-            <input
-              type="checkbox"
-              checked={dontAskAgain}
-              onChange={(e) => setDontAskAgain(e.target.checked)}
-            />
-            <span>Don't ask again</span>
-          </label>
+          {allowDontAsk && (
+            <label className="modal-check" style={{ marginTop: 12 }}>
+              <input
+                type="checkbox"
+                checked={dontAskAgain}
+                onChange={(e) => setDontAskAgain(e.target.checked)}
+              />
+              <span>Don't ask again</span>
+            </label>
+          )}
         </div>
         <div className="modal-actions">
           <button className="btn-secondary" onClick={onCancel}>
