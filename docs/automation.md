@@ -181,6 +181,16 @@ Use the [maintenance review skill](../.github/skills/review-maintenance/SKILL.md
 [version-one protocol](specs/maintenance-v1.md) before accepting a proposal. This is a bounded
 formatting loop, not general self-healing application code or proof of active remote enforcement.
 
+### Learned-rule pull request review
+
+[The learned-rule review workflow](../.github/workflows/learned-rules-review.yml) runs on every
+pull request. [The review script](../scripts/review-learned-rules.mjs) lists the files changed
+against the base branch and reports which `active` rules in
+[the learned-rule corpus](../.github/agent-rules/learned-rules.json) govern them, as annotations
+and a `reports/learned-rules-review/report.json` artifact. It is advisory: it never fails the
+check, edits the pull request, or promotes rules. Run it locally with
+`node scripts/review-learned-rules.mjs --base origin/main`.
+
 The separate [maintenance recovery verifier](self-healing-ci.md) exercises real detection,
 repair, revalidation and negative rollback on disposable whole-candidate copies. Its
 `npm run test:maintenance-loop` command is Windows-only and deliberately outside the recursive
