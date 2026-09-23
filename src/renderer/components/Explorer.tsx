@@ -3,6 +3,8 @@ import { useAppStore } from '../store/app-store';
 import type { FsNode } from '../../shared/types';
 import { fileIconUrl, folderIconUrl } from '../icons/iconResolver';
 import { ConfirmDialog } from './ConfirmDialog';
+import { SortPicker } from './SortPicker';
+import { sortBy } from '../../shared/sorting';
 
 type Pending =
   { kind: 'newFile' | 'newDir'; parentPath: string } | { kind: 'rename'; node: FsNode } | null;
@@ -31,6 +33,7 @@ export function Explorer() {
   });
   const clipboard = useAppStore((s) => s.clipboard);
   const setClipboard = useAppStore((s) => s.setClipboard);
+  const sortKey = useAppStore((s) => s.sortOrders.explorer);
 
   // Children per dir path; null means not loaded.
   const [children, setChildren] = useState<Record<string, FsNode[] | null>>({});
@@ -180,8 +183,17 @@ export function Explorer() {
   }, [selectedPath, selectedIsDir, pending, setClipboard]);
 
   function renderTree(parentPath: string, level: number): React.ReactNode {
-    const list = children[parentPath];
-    if (list === undefined || list === null) return null;
+    const loaded = children[parentPath];
+    if (loaded === undefined || loaded === null) return null;
+    const ordered = sortBy(loaded, sortKey, {
+      name: (n) => n.name,
+      created: (n) => n.createdAt,
+      modified: (n) => n.modifiedAt,
+    });
+    const list = [
+      ...ordered.filter((n) => n.isDirectory),
+      ...ordered.filter((n) => !n.isDirectory),
+    ];
     return list.map((node) => {
       const isExpanded = expanded.has(node.path);
       const iconUrl = node.isDirectory
@@ -279,6 +291,8 @@ export function Explorer() {
       <div className="explorer-header section-explorer">
         <span className="section-glyph">⌥</span>
         <span>Explorer{project ? ` — ${project.displayName}` : ''}</span>
+        <span className="sidebar-title-spacer" />
+        <SortPicker panel="explorer" keys={['created', 'modified', 'name']} />
       </div>
       <div
         className="explorer-body"

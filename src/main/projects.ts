@@ -1,4 +1,4 @@
-import { readdir, stat, readFile, rm } from 'fs/promises';
+import { readdir, stat, readFile, rm, realpath } from 'fs/promises';
 import { join, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject } from './config.ts';
@@ -9,7 +9,9 @@ import {
   listCodexSessions,
 } from './codex-storage.ts';
 import {
+  mergeWorktreeProjects,
   removeProjectsFromSnapshot,
+  type WorktreeIdentity,
   stabilizeCopilotProjects,
   validateMissingProjectIds,
   type CopilotScanResult,
@@ -17,8 +19,14 @@ import {
 import type { Project, AgentId } from '../shared/types.ts';
 import type { NewProjectOptions } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
-import { createProjectWorktree, findProjectRepositoryRoot } from './worktrees.ts';
+import {
+  createProjectWorktree,
+  findProjectRepositoryRoot,
+  latestDefaultBranchStartPoint,
+  repositoryIdentity,
+} from './worktrees.ts';
 import { AGENT_IDS } from './agent-providers.ts';
+import { setWorktreeMembers, worktreeMembersOf } from './worktree-members.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -78,6 +86,10 @@ export function makeProjectId(agent: AgentId, dirName: string): string {
   return `${agent}:${dirName}`;
 }
 
+function fileCreatedAt(s: { birthtimeMs: number; mtimeMs: number }): number {
+  return Number.isFinite(s.birthtimeMs) && s.birthtimeMs > 0 ? s.birthtimeMs : s.mtimeMs;
+}
+
 async function pathExists(p: string): Promise<boolean> {
   try {
     return (await stat(p)).isDirectory();
@@ -114,6 +126,7 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
 
     let sessionCount = 0;
     let lastActivity: number | null = null;
+    let createdAt: number | null = null;
     try {
       const files = await readdir(full);
       for (const f of files) {
@@ -122,6 +135,8 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
         try {
           const s = await stat(join(full, f));
           if (lastActivity === null || s.mtimeMs > lastActivity) lastActivity = s.mtimeMs;
+          const born = fileCreatedAt(s);
+          if (createdAt === null || born < createdAt) createdAt = born;
         } catch {}
       }
     } catch {}
@@ -137,6 +152,7 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
       hidden: hidden.has(id),
       sessionCount,
       lastActivity,
+      createdAt,
     });
   }
   return out;
@@ -172,6 +188,7 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
 
     let sessionCount = 0;
     let lastActivity: number | null = null;
+    let createdAt: number | null = null;
     try {
       const chatFiles = await readdir(join(full, 'chats'));
       for (const f of chatFiles) {
@@ -180,6 +197,8 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
         try {
           const s = await stat(join(full, 'chats', f));
           if (lastActivity === null || s.mtimeMs > lastActivity) lastActivity = s.mtimeMs;
+          const born = fileCreatedAt(s);
+          if (createdAt === null || born < createdAt) createdAt = born;
         } catch {}
       }
     } catch {}
@@ -195,6 +214,7 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
       hidden: hidden.has(id),
       sessionCount,
       lastActivity,
+      createdAt,
     });
   }
   return out;
@@ -220,6 +240,7 @@ async function listCopilotProjects(
       realPath: string;
       sessionCount: number;
       lastActivity: number | null;
+      createdAt: number | null;
     }
   >();
 
@@ -254,8 +275,12 @@ async function listCopilotProjects(
         realPath: meta.projectPath,
         sessionCount: 1,
         lastActivity: activityTs || null,
+        createdAt: meta.timestamp || null,
       });
       continue;
+    }
+    if (meta.timestamp && (existing.createdAt === null || meta.timestamp < existing.createdAt)) {
+      existing.createdAt = meta.timestamp;
     }
 
     existing.sessionCount += 1;
@@ -279,6 +304,7 @@ async function listCopilotProjects(
       hidden: hidden.has(id),
       sessionCount: agg.sessionCount,
       lastActivity: agg.lastActivity,
+      createdAt: agg.createdAt,
     });
   }
   return { projects: out, valid: true, candidateCount, parsedCount };
@@ -300,6 +326,7 @@ async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Prom
         hidden: hidden.has(id),
         sessionCount: group.sessionCount,
         lastActivity: group.lastActivity,
+        createdAt: group.createdAt,
       };
     }),
   );
@@ -344,7 +371,46 @@ async function listDiscoveredProjects(): Promise<Project[]> {
   return out;
 }
 
-export async function listProjects(): Promise<Project[]> {
+const identityCache = new Map<string, Promise<WorktreeIdentity | null>>();
+
+function cachedIdentity(realPath: string): Promise<WorktreeIdentity | null> {
+  const key = normalizeProjectPath(realPath);
+  let pending = identityCache.get(key);
+  if (!pending) {
+    // Only a checkout's own root folder joins a group; nested subfolder projects stay separate.
+    pending = Promise.all([
+      repositoryIdentity(realPath),
+      findProjectRepositoryRoot(realPath),
+      realpath(realPath),
+    ])
+      .then(([identity, root, resolved]) =>
+        identity && root && normalizeProjectPath(root) === normalizeProjectPath(resolved)
+          ? identity
+          : null,
+      )
+      .catch(() => null);
+    identityCache.set(key, pending);
+    // A folder can become a worktree later, so negative answers are not kept.
+    void pending.then((identity) => {
+      if (!identity && identityCache.get(key) === pending) identityCache.delete(key);
+    });
+  }
+  return pending;
+}
+
+async function mergeWorktrees(projects: Project[]): Promise<Project[]> {
+  const identities = new Map<string, WorktreeIdentity | null>();
+  await Promise.all(
+    projects
+      .filter((p) => p.exists)
+      .map(async (p) => identities.set(p.id, await cachedIdentity(p.realPath))),
+  );
+  const merged = mergeWorktreeProjects(projects, (p) => identities.get(p.id) ?? null);
+  setWorktreeMembers(merged.members);
+  return merged.projects;
+}
+
+async function unmergedProjects(): Promise<Project[]> {
   const [discovered, stored, cfg] = await Promise.all([
     listDiscoveredProjects(),
     preferences.read(),
@@ -385,6 +451,11 @@ export async function listProjects(): Promise<Project[]> {
       lastActivity: null,
     });
   }
+  return out;
+}
+
+export async function listProjects(): Promise<Project[]> {
+  const [out, cfg] = await Promise.all([unmergedProjects().then(mergeWorktrees), loadConfig()]);
   return out.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.agent === b.agent) {
@@ -413,7 +484,9 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       ? await createProjectWorktree({
           basePath: options.basePath,
           branch: options.branch ?? '',
-          startPoint: options.startPoint || 'HEAD',
+          startPoint: options.fromLatestDefaultBranch
+            ? await latestDefaultBranchStartPoint(options.basePath)
+            : options.startPoint || 'HEAD',
           targetPath: options.targetPath ?? '',
         })
       : normalize(options.basePath);
@@ -520,8 +593,12 @@ async function deleteProjectHistory(projectId: string): Promise<void> {
   }
 }
 
+function memberIds(projectId: string): string[] {
+  return worktreeMembersOf(projectId)?.map((m) => m.id) ?? [projectId];
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
-  await deleteProjectHistory(projectId);
+  for (const id of memberIds(projectId)) await deleteProjectHistory(id);
   lastSuccessfulCopilotProjects = removeProjectsFromSnapshot(lastSuccessfulCopilotProjects, [
     projectId,
   ]);
@@ -538,7 +615,7 @@ export async function deleteMissingProjects(projectIds: string[]): Promise<void>
     }
   }
   for (const project of targets) {
-    await deleteProjectHistory(project.id);
+    for (const id of memberIds(project.id)) await deleteProjectHistory(id);
     lastSuccessfulCopilotProjects = removeProjectsFromSnapshot(lastSuccessfulCopilotProjects, [
       project.id,
     ]);

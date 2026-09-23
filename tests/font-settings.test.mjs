@@ -37,7 +37,18 @@ async function createStore(config) {
     require,
     module,
     module.exports,
-    { api: { config } },
+    {
+      api: {
+        config,
+        workspace: {
+          getSortOrders: async () => ({
+            projects: 'created',
+            sessions: 'created',
+            explorer: 'created',
+          }),
+        },
+      },
+    },
     {
       documentElement: {
         style: {
@@ -172,6 +183,11 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
             if (['default', 'consolas', 'monospace'].includes(fontFamily)) return fontFamily;
             throw new Error('Font family must be one of: default, consolas, monospace.');
           },
+        };
+      if (id === '../../shared/terminal-paste') return { formatPastedPaths: () => '' };
+      if (id === '../../shared/session-activity')
+        return {
+          createActivityTracker: () => ({ input() {}, output() {}, exit() {} }),
         };
       return dependencies[id] ?? require(id);
     },

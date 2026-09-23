@@ -1,4 +1,5 @@
 import type { SessionShellProfile } from '../../shared/session-terminals.ts';
+import type { AgentId, SavedOpenTabs } from '../../shared/types.ts';
 import { agentTerminalKey, shellTerminalKey } from '../../shared/session-terminals.ts';
 
 export interface TabState {
@@ -80,5 +81,26 @@ export function closeTabIds(
       next.find((id) => openTabs.indexOf(id) > activeIndex) ??
       [...next].reverse().find((id) => openTabs.indexOf(id) < activeIndex) ??
       null,
+  };
+}
+
+export function snapshotOpenTabs(state: {
+  openTabs: string[];
+  activeTabId: string | null;
+  tabProjectId: Record<string, string>;
+  tabAgent: Record<string, AgentId>;
+  tabSessionId: Record<string, string | null>;
+}): SavedOpenTabs {
+  const kept = state.openTabs.filter((id) => {
+    const projectId = state.tabProjectId[id] ?? id;
+    return !projectId.startsWith('adhoc:') && !!state.tabAgent[id];
+  });
+  return {
+    tabs: kept.map((id) => ({
+      projectId: state.tabProjectId[id] ?? id,
+      agent: state.tabAgent[id],
+      sessionId: state.tabSessionId[id] ?? null,
+    })),
+    activeIndex: state.activeTabId ? kept.indexOf(state.activeTabId) : -1,
   };
 }

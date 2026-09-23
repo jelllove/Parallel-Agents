@@ -15,6 +15,7 @@ import {
 } from './session-metadata.ts';
 import { preferences } from './preferences-store.ts';
 import { applySessionNames } from '../shared/session-presentation.ts';
+import { worktreeMembersOf } from './worktree-members.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -29,6 +30,44 @@ async function resolveHistoryProjectId(projectId: string): Promise<string | null
   if (!projectId.includes(':manual:')) return projectId;
   const projects = await import('./projects.ts');
   return projects.resolveHistoryProjectId(projectId);
+}
+
+async function worktreeMembers(projectId: string) {
+  const members = worktreeMembersOf(projectId);
+  return members && members.length > 1 ? members : null;
+}
+
+export async function listSessionsForProject(projectId: string): Promise<Session[]> {
+  const members = await worktreeMembers(projectId);
+  if (!members) return listFolderSessions(projectId);
+  const lists = await Promise.all(
+    members.map(async (member) =>
+      (await listFolderSessions(member.id)).map((s) => ({
+        ...s,
+        projectId,
+        cwd: s.cwd ?? member.realPath,
+        historyProjectId: member.id,
+      })),
+    ),
+  );
+  return lists.flat().sort((a, b) => b.timestamp - a.timestamp);
+}
+
+async function sessionOwner(projectId: string, sessionId: string): Promise<string> {
+  const members = await worktreeMembers(projectId);
+  if (!members) return projectId;
+  for (const member of members) {
+    if ((await listFolderSessions(member.id)).some((s) => s.id === sessionId)) return member.id;
+  }
+  throw new Error(`Session not found: ${sessionId}`);
+}
+
+async function modifiedAt(filePath: string): Promise<number | undefined> {
+  try {
+    return (await stat(filePath)).mtimeMs;
+  } catch {
+    return undefined;
+  }
 }
 
 async function readSessionDirectory(directory: string): Promise<string[]> {
@@ -54,6 +93,7 @@ async function listClaudeSessions(projectId: string, dirName: string): Promise<S
       projectId,
       agent: 'claude',
       ...meta,
+      modifiedAt: await modifiedAt(full),
     });
   }
   return out;
@@ -73,6 +113,7 @@ async function listGeminiSessions(projectId: string, dirName: string): Promise<S
       agent: 'gemini',
       title: meta.title,
       timestamp: meta.timestamp,
+      modifiedAt: await modifiedAt(full),
       cwd: null,
       gitBranch: null,
       version: null,
@@ -94,7 +135,8 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
       throw error;
     }
 
-    const meta = await readCopilotSessionMeta(join(sessionDir, 'events.jsonl'));
+    const eventsPath = join(sessionDir, 'events.jsonl');
+    const meta = await readCopilotSessionMeta(eventsPath);
     if (!meta) continue;
     if (normalizeProjectPath(meta.projectPath) !== targetPath) continue;
     out.push({
@@ -103,6 +145,7 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
       agent: 'copilot',
       title: meta.title,
       timestamp: meta.timestamp,
+      modifiedAt: await modifiedAt(eventsPath),
       cwd: meta.cwd,
       gitBranch: meta.gitBranch,
       version: meta.version,
@@ -111,11 +154,11 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
   return out;
 }
 
-export async function listSessionsForProject(projectId: string): Promise<Session[]> {
+async function listFolderSessions(projectId: string): Promise<Session[]> {
   const historyId = await resolveHistoryProjectId(projectId);
   if (!historyId) return [];
   if (historyId !== projectId) {
-    return (await listSessionsForProject(historyId)).map((s) => ({ ...s, projectId }));
+    return (await listFolderSessions(historyId)).map((s) => ({ ...s, projectId }));
   }
   const colon = projectId.indexOf(':');
   if (colon < 0) return [];
@@ -125,16 +168,20 @@ export async function listSessionsForProject(projectId: string): Promise<Session
   let out: Session[] = [];
   if (agent === 'claude') out = await listClaudeSessions(projectId, dirName);
   else if (agent === 'codex') {
-    out = filterCodexSessionsByProject(await listCodexSessions(), dirName).map((session) => ({
-      id: session.id,
-      projectId,
-      agent: 'codex',
-      title: session.title,
-      timestamp: session.timestamp,
-      cwd: session.cwd,
-      gitBranch: null,
-      version: session.version,
-    }));
+    const codexSessions = filterCodexSessionsByProject(await listCodexSessions(), dirName);
+    out = await Promise.all(
+      codexSessions.map(async (session) => ({
+        id: session.id,
+        projectId,
+        agent: 'codex' as const,
+        title: session.title,
+        timestamp: session.timestamp,
+        modifiedAt: await modifiedAt(session.filePath),
+        cwd: session.cwd,
+        gitBranch: null,
+        version: session.version,
+      })),
+    );
   } else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName);
   else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName);
   // aider: no session listing in v1
@@ -165,9 +212,15 @@ async function findGeminiSessionFile(dirName: string, sessionId: string): Promis
 }
 
 export async function deleteSession(projectId: string, sessionId: string): Promise<void> {
+  const owner = await sessionOwner(projectId, sessionId);
+  if (owner !== projectId) return deleteFolderSession(owner, sessionId);
+  return deleteFolderSession(projectId, sessionId);
+}
+
+async function deleteFolderSession(projectId: string, sessionId: string): Promise<void> {
   const historyId = await resolveHistoryProjectId(projectId);
   if (!historyId) throw new Error(`Session not found: ${sessionId}`);
-  if (historyId !== projectId) return deleteSession(historyId, sessionId);
+  if (historyId !== projectId) return deleteFolderSession(historyId, sessionId);
   const colon = projectId.indexOf(':');
   if (colon < 0) throw new Error(`Invalid projectId: ${projectId}`);
   const agent = projectId.slice(0, colon) as AgentId;

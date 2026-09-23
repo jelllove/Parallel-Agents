@@ -20,6 +20,7 @@ export interface CodexProjectGroup {
   realPath: string;
   sessionCount: number;
   lastActivity: number;
+  createdAt: number;
 }
 
 interface CodexSessionIndexEntry {
@@ -217,11 +218,13 @@ export function groupCodexSessionsByProject(sessions: CodexStoredSession[]): Cod
         realPath: session.cwd,
         sessionCount: 1,
         lastActivity: session.timestamp,
+        createdAt: session.timestamp,
       });
       continue;
     }
     existing.sessionCount += 1;
     existing.lastActivity = Math.max(existing.lastActivity, session.timestamp);
+    existing.createdAt = Math.min(existing.createdAt, session.timestamp);
   }
   return [...groups.values()];
 }

@@ -32,6 +32,8 @@ export function TerminalTabs() {
   const closeTabs = useAppStore((s) => s.closeTabs);
   const consumePendingCommand = useAppStore((s) => s.consumePendingCommand);
   const tabAgent = useAppStore((s) => s.tabAgent);
+  const tabCwd = useAppStore((s) => s.tabCwd);
+  const setTabActivity = useAppStore((s) => s.setTabActivity);
   const tabRespawnNonce = useAppStore((s) => s.tabRespawnNonce);
   const tabShellProfile = useAppStore((s) => s.tabShellProfile);
   const tabShellOpened = useAppStore((s) => s.tabShellOpened);
@@ -342,10 +344,12 @@ export function TerminalTabs() {
                         <TerminalPane
                           key={`${agentKey}#${nonce}`}
                           terminalKey={agentKey}
-                          cwd={entry.project.realPath}
+                          cwd={tabCwd[entry.tabId] ?? entry.project.realPath}
                           visible={isActive}
                           initialCommand={pendingCmd?.command}
                           extraPath={pendingCmd?.extraPath}
+                          agent={tabAgent[entry.tabId] ?? entry.project.agent}
+                          onActivity={(state) => setTabActivity(entry.tabId, state)}
                         />
                       </div>
                       {tabShellOpened[entry.tabId] && (
@@ -353,7 +357,7 @@ export function TerminalTabs() {
                           <TerminalPane
                             key={shellKey}
                             terminalKey={shellKey}
-                            cwd={entry.project.realPath}
+                            cwd={tabCwd[entry.tabId] ?? entry.project.realPath}
                             visible={isActive && isShellVisible}
                             shellProfile={profile}
                           />

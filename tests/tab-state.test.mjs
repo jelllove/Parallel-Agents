@@ -44,3 +44,23 @@ test('returns all tab keys that belong to the same project', () => {
 
   assert.deepEqual(result, ['copilot:C:\\repo', 'copilot:C:\\repo::session:a']);
 });
+
+test('session snapshot keeps tab order, agents, sessions and the active tab', async () => {
+  const { snapshotOpenTabs } = await import('../src/renderer/store/tab-state.ts');
+  assert.deepEqual(
+    snapshotOpenTabs({
+      openTabs: ['a', 'b::s1', 'adhoc'],
+      activeTabId: 'b::s1',
+      tabProjectId: { a: 'claude:a', 'b::s1': 'codex:b', adhoc: 'adhoc:x' },
+      tabAgent: { a: 'claude', 'b::s1': 'codex', adhoc: 'claude' },
+      tabSessionId: { a: null, 'b::s1': 's1', adhoc: null },
+    }),
+    {
+      tabs: [
+        { projectId: 'claude:a', agent: 'claude', sessionId: null },
+        { projectId: 'codex:b', agent: 'codex', sessionId: 's1' },
+      ],
+      activeIndex: 1,
+    },
+  );
+});

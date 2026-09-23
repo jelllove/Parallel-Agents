@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { Api, UpdateStatus } from '../shared/types';
 
 const api: Api = {
@@ -55,6 +55,19 @@ const api: Api = {
     trash: (path) => ipcRenderer.invoke('fs:trash', path),
     reveal: (path) => ipcRenderer.invoke('fs:reveal', path),
     openDefault: (path) => ipcRenderer.invoke('fs:openDefault', path),
+    pathForFile: (file) => webUtils.getPathForFile(file),
+  },
+  clipboard: {
+    resolvePaste: (agent) => ipcRenderer.invoke('clipboard:resolvePaste', agent),
+  },
+  workspace: {
+    getOpenTabs: () => ipcRenderer.invoke('workspace:getOpenTabs'),
+    setOpenTabs: (openTabs) => ipcRenderer.invoke('workspace:setOpenTabs', openTabs),
+    getRecentFolders: () => ipcRenderer.invoke('workspace:getRecentFolders'),
+    addRecentFolder: (folder) => ipcRenderer.invoke('workspace:addRecentFolder', folder),
+    isGitRepository: (folder) => ipcRenderer.invoke('workspace:isGitRepository', folder),
+    getSortOrders: () => ipcRenderer.invoke('workspace:getSortOrders'),
+    setSortOrder: (panel, key) => ipcRenderer.invoke('workspace:setSortOrder', panel, key),
   },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke('dialog:pickDirectory'),

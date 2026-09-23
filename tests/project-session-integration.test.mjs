@@ -154,3 +154,54 @@ test('Copilot subfolder projects share repository history while preserving launc
   await restarted.deleteProject(app.id);
   assert.equal((await restarted.listSessionsForProject(lib.id))[0].id, 'copilot-one');
 });
+
+test('a repository and its linked worktree appear as one project with combined sessions', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-worktree-merge-'));
+  t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const run = (...args) => promisify(execFile)('git', args);
+  const repo = join(home, 'repo');
+  await mkdir(repo);
+  await run('-C', repo, 'init', '-b', 'main');
+  await run('-C', repo, 'config', 'user.name', 'Merge Test');
+  await run('-C', repo, 'config', 'user.email', 'merge-test@example.invalid');
+  await run('-C', repo, 'config', 'commit.gpgSign', 'false');
+  await run('-C', repo, 'config', 'core.hooksPath', join(home, 'no-hooks'));
+  await writeFile(join(repo, 'a.txt'), 'a\n');
+  await run('-C', repo, 'add', 'a.txt');
+  await run('-C', repo, 'commit', '-m', 'init');
+  const api = await backend(home);
+  const main = await api.createProject({ agent: 'claude', mode: 'folder', basePath: repo });
+  const worktree = await api.createProject({
+    agent: 'claude',
+    mode: 'worktree',
+    basePath: repo,
+    branch: 'task',
+    startPoint: 'HEAD',
+    targetPath: join(home, 'repo.worktree', 'task'),
+  });
+
+  const writeClaude = async (folder, id) => {
+    const dir = join(home, '.claude', 'projects', folder.replace(/[:\\/.]/g, '-'));
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, `${id}.jsonl`),
+      JSON.stringify({
+        type: 'user',
+        cwd: folder,
+        timestamp: '2026-09-10T08:00:00Z',
+        message: { content: id },
+      }) + '\n',
+    );
+  };
+  await writeClaude(main.realPath, 'main-session');
+  await writeClaude(worktree.realPath, 'worktree-session');
+
+  const projects = (await api.listProjects()).filter((p) => p.agent === 'claude');
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].displayName, 'repo');
+  assert.equal(projects[0].worktreeCount, 2);
+  const sessions = await api.listSessionsForProject(projects[0].id);
+  assert.deepEqual(sessions.map((s) => s.id).sort(), ['main-session', 'worktree-session']);
+  const fromWorktree = sessions.find((s) => s.id === 'worktree-session');
+  assert.equal(fromWorktree.cwd, worktree.realPath);
+});

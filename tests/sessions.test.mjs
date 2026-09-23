@@ -125,6 +125,7 @@ test('Claude preserves first non-sidechain messages, metadata, and descending da
     cwd,
     gitBranch: 'main',
     version: '2.1',
+    modifiedAt: fileTime.getTime(),
   });
 });
 
@@ -157,6 +158,7 @@ test('Copilot preserves Git-root grouping, initial user date, and context fields
       cwd: join(projectPath, 'nested'),
       gitBranch: 'main',
       version: '1.2.3',
+      modifiedAt: fileTime.getTime(),
     },
   ]);
 });
@@ -185,6 +187,7 @@ test('Gemini preserves its header and first textual user content', async (t) => 
       cwd: null,
       gitBranch: null,
       version: null,
+      modifiedAt: fileTime.getTime(),
     },
   ]);
 });

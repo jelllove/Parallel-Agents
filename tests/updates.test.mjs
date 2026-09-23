@@ -266,6 +266,7 @@ async function quitHarness({
   const calls = [];
   const app = new EventEmitter();
   app.whenReady = () => new Promise(() => {});
+  app.requestSingleInstanceLock = () => true;
   app.quit = () => calls.push('quit');
   const win = {
     isDestroyed: () => false,

@@ -1,4 +1,9 @@
 import type { SessionShellProfile } from './session-terminals';
+import type { ClipboardPaste } from './terminal-paste';
+import type { SortKey } from './sorting';
+
+export type SortPanel = 'projects' | 'sessions' | 'explorer';
+export type SortOrders = Record<SortPanel, SortKey>;
 
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
 
@@ -27,7 +32,10 @@ export interface Project {
   hidden: boolean;
   sessionCount: number;
   lastActivity: number | null;
+  createdAt?: number | null;
   historyProjectId?: string;
+  worktreeCount?: number;
+  worktrees?: { realPath: string; exists: boolean }[];
 }
 
 export interface RegisteredProject {
@@ -37,6 +45,17 @@ export interface RegisteredProject {
   historyPath?: string;
 }
 
+export interface SavedTab {
+  projectId: string;
+  agent: AgentId;
+  sessionId: string | null;
+}
+
+export interface SavedOpenTabs {
+  tabs: SavedTab[];
+  activeIndex: number;
+}
+
 export interface NewProjectOptions {
   agent: AgentId;
   basePath: string;
@@ -44,6 +63,7 @@ export interface NewProjectOptions {
   branch?: string;
   startPoint?: string;
   targetPath?: string;
+  fromLatestDefaultBranch?: boolean;
 }
 
 export interface AvailableShell {
@@ -59,6 +79,8 @@ export interface Session {
   agent: AgentId;
   title: string;
   timestamp: number;
+  modifiedAt?: number;
+  historyProjectId?: string;
   cwd: string | null;
   gitBranch: string | null;
   version: string | null;
@@ -68,6 +90,8 @@ export interface FsNode {
   name: string;
   path: string;
   isDirectory: boolean;
+  createdAt?: number;
+  modifiedAt?: number;
   children?: FsNode[];
 }
 
@@ -181,6 +205,19 @@ export interface Api {
     trash(path: string): Promise<void>;
     reveal(path: string): Promise<void>;
     openDefault(path: string): Promise<void>;
+    pathForFile(file: File): string;
+  };
+  clipboard: {
+    resolvePaste(agent: AgentId): Promise<ClipboardPaste>;
+  };
+  workspace: {
+    getOpenTabs(): Promise<SavedOpenTabs>;
+    setOpenTabs(openTabs: SavedOpenTabs): Promise<void>;
+    getRecentFolders(): Promise<string[]>;
+    addRecentFolder(folder: string): Promise<void>;
+    isGitRepository(folder: string): Promise<boolean>;
+    getSortOrders(): Promise<SortOrders>;
+    setSortOrder(panel: SortPanel, key: SortKey): Promise<void>;
   };
   dialog: {
     pickDirectory(): Promise<string | null>;

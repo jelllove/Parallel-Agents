@@ -17,13 +17,19 @@ export async function readDir(path: string): Promise<FsNode[]> {
   for (const name of entries) {
     if (IGNORE.has(name)) continue;
     const full = join(path, name);
-    let isDir: boolean;
+    let info: Awaited<ReturnType<typeof stat>>;
     try {
-      isDir = (await stat(full)).isDirectory();
+      info = await stat(full);
     } catch {
       continue;
     }
-    out.push({ name, path: full, isDirectory: isDir });
+    out.push({
+      name,
+      path: full,
+      isDirectory: info.isDirectory(),
+      createdAt: info.birthtimeMs > 0 ? info.birthtimeMs : info.mtimeMs,
+      modifiedAt: info.mtimeMs,
+    });
   }
 
   out.sort((a, b) => {

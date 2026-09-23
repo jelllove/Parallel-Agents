@@ -9,7 +9,11 @@ import type {
   LayoutConfig,
   ThemeMode,
   NewProjectOptions,
+  SortOrders,
+  SortPanel,
 } from '../../shared/types.ts';
+import type { SortKey } from '../../shared/sorting.ts';
+import type { SessionActivity } from '../../shared/session-activity.ts';
 import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
@@ -66,6 +70,7 @@ interface AppState {
   sessionLinkRequest: SessionLinkRequest | null;
   pendingInitialCommand: Record<string, PendingLaunch>;
   tabAgent: Record<string, AgentId>;
+  tabCwd: Record<string, string>;
   tabRespawnNonce: Record<string, number>;
   tabShellProfile: Record<string, SessionShellProfile>;
   tabShellOpened: Record<string, boolean>;
@@ -85,8 +90,13 @@ interface AppState {
   fontSize: number;
   fontFamily: FontFamilyId;
   fontBold: boolean;
+  sortOrders: SortOrders;
+  tabActivity: Record<string, SessionActivity>;
 
   loadProjects: () => Promise<void>;
+  setTabActivity: (tabId: string, state: SessionActivity | null) => void;
+  setSortOrder: (panel: SortPanel, key: SortKey) => Promise<void>;
+  restoreOpenTabs: () => Promise<void>;
   loadAgents: () => Promise<void>;
   checkAgents: () => Promise<void>;
   refreshProjectsAndAgents: () => Promise<void>;
@@ -100,6 +110,8 @@ interface AppState {
     extraPath?: string[],
   ) => Promise<void>;
   openSessionTab: (projectId: string, session: Session, separate?: boolean) => Promise<void>;
+  openWorktreeTab: (projectId: string, folder: string, fresh?: boolean) => Promise<void>;
+  openNewSession: (projectId: string) => Promise<void>;
   requestSessionLink: (request: SessionLinkRequest | null) => void;
   linkSession: (tabId: string, sessionId: string) => void;
   setActiveTab: (id: string) => void;
@@ -178,6 +190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessionLinkRequest: null,
   pendingInitialCommand: {},
   tabAgent: {},
+  tabCwd: {},
   tabRespawnNonce: {},
   tabShellProfile: {},
   tabShellOpened: {},
@@ -197,10 +210,62 @@ export const useAppStore = create<AppState>((set, get) => ({
   fontSize: DEFAULT_FONT_SIZE,
   fontFamily: DEFAULT_FONT_FAMILY,
   fontBold: false,
+  sortOrders: { projects: 'created', sessions: 'created', explorer: 'created' },
+  tabActivity: {},
+
+  setTabActivity(tabId, state) {
+    const current = get().tabActivity;
+    if ((current[tabId] ?? null) === state) return;
+    set({
+      tabActivity: state ? { ...current, [tabId]: state } : omitRecordKeys(current, [tabId]),
+    });
+  },
+
+  async setSortOrder(panel, key) {
+    const previous = get().sortOrders;
+    set({ sortOrders: { ...previous, [panel]: key } });
+    try {
+      await window.api.workspace.setSortOrder(panel, key);
+    } catch (error) {
+      set({ sortOrders: previous });
+      throw error;
+    }
+  },
 
   async loadProjects() {
     const projects = await window.api.projects.list();
     set({ projects });
+  },
+
+  async restoreOpenTabs() {
+    const saved = await window.api.workspace.getOpenTabs();
+    let activeTabId: string | null = null;
+    for (const [index, tab] of saved.tabs.entries()) {
+      const project = get().findProject(tab.projectId);
+      if (!project?.exists) continue;
+      try {
+        if (tab.sessionId) {
+          if (!get().sessions[project.id]) await get().loadSessions(project.id);
+          const session = get().sessions[project.id]?.find(
+            (s) => s.id === tab.sessionId && s.agent === tab.agent,
+          );
+          if (!session) continue;
+          await get().openSessionTab(project.id, session, true);
+        } else {
+          await get().openTabWithAgent(
+            project.id,
+            tab.agent,
+            startCommandFor(tab.agent),
+            extraPathFor(get().agentStatus[tab.agent]?.path),
+          );
+        }
+      } catch (error) {
+        console.error('Failed to restore tab', tab, error);
+        continue;
+      }
+      if (index === saved.activeIndex) activeTabId = get().activeTabId;
+    }
+    if (activeTabId) set({ activeTabId });
   },
 
   async loadAgents() {
@@ -323,6 +388,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(next);
   },
 
+  async openNewSession(projectId) {
+    const project = get().findProject(projectId);
+    if (!project?.exists) return;
+    await get().selectProject(projectId);
+    await get().openWorktreeTab(projectId, project.realPath, true);
+  },
+
+  async openWorktreeTab(projectId, folder, fresh = false) {
+    const project = get().findProject(projectId);
+    if (!project) return;
+    const tabId = fresh
+      ? `${projectId}::new:${Date.now().toString(36)}`
+      : `${projectId}::wt:${folder.toLowerCase()}`;
+    if (get().openTabs.includes(tabId)) {
+      set({ activeTabId: tabId, selectedProjectId: projectId });
+      return;
+    }
+    await window.api.config.setLastAgent(projectId, project.agent);
+    const baseline = await window.api.sessions.listForProject(projectId);
+    if (get().openTabs.includes(tabId)) {
+      set({ activeTabId: tabId });
+      return;
+    }
+    set({
+      openTabs: [...get().openTabs, tabId],
+      activeTabId: tabId,
+      selectedProjectId: projectId,
+      tabProjectId: { ...get().tabProjectId, [tabId]: projectId },
+      tabSessionId: { ...get().tabSessionId, [tabId]: null },
+      tabSessionBaseline:
+        project.agent === 'aider'
+          ? get().tabSessionBaseline
+          : { ...get().tabSessionBaseline, [tabId]: baseline.map((s) => s.id) },
+      tabAgent: { ...get().tabAgent, [tabId]: project.agent },
+      tabCwd: { ...get().tabCwd, [tabId]: folder },
+      tabShellProfile: { ...get().tabShellProfile, [tabId]: 'default' as SessionShellProfile },
+      pendingInitialCommand: {
+        ...get().pendingInitialCommand,
+        [tabId]: {
+          command: startCommandFor(project.agent),
+          extraPath: extraPathFor(get().agentStatus[project.agent]?.path),
+        },
+      },
+    });
+  },
+
   async openSessionTab(projectId, session, separate = false) {
     const command = resumeCommandFor(session.agent, session.id);
     if (!command) return;
@@ -377,6 +488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tabProjectId: { ...get().tabProjectId, [tabId]: projectId },
       tabSessionId: { ...get().tabSessionId, [tabId]: session.id },
       tabAgent: { ...get().tabAgent, [tabId]: session.agent },
+      tabCwd: session.cwd ? { ...get().tabCwd, [tabId]: session.cwd } : get().tabCwd,
       tabShellProfile: nextTabShellProfile,
       pendingInitialCommand: { ...get().pendingInitialCommand, [tabId]: pending },
     });
@@ -445,6 +557,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         : get().sessionLinkRequest,
       adhocProjects: adhocProjects.filter((p) => !uniqueIds.includes(p.id)),
       tabAgent: omitRecordKeys(tabAgent, uniqueIds),
+      tabCwd: omitRecordKeys(get().tabCwd, uniqueIds),
+      tabActivity: omitRecordKeys(get().tabActivity, uniqueIds),
       pendingInitialCommand: omitRecordKeys(pendingInitialCommand, uniqueIds),
       tabRespawnNonce: omitRecordKeys(tabRespawnNonce, uniqueIds),
       tabShellProfile: cleanupShellStateForTabs(tabShellProfile, uniqueIds),
@@ -695,6 +809,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       fontSize,
       fontFamily,
       fontBold,
+      sortOrders,
     ] = await Promise.all([
       window.api.config.getConfirmOnCloseTab(),
       window.api.config.getTerminalMultilineEnter(),
@@ -702,6 +817,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       window.api.config.getFontSize(),
       window.api.config.getFontFamily(),
       window.api.config.getFontBold(),
+      window.api.workspace.getSortOrders(),
     ]);
     const validatedFontFamily = validateFontFamily(fontFamily);
     document.documentElement.style.setProperty('--app-font-size', `${fontSize}px`);
@@ -713,6 +829,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       fontSize,
       fontFamily: validatedFontFamily,
       fontBold,
+      sortOrders,
     });
   },
 

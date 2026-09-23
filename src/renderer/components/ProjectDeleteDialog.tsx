@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Project, Session } from '../../shared/types';
+import type { Project } from '../../shared/types';
 import { deleteMessageFor } from '../../shared/project-delete';
 import './ProjectDeleteDialog.css';
 
@@ -14,32 +14,15 @@ export function ProjectDeleteDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [snapshot] = useState(projects);
-  const [sessions, setSessions] = useState<Record<string, Session[]> | null>(null);
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     dialog.current?.showModal();
-    let cancelled = false;
-    Promise.all(
-      snapshot.map(
-        async (project) =>
-          [project.id, await window.api.sessions.listForProject(project.id)] as const,
-      ),
-    )
-      .then((entries) => {
-        if (!cancelled) setSessions(Object.fromEntries(entries));
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [snapshot]);
+  }, []);
 
-  const ready = sessions !== null && snapshot.length > 0;
+  const ready = snapshot.length > 0;
   return (
     <dialog
       ref={dialog}
@@ -70,27 +53,16 @@ export function ProjectDeleteDialog({
           Delete{' '}
           {snapshot.length === 1 ? 'project history' : `${snapshot.length} project histories`}?
         </h2>
-        <p>Review the highlighted projects and their sessions. Working folders are not deleted.</p>
+        <p>Review the highlighted projects. Working folders are not deleted.</p>
         <div className="project-delete-summary">
           {snapshot.map((project) => (
             <section key={project.id}>
               <div className="project-delete-name">{project.displayName}</div>
               <div className="project-delete-path">{project.realPath}</div>
+              <div className="project-delete-path">
+                {project.sessionCount} session{project.sessionCount === 1 ? '' : 's'}
+              </div>
               <p>{deleteMessageFor(project)}</p>
-              <details open>
-                <summary>
-                  {sessions
-                    ? `${sessions[project.id].length} session${sessions[project.id].length === 1 ? '' : 's'}`
-                    : 'Loading sessions...'}
-                </summary>
-                <ul>
-                  {sessions?.[project.id].map((session) => (
-                    <li key={session.id}>
-                      <span>{session.title || '(Untitled session)'}</span> <code>{session.id}</code>
-                    </li>
-                  ))}
-                </ul>
-              </details>
             </section>
           ))}
         </div>
@@ -102,9 +74,7 @@ export function ProjectDeleteDialog({
             disabled={!ready || busy}
             onChange={(event) => setArmed(event.target.checked)}
           />
-          <span>
-            I have reviewed these projects and sessions and understand deletion cannot be undone.
-          </span>
+          <span>I have reviewed these projects and understand deletion cannot be undone.</span>
         </label>
         {error && (
           <p className="inventory-error" role="alert">

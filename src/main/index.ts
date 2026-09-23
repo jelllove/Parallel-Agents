@@ -168,7 +168,15 @@ function toggleVisibility(): void {
   }
 }
 
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) {
+  app.exit(0);
+} else {
+  app.on('second-instance', () => showOrFocus());
+}
+
 app.whenReady().then(async () => {
+  if (!hasInstanceLock) return;
   const { default: electronUpdater } = await import('electron-updater');
   const { autoUpdater } = electronUpdater;
   updates = new UpdateController({

@@ -1,4 +1,6 @@
-import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
+import { ipcMain, BrowserWindow, dialog, shell, app, clipboard } from 'electron';
+import { join } from 'path';
+import { resolveClipboardPaste } from './clipboard-paste.ts';
 import { listProjects, deleteProject, deleteMissingProjects, createProject } from './projects.ts';
 import { listSessionsForProject, deleteSession, renameSession } from './sessions.ts';
 import {
@@ -38,7 +40,11 @@ import type {
   ThemeMode,
   NewProjectOptions,
   PtySpawnOptions,
+  SavedOpenTabs,
+  SortPanel,
 } from '../shared/types.ts';
+import type { SortKey } from '../shared/sorting.ts';
+import { findProjectRepositoryRoot } from './worktrees.ts';
 import { preferences } from './preferences-store.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
@@ -97,6 +103,41 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('fs:trash', (_e, path: string) => trashPath(path));
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
+  ipcMain.handle('workspace:getOpenTabs', async () => (await preferences.read()).openTabs);
+  ipcMain.handle('workspace:setOpenTabs', (_e, openTabs: SavedOpenTabs) =>
+    preferences.setOpenTabs(openTabs),
+  );
+  ipcMain.handle(
+    'workspace:getRecentFolders',
+    async () => (await preferences.read()).recentFolders,
+  );
+  ipcMain.handle('workspace:addRecentFolder', (_e, folder: string) =>
+    preferences.addRecentFolder(folder),
+  );
+  ipcMain.handle('workspace:getSortOrders', async () => (await preferences.read()).sortOrders);
+  ipcMain.handle('workspace:setSortOrder', (_e, panel: SortPanel, key: SortKey) =>
+    preferences.setSortOrder(panel, key),
+  );
+  ipcMain.handle('workspace:isGitRepository', async (_e, folder: string) => {
+    if (typeof folder !== 'string' || !folder) return false;
+    try {
+      return (await findProjectRepositoryRoot(folder)) !== null;
+    } catch {
+      return false;
+    }
+  });
+  ipcMain.handle('clipboard:resolvePaste', (_e, agent: AgentId) =>
+    resolveClipboardPaste(agent, join(app.getPath('temp'), 'parallel-agents', 'pastes'), {
+      readFilePath: () =>
+        process.platform === 'win32'
+          ? clipboard.readBuffer('FileNameW').toString('utf16le').replace(/\0+$/, '')
+          : '',
+      readImagePng: () => {
+        const image = clipboard.readImage();
+        return image.isEmpty() ? null : image.toPNG();
+      },
+    }),
+  );
 
   ipcMain.handle('pty:spawn', (_e, opts: PtySpawnOptions) => {
     return ptyManager.spawn(

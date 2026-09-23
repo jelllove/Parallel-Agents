@@ -122,6 +122,7 @@ test('groups Codex sessions by normalized project path', () => {
     realPath: 'C:\\Work\\Repo',
     sessionCount: 2,
     lastActivity: 20,
+    createdAt: 10,
   });
   assert.deepEqual(
     filterCodexSessionsByProject(sessions, 'c:\\WORK\\REPO').map((session) => session.id),

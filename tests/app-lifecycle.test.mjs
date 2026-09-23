@@ -9,6 +9,7 @@ test('window-all-closed accepts no event argument and keeps the tray app running
   const app = new EventEmitter();
   let quitCalls = 0;
   app.whenReady = () => new Promise(() => {});
+  app.requestSingleInstanceLock = () => true;
   app.quit = () => {
     quitCalls++;
   };

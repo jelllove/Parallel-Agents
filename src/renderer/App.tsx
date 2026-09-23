@@ -8,6 +8,7 @@ import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 import { sessionTabLabelSuffix } from '../shared/session-terminals';
 import { handleSessionTabShortcut } from './session-shortcuts';
+import { snapshotOpenTabs } from './store/tab-state';
 
 const Sidebar = lazy(async () => ({
   default: (await import('./components/Sidebar')).Sidebar,
@@ -82,13 +83,44 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refreshProjectsAndAgents();
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+    let saveTimer: number | undefined;
+    void refreshProjectsAndAgents()
+      .then(() => {
+        if (cancelled) return;
+        return useAppStore.getState().restoreOpenTabs();
+      })
+      .catch((error) => console.error('Failed to restore open tabs', error))
+      .finally(() => {
+        if (cancelled) return;
+        let last = JSON.stringify(snapshotOpenTabs(useAppStore.getState()));
+        unsubscribe = useAppStore.subscribe((state) => {
+          const next = JSON.stringify(snapshotOpenTabs(state));
+          if (next === last) return;
+          last = next;
+          window.clearTimeout(saveTimer);
+          saveTimer = window.setTimeout(() => {
+            window.api.workspace
+              .setOpenTabs(JSON.parse(next))
+              .catch((error) => console.error('Failed to save open tabs', error));
+          }, 500);
+        });
+      });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(saveTimer);
+      unsubscribe?.();
+    };
+  }, [refreshProjectsAndAgents]);
+
+  useEffect(() => {
     loadLayout();
     loadTheme();
     loadSettings();
     const off = subscribeGitChanges();
     return off;
-  }, [refreshProjectsAndAgents, loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
+  }, [loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

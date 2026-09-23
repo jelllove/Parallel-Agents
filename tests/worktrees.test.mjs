@@ -246,3 +246,52 @@ test('Git rejects duplicate branch names and its stderr remains visible', async 
   await assertUnchangedAfterFailure(options, /already exists/i);
   await assert.rejects(lstat(options.targetPath), { code: 'ENOENT' });
 });
+
+test('latestDefaultBranch fetches origin and bases the worktree on origin/main without touching the base folder', async (t) => {
+  const { latestDefaultBranchStartPoint } = await import('../src/main/worktrees.ts');
+  const options = await fixture(t);
+  const remote = join(options.root, 'remote.git');
+  await execFileAsync('git', ['clone', '--bare', options.basePath, remote]);
+  await git(options.basePath, 'remote', 'add', 'origin', remote);
+  await git(options.basePath, 'fetch', 'origin');
+  await git(options.basePath, 'remote', 'set-head', 'origin', 'main');
+
+  const pusher = join(options.root, 'pusher');
+  await execFileAsync('git', ['clone', remote, pusher]);
+  await git(pusher, 'config', 'user.name', 'Worktree Test');
+  await git(pusher, 'config', 'user.email', 'worktree-test@example.invalid');
+  await git(pusher, 'config', 'commit.gpgSign', 'false');
+  await git(pusher, 'config', 'core.hooksPath', join(options.root, 'no-hooks'));
+  await writeFile(join(pusher, 'tracked.txt'), 'newer\n');
+  await git(pusher, 'commit', '-am', 'Newer upstream commit');
+  await git(pusher, 'push', 'origin', 'main');
+  const upstream = await git(pusher, 'rev-parse', 'HEAD');
+  const localHead = await git(options.basePath, 'rev-parse', 'HEAD');
+
+  const startPoint = await latestDefaultBranchStartPoint(options.basePath);
+  assert.equal(startPoint, 'origin/main');
+  const actual = await createProjectWorktree({ ...options, startPoint });
+  assert.equal(await git(actual, 'rev-parse', 'HEAD'), upstream);
+  assert.equal(await git(options.basePath, 'rev-parse', 'HEAD'), localHead);
+  assert.equal(await git(options.basePath, 'branch', '--show-current'), 'main');
+});
+
+test('latestDefaultBranch falls back to the local default branch when there is no origin', async (t) => {
+  const { latestDefaultBranchStartPoint } = await import('../src/main/worktrees.ts');
+  const options = await fixture(t);
+  assert.equal(await latestDefaultBranchStartPoint(options.basePath), 'main');
+});
+
+test('repositoryIdentity groups a repository with its linked worktrees', async (t) => {
+  const { repositoryIdentity } = await import('../src/main/worktrees.ts');
+  const options = await fixture(t);
+  const actual = await createProjectWorktree(options);
+  const main = await repositoryIdentity(options.basePath);
+  assert.ok(main);
+  assert.equal(main.mainPath, normalize(await realpath(options.basePath)));
+  const linked = await repositoryIdentity(actual);
+  assert.deepEqual(linked, main);
+  const outside = await mkdtemp(join((await import('node:os')).tmpdir(), 'pa-no-repo-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  assert.equal(await repositoryIdentity(outside), null);
+});

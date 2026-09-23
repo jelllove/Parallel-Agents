@@ -5,6 +5,7 @@ import { ProjectList } from './ProjectList';
 import { SessionList } from './SessionList';
 import { AgentPicker } from './AgentPicker';
 import { NewProjectDialog } from './NewProjectDialog';
+import { SortPicker } from './SortPicker';
 import type { AgentId } from '../../shared/types';
 
 interface Props {
@@ -51,7 +52,7 @@ export function Sidebar({ onAbout }: Props) {
       <div className="sidebar-split">
         <PanelGroup direction="vertical" autoSaveId="parallel-agents-sidebar-layout">
           <Panel defaultSize={60} minSize={20}>
-            <div className="sidebar-section scrollable">
+            <div className="sidebar-section pinned-header projects">
               <div className="sidebar-title section-projects">
                 <span className="section-glyph">▣</span>
                 <span>Projects</span>
@@ -62,13 +63,17 @@ export function Sidebar({ onAbout }: Props) {
           <PanelResizeHandle className="resize-handle-h" />
           <Panel defaultSize={40} minSize={15}>
             <div
-              className={`sidebar-section scrollable sessions${sessionsFlashing ? ' sessions-guide-flash' : ''}`}
+              className={`sidebar-section pinned-header sessions${sessionsFlashing ? ' sessions-guide-flash' : ''}`}
             >
               <div className="sidebar-title section-sessions">
                 <span className="section-glyph">⏱</span>
                 <span>Recent Sessions</span>
+                <span className="sidebar-title-spacer" />
+                <SortPicker panel="sessions" keys={['created', 'modified', 'name']} />
               </div>
-              <SessionList />
+              <div className="sidebar-scroll">
+                <SessionList />
+              </div>
             </div>
           </Panel>
         </PanelGroup>

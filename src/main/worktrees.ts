@@ -108,6 +108,84 @@ export async function findProjectRepositoryRoot(basePath: string): Promise<strin
   }
 }
 
+export interface RepositoryIdentity {
+  commonDir: string;
+  mainPath: string;
+}
+
+function comparablePath(p: string): string {
+  const n = normalize(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
+}
+
+export async function repositoryIdentity(folder: string): Promise<RepositoryIdentity | null> {
+  let root: string | null;
+  try {
+    root = await findProjectRepositoryRoot(folder);
+  } catch {
+    return null;
+  }
+  if (!root) return null;
+  let commonDir: string;
+  try {
+    commonDir = await git(
+      root,
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      'Cannot resolve Git common directory',
+    );
+  } catch {
+    return null;
+  }
+  const resolved = normalize(await realpath(commonDir).catch(() => commonDir));
+  const mainPath =
+    basename(resolved).toLowerCase() === '.git' ? normalize(dirname(resolved)) : normalize(root);
+  return { commonDir: comparablePath(resolved), mainPath };
+}
+
+export async function latestDefaultBranchStartPoint(basePath: string): Promise<string> {
+  const remotes = (await git(basePath, ['remote'], 'Cannot list Git remotes'))
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (remotes.includes('origin')) {
+    await git(basePath, ['fetch', '--prune', 'origin'], 'Failed to fetch the latest origin');
+    try {
+      const head = await git(
+        basePath,
+        ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+        'No origin default branch',
+      );
+      if (head) return head;
+    } catch {
+      // origin/HEAD is not always set; fall back to the conventional names below.
+    }
+    for (const name of ['main', 'master']) {
+      try {
+        await git(
+          basePath,
+          ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${name}`],
+          'Missing ref',
+        );
+        return `origin/${name}`;
+      } catch {
+        // try next
+      }
+    }
+  }
+  for (const name of ['main', 'master']) {
+    try {
+      await git(
+        basePath,
+        ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`],
+        'Missing ref',
+      );
+      return name;
+    } catch {
+      // try next
+    }
+  }
+  throw new Error('Cannot find a main or master branch to start the worktree from.');
+}
+
 export async function createProjectWorktree(options: {
   basePath: string;
   branch: string;
@@ -161,7 +239,7 @@ export async function createProjectWorktree(options: {
   await requireMissingTarget(actualTargetPath);
   await git(
     basePath,
-    ['worktree', 'add', '-b', branch, actualTargetPath, commit],
+    ['worktree', 'add', '--no-track', '-b', branch, actualTargetPath, commit],
     'Failed to create Git worktree',
   );
   return normalize(await realpath(actualTargetPath));
