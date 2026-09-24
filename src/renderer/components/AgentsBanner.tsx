@@ -1,6 +1,8 @@
 import { useAppStore } from '../store/app-store';
 import { AgentIcon } from './AgentIcon';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+export const HOVER_REVEAL_DELAY_MS = 2000;
 
 export function AgentsBanner() {
   const agents = useAppStore((s) => s.agents);
@@ -10,9 +12,13 @@ export function AgentsBanner() {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [error, setError] = useState('');
+  const hoverTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     const timer = window.setTimeout(() => setIntro(false), 10_000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(hoverTimer.current);
+    };
   }, []);
 
   if (!agents.length) return null;
@@ -21,8 +27,12 @@ export function AgentsBanner() {
   return (
     <div
       className={`agents-banner-region${expanded ? ' expanded' : ''}`}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        window.clearTimeout(hoverTimer.current);
+        hoverTimer.current = window.setTimeout(() => setHovered(true), HOVER_REVEAL_DELAY_MS);
+      }}
       onMouseLeave={(event) => {
+        window.clearTimeout(hoverTimer.current);
         setHovered(false);
         setIntro(false);
         if (!event.currentTarget.querySelector(':focus-visible')) setFocused(false);
