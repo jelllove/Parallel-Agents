@@ -53,11 +53,11 @@ Starting with v0.1.16, the release build targets the following platforms. Each r
 native and packaged-app smoke checks on its target host before its packages are published.
 macOS/Linux are initial desktop ports, not a claim of compatibility with every system.
 
-| Platform | Architecture          | Distribution                                             |
-| -------- | --------------------- | -------------------------------------------------------- |
-| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`                    |
-| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip`      |
-| Linux    | x64, glibc desktop    | `Parallel-Agents-<version>-linux-x64.AppImage` or `.deb` |
+| Platform | Architecture          | Distribution                                                                                     |
+| -------- | --------------------- | ------------------------------------------------------------------------------------------------ |
+| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`                                                            |
+| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip`                                              |
+| Linux    | x64, glibc desktop    | `Parallel-Agents-<version>-linux-x86_64.AppImage` or `Parallel-Agents-<version>-linux-amd64.deb` |
 
 On macOS, open the downloaded DMG and drag the application to
 Applications, or extract the ZIP. Initial Mac builds are ad-hoc signed, **not Developer ID signed

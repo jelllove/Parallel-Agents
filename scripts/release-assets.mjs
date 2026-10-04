@@ -20,8 +20,8 @@ export async function inspectReleaseAssets(root, platform, arch) {
       : platform === 'darwin'
         ? [`Parallel-Agents-${version}-mac-arm64.dmg`, `Parallel-Agents-${version}-mac-arm64.zip`]
         : [
-            `Parallel-Agents-${version}-linux-x64.AppImage`,
-            `Parallel-Agents-${version}-linux-x64.deb`,
+            `Parallel-Agents-${version}-linux-x86_64.AppImage`,
+            `Parallel-Agents-${version}-linux-amd64.deb`,
           ];
   const smoke = [];
   for (const [name, packaged] of [

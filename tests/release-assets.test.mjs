@@ -14,7 +14,7 @@ const names = (platform) =>
       ]
     : platform === 'darwin'
       ? ['Parallel-Agents-0.1.16-mac-arm64.dmg', 'Parallel-Agents-0.1.16-mac-arm64.zip']
-      : ['Parallel-Agents-0.1.16-linux-x64.AppImage', 'Parallel-Agents-0.1.16-linux-x64.deb'];
+      : ['Parallel-Agents-0.1.16-linux-x86_64.AppImage', 'Parallel-Agents-0.1.16-linux-amd64.deb'];
 
 async function fixture(t, platform = 'win32') {
   const root = await mkdtemp(join(tmpdir(), 'parallel-agents-release-'));
