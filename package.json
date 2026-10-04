@@ -1,6 +1,6 @@
 {
   "name": "parallel-agents",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Run multiple CLI coding agents side by side in one window.",
   "main": "out/main/index.js",
   "author": {
@@ -45,8 +45,8 @@
     "validate": "npm run check && npm run build",
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "pack": "npm run build && npm run test:smoke && electron-builder --dir --publish never && npm run test:packaged",
-    "dist": "npm run build && npm run test:smoke && electron-builder --publish never && npm run test:packaged",
+    "pack": "npm run build && npm run test:smoke && node --use-env-proxy --import ./scripts/fetch-downloads.mjs node_modules/electron-builder/cli.js --dir --publish never && npm run test:packaged",
+    "dist": "npm run build && npm run test:smoke && node --use-env-proxy --import ./scripts/fetch-downloads.mjs node_modules/electron-builder/cli.js --publish never && npm run test:packaged",
     "release": "npm run pack && node scripts/promote-latest.cjs",
     "build:icons": "node scripts/build-icons.cjs"
   },
@@ -72,7 +72,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
     "electron": "^43.6.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "26.17.0",
     "electron-vite": "^5.0.0",
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -86,7 +86,10 @@
   },
   "overrides": {
     "monaco-editor": {
-      "dompurify": "^3.4.15"
+      "dompurify": "^3.4.16"
+    },
+    "app-builder-lib": {
+      "@electron/get": "^5.1.0"
     }
   },
   "build": {
@@ -133,6 +136,46 @@
       "**/node_modules/node-pty/**/*",
       "**/node_modules/sqlite3/**/*"
     ],
+    "mac": {
+      "artifactName": "Parallel-Agents-${version}-mac-${arch}.${ext}",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "resources/app-icon.png",
+      "category": "public.app-category.developer-tools",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "linux": {
+      "artifactName": "Parallel-Agents-${version}-linux-${arch}.${ext}",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/app-icon.png",
+      "category": "Development"
+    },
     "win": {
       "artifactName": "Parallel-Agents-Setup-${version}.${ext}",
       "target": [

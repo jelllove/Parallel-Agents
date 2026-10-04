@@ -42,18 +42,21 @@ async function fixture(t) {
 
 test('Windows success requires every real check including native validation', () => {
   const report = summarizeResults('Windows', results());
-  assert.equal(report.schemaVersion, 2);
+  assert.equal(report.schemaVersion, 3);
   assert.equal(report.status, 'success');
   assert.equal(report.platform, 'Windows');
   assert.equal(report.checks.length, checkNames.length);
   assert.deepEqual(report.guidance, []);
 });
 
-test('Linux explicitly records the unsupported native check as skipped', () => {
-  const report = summarizeResults('Linux', results({ native: 'skipped' }));
-  assert.equal(report.status, 'success');
-  assert.equal(report.checks.find((check) => check.name === 'native').required, false);
-  assert.throws(() => summarizeResults('Linux', results()), /native.*skipped/i);
+test('Linux and macOS require native packaging rather than treating skipped checks as success', () => {
+  for (const platform of ['Linux', 'macOS']) {
+    const report = summarizeResults(platform, results());
+    assert.equal(report.status, 'success');
+    assert.equal(report.checks.find((check) => check.name === 'native').required, true);
+    assert.equal(summarizeResults(platform, results({ native: 'skipped' })).status, 'incomplete');
+    assert.equal(summarizeResults(platform, results({ native: 'failure' })).status, 'failure');
+  }
 });
 
 test('failures and missing execution cannot become a success-shaped report', () => {
@@ -65,17 +68,17 @@ test('failures and missing execution cannot become a success-shaped report', () 
 });
 
 test('unknown platforms, missing checks and invented outcomes are rejected', () => {
-  assert.throws(() => summarizeResults('macOS', results()), /platform/i);
+  assert.throws(() => summarizeResults('FreeBSD', results()), /platform/i);
   assert.throws(() => summarizeResults('Windows', { lint: 'success' }), /missing/i);
   assert.throws(() => summarizeResults('Windows', results({ tests: 'probably fine' })), /outcome/i);
   assert.throws(() => summarizeResults('Windows', { ...results(), fake: 'success' }), /unknown/i);
   assert.throws(() => summarizeResults('Windows', []), /object/i);
 });
 
-test('generated receipts conform to the declared version-two property contract', async () => {
+test('generated receipts conform to the declared version-three property contract', async () => {
   const schema = JSON.parse(
     await readFile(
-      resolve(dirname(cli), '..', 'schemas', 'validation-report.v2.schema.json'),
+      resolve(dirname(cli), '..', 'schemas', 'validation-report.v3.schema.json'),
       'utf8',
     ),
   );
@@ -121,7 +124,7 @@ test('each CI receipt is versioned, machine-readable and preserves prior runs', 
   assert.notEqual(first.jsonPath, second.jsonPath);
   const stored = JSON.parse(await readFile(first.jsonPath, 'utf8'));
   assert.equal(stored.status, 'success');
-  assert.equal(stored.schemaVersion, 2);
+  assert.equal(stored.schemaVersion, 3);
   assert.equal(stored.evidenceSource, 'workflow-step-outcomes');
   assert.match(await readFile(first.markdownPath, 'utf8'), /Windows/);
 });

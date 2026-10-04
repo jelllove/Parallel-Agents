@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { Api, UpdateStatus } from '../shared/types';
 
 const api: Api = {
+  platform:
+    process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux'
+      ? process.platform
+      : 'other',
   updates: {
     getStatus: () => ipcRenderer.invoke('updates:getStatus'),
     check: () => ipcRenderer.invoke('updates:check'),

@@ -6,6 +6,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { withoutRepositoryGitEnvironment } from './git-environment.mjs';
+import { desktopTarget, providerShim } from './desktop-targets.mjs';
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -17,13 +18,12 @@ if (args.some((arg) => arg !== '--packaged')) {
 }
 const packaged = args.includes('--packaged');
 
-if (process.platform !== 'win32') {
-  throw new Error('The native Electron smoke test currently requires Windows.');
-}
+const target = desktopTarget();
+const asar = join(root, 'release', ...target.asarSegments);
 const mainEntry = packaged
-  ? join(root, 'release', 'win-unpacked', 'resources', 'app.asar', 'out', 'main', 'index.js')
+  ? join(asar, 'out', 'main', 'index.js')
   : join(root, 'out', 'main', 'index.js');
-await access(packaged ? join(root, 'release', 'win-unpacked', 'resources', 'app.asar') : mainEntry);
+await access(packaged ? asar : mainEntry);
 
 const home = await mkdtemp(join(tmpdir(), 'parallel-agents-smoke-'));
 const gitEnvironment = withoutRepositoryGitEnvironment(process.env);
@@ -37,7 +37,8 @@ try {
   await mkdir(provider, { recursive: true });
   await mkdir(reports, { recursive: true });
   for (const agent of ['claude', 'copilot', 'codex', 'gemini', 'aider']) {
-    await writeFile(join(agentBin, `${agent}.cmd`), '@echo off\r\necho SMOKE_AGENT\r\n');
+    const shim = providerShim(agent, process.platform);
+    await writeFile(join(agentBin, shim.name), shim.content, { mode: shim.mode });
   }
   await writeFile(
     join(provider, 'smoke-session.jsonl'),
@@ -76,6 +77,15 @@ try {
   await writeFile(join(project, 'notes.txt'), 'working\n');
 
   const env = { ...gitEnvironment, HOME: home, USERPROFILE: home };
+  env.XDG_CONFIG_HOME = join(home, 'config');
+  env.XDG_DATA_HOME = join(home, 'data');
+  env.XDG_CACHE_HOME = join(home, 'cache');
+  if (process.platform !== 'win32') {
+    env.SHELL = '/bin/sh';
+    env.ZDOTDIR = home;
+    delete env.ENV;
+    delete env.BASH_ENV;
+  }
   const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
   env[pathKey] = `${agentBin}${delimiter}${env[pathKey] ?? ''}`;
   delete env.ELECTRON_RUN_AS_NODE;

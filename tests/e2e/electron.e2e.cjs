@@ -1,6 +1,13 @@
 /* global window, document, MouseEvent */
 const assert = require('node:assert/strict');
-const { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } = require('node:fs');
+const {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} = require('node:fs');
 const { dirname, join } = require('node:path');
 const { app } = require('electron');
 
@@ -28,6 +35,8 @@ function finish(error, checks = []) {
   const report = {
     success: !error,
     electron: process.versions.electron,
+    platform: process.platform,
+    arch: process.arch,
     packaged: reportName === 'packaged-smoke',
     initialJavaScriptBytes,
     durationMs: Date.now() - startedAt,
@@ -59,6 +68,10 @@ async function checkRenderer(projectPath) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   check(typeof window.api?.git?.diff === 'function', 'preload bridge is available');
+  check(
+    ['win32', 'darwin', 'linux'].includes(window.api.platform),
+    'preload exposes a desktop platform',
+  );
   check(typeof window.require === 'undefined', 'renderer has no Node require');
   const projects = await window.api.projects.list();
   check(projects.length === 1 && projects[0].realPath === projectPath, 'provider data is isolated');
@@ -225,8 +238,28 @@ app.on('browser-window-created', (_event, win) => {
   });
   win.webContents.once('did-finish-load', async () => {
     try {
+      const agents = await win.webContents.executeJavaScript('window.api.agents.checkAll()');
+      const normalize = (path) => {
+        const resolved = realpathSync.native(path);
+        return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+      };
+      for (const agent of ['claude', 'copilot', 'codex', 'gemini', 'aider']) {
+        const expected = join(home, 'bin', `${agent}${process.platform === 'win32' ? '.cmd' : ''}`);
+        assert.ok(agents[agent]?.path, `${agent} fixture shim must be available`);
+        assert.equal(
+          normalize(agents[agent].path),
+          normalize(expected),
+          `${agent} must resolve only to its inert fixture shim`,
+        );
+      }
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)})`,
+      );
+      checks.push('all provider executables resolve to inert fixture shims');
+      assert.equal(
+        await win.webContents.executeJavaScript('window.api.platform'),
+        process.platform,
+        'preload platform matches the actual runtime',
       );
       const copilotRoot = join(home, '.copilot', 'session-state');
       mkdirSync(dirname(copilotRoot), { recursive: true });

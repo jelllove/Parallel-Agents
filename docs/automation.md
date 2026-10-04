@@ -7,7 +7,7 @@ The [agent guide](../AGENTS.md) remains the shared boundary contract.
 
 [Validate](../.github/workflows/ci.yml) uses the runner's normal shell and separately names
 installation, lint, format verification, type checking, tests, documentation contracts, build,
-agent instruction corpus validation, Windows native/package checks, and dependency audit. Failures
+agent instruction corpus validation, Windows/macOS/Linux native/package checks, and dependency audit. Failures
 retain their original step outcome.
 
 `npm run test:ci` writes `junit.xml`, `coverage.lcov`, and `result.json` in a fresh directory under
@@ -16,6 +16,8 @@ Coverage describes executed modules, not total application or native-runtime cov
 `npm run ci:report` consumes the actual `CI_PLATFORM` and `CI_STEPS_JSON` workflow values,
 writes a unique receipt/summary under `reports/validation`, and returns nonzero when required
 checks failed or did not complete. It never invents missing results.
+Native packaging is required on all three desktop platforms; Linux uses Xvfb, and a skipped
+native step cannot produce a success receipt.
 
 `npm run check:agent-corpus` validates the repository-shipped agent instructions, prompts, and
 skills as a bounded machine-operable corpus. It verifies required files, frontmatter, prompt
@@ -23,9 +25,10 @@ sections, learned-rule lifecycle state, repeated active-rule evidence, and repos
 without invoking a provider model or changing application runtime files. Candidate and retired
 learned rules are validated but not consumed by later agent runs.
 
-The [version-two JSON schema](../schemas/validation-report.v2.schema.json) is the current consumer
-contract; [version one](../schemas/validation-report.v1.schema.json) remains available for
-historical receipts.
+The [version-three JSON schema](../schemas/validation-report.v3.schema.json) and
+[protocol](specs/validation-v3.md) are the current consumer contract.
+[Version two](../schemas/validation-report.v2.schema.json) and
+[version one](../schemas/validation-report.v1.schema.json) remain available for historical receipts.
 The report describes workflow-step outcomes; it is not independent proof of a live provider,
 installer/signing qualification, or remote branch-policy enforcement.
 

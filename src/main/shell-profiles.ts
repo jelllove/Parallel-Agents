@@ -28,8 +28,10 @@ export function resolveShellLaunch(
   }
 
   if (profile === 'bash') return { command: 'bash', args: ['-l'] };
-  const command = envShell && envShell.trim() ? envShell : 'bash';
-  return { command, args: ['-l'] };
+  const command =
+    envShell && envShell.trim() ? envShell : platform === 'darwin' ? '/bin/zsh' : 'bash';
+  const name = posix.basename(command);
+  return { command, args: name === 'pwsh' || name === 'nu' ? [] : ['-l'] };
 }
 
 export interface ShellDiscoveryProbes {

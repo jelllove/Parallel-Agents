@@ -1,6 +1,6 @@
 # Reproducible development environment
 
-The application remains Windows-first. These tools prepare repository checks without reading
+Desktop targets are Windows x64, macOS Apple Silicon, and Linux x64. These tools prepare repository checks without reading
 provider accounts or changing application source, runtime dependencies, or packaging behavior.
 
 ## Diagnostics and setup
@@ -58,5 +58,5 @@ Do not remove that boundary or add provider credentials to make a desktop test r
 
 The base image was built on a local Docker engine, and an offline real-npm fixture verified the
 setup contract without changing its source/config/lockfile. The full application's container
-installation/build was not executed as that verification. Native application qualification
-continues to use the isolated Windows end-to-end and packaged-payload tests.
+installation/build was not executed as that verification. Native application qualification uses the isolated end-to-end and packaged-payload tests
+on the target host, not this non-GUI container.

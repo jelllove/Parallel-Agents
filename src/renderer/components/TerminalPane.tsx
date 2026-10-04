@@ -6,6 +6,7 @@ import { useAppStore } from '../store/app-store';
 import type { ThemeMode } from '../../shared/types';
 import type { SessionShellProfile } from '../../shared/session-terminals';
 import { resolveFontFamily } from '../../shared/typography';
+import { terminalShortcut } from '../terminal-shortcuts';
 
 interface Props {
   terminalKey: string;
@@ -80,29 +81,27 @@ export function TerminalPane({
     fit.fit();
 
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown') return true;
-
-      if (multilineRef.current && e.key === 'Enter' && (e.shiftKey || e.ctrlKey)) {
+      const shortcut = terminalShortcut(e, window.api.platform, {
+        multiline: multilineRef.current,
+        copyPaste: copyPasteRef.current,
+        hasSelection: term.hasSelection(),
+      });
+      if (shortcut === 'newline') {
         window.api.pty.write(terminalKey, '\n');
         return false;
       }
 
-      if (copyPasteRef.current && e.ctrlKey && !e.shiftKey && !e.altKey) {
-        if (e.key === 'c' || e.key === 'C') {
-          if (term.hasSelection()) {
-            const sel = term.getSelection();
-            if (sel) void navigator.clipboard.writeText(sel);
-            term.clearSelection();
-            return false;
-          }
-          return true;
-        }
-        if (e.key === 'v' || e.key === 'V') {
-          void navigator.clipboard.readText().then((txt) => {
-            if (txt) window.api.pty.write(terminalKey, txt);
-          });
-          return false;
-        }
+      if (shortcut === 'copy') {
+        const sel = term.getSelection();
+        if (sel) void navigator.clipboard.writeText(sel);
+        term.clearSelection();
+        return false;
+      }
+      if (shortcut === 'paste') {
+        void navigator.clipboard.readText().then((txt) => {
+          if (txt) window.api.pty.write(terminalKey, txt);
+        });
+        return false;
       }
       return true;
     });
