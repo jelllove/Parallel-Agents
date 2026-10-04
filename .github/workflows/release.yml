@@ -55,6 +55,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Ensure Electron runtime is installed
+        run: node -e "const fs=require('node:fs'); const binary=require('electron'); if(!fs.existsSync(binary)) throw new Error('Electron runtime is missing');"
+
       - name: Validate repository
         run: npm run check
 

@@ -92,3 +92,19 @@ for (const [shell, assignment] of [
     manager.killAll();
   });
 }
+
+test('native workflows materialize lazy Electron downloads before configuring its sandbox helper', async () => {
+  for (const workflow of ['ci.yml', 'release.yml']) {
+    const source = await readFile(
+      new URL(`../.github/workflows/${workflow}`, import.meta.url),
+      'utf8',
+    );
+    const download = source.indexOf('name: Ensure Electron runtime is installed');
+    const sandbox = source.indexOf('name: Prepare the disposable Electron sandbox helper');
+    assert.ok(
+      download >= 0 && download < sandbox,
+      `${workflow} must download Electron before chmod`,
+    );
+    assert.match(source.slice(download, sandbox), /require\('electron'\)/);
+  }
+});
