@@ -37,4 +37,5 @@ reference link definitions, and inline source-path references for these active f
 - `docs/specs/maintenance-v1.md`
 - `docs/specs/validation-v1.md`
 - `docs/specs/validation-v2.md`
+- `docs/specs/validation-v3.md`
 - `schemas/README.md`

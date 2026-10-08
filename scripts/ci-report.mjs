@@ -46,7 +46,7 @@ export async function prepareReportDirectory(root, category) {
 }
 
 export function summarizeResults(platform, results) {
-  if (!['Windows', 'Linux'].includes(platform))
+  if (!['Windows', 'Linux', 'macOS'].includes(platform))
     throw new Error(`Unsupported CI platform: ${platform}`);
   if (!results || typeof results !== 'object' || Array.isArray(results)) {
     throw new Error('CI step results must be an object.');
@@ -60,16 +60,11 @@ export function summarizeResults(platform, results) {
       throw new Error(`Invalid outcome for ${name}: ${results[name]}`);
     return {
       name,
-      command,
+      command: name === 'native' && platform === 'Linux' ? 'xvfb-run -a npm run pack' : command,
       outcome: results[name],
-      required: name !== 'native' || platform === 'Windows',
+      required: true,
     };
   });
-  if (platform === 'Linux' && results.native !== 'skipped') {
-    throw new Error(
-      'The Linux native check must be explicitly skipped; desktop support is Windows-only.',
-    );
-  }
   const required = checks.filter((check) => check.required);
   const status = required.some((check) => check.outcome === 'failure')
     ? 'failure'
@@ -85,7 +80,7 @@ export function summarizeResults(platform, results) {
         `${check.name}: reproduce with \`${check.command}\`; inspect the failed step before editing.`,
     );
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     evidenceSource: 'workflow-step-outcomes',
     generatedAt: new Date().toISOString(),
     platform,

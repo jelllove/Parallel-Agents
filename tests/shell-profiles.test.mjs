@@ -27,6 +27,12 @@ test('uses login shell on non-windows default profile', () => {
   assert.deepEqual(launch.args, ['-l']);
 });
 
+test('POSIX default PowerShell and Nushell do not receive Bourne login flags', () => {
+  for (const command of ['/usr/bin/pwsh', '/usr/bin/nu']) {
+    assert.deepEqual(resolveShellLaunch('linux', 'default', command), { command, args: [] });
+  }
+});
+
 test('retains synchronous fallback behavior for arbitrary profile strings', () => {
   assert.deepEqual(resolveShellLaunch('win32', 'wsl:Ubuntu', null), {
     command: 'powershell.exe',

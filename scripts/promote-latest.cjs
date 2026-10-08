@@ -1,10 +1,10 @@
-// Renames release/win-unpacked → release/latest, replacing any existing release/latest.
-// Run after `electron-builder --dir` which always emits release/win-unpacked.
+// Promotes this host's unpacked output, replacing any existing release/latest.
 const { rmSync, renameSync, existsSync } = require('fs');
 const { join } = require('path');
+const { desktopTarget } = require('./desktop-targets.mjs');
 
 const root = join(__dirname, '..');
-const src = join(root, 'release', 'win-unpacked');
+const src = join(root, 'release', desktopTarget().asarSegments[0]);
 const dst = join(root, 'release', 'latest');
 
 if (!existsSync(src)) {
