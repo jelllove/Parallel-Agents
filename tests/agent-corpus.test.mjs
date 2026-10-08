@@ -273,7 +273,6 @@ test('agent corpus discovery rejects symlinked corpus directories', async (t) =>
     ),
   );
 });
-
 test('later agent runs consume only active learned rules', async () => {
   const active = await readActiveLearnedRules();
   assert.ok(active.length >= 1);
