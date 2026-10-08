@@ -14,6 +14,8 @@ import { registerIpc } from './ipc.ts';
 import { ptyManager } from './pty-manager.ts';
 import * as git from './git.ts';
 import { UpdateController } from './update-controller.ts';
+import { loadLoginPath } from './login-path.ts';
+import { applicationMenu, hidesOnClose } from './application-menu.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -54,7 +56,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     backgroundColor: '#1e1e1e',
-    autoHideMenuBar: true,
+    autoHideMenuBar: process.platform !== 'linux',
     title: 'Parallel Agents',
     icon: getIconPath(windowIcon),
     webPreferences: {
@@ -75,7 +77,8 @@ function createWindow(): void {
   mainWindow.on('close', (e) => {
     if (isQuitting) return;
     e.preventDefault();
-    mainWindow?.hide();
+    if (hidesOnClose(process.platform)) mainWindow?.hide();
+    else void quitWithConfirm();
   });
 
   mainWindow.on('enter-full-screen', () => {
@@ -147,7 +150,7 @@ function createTray(): void {
   const image = trayImage.isEmpty()
     ? nativeImage.createFromPath(getIconPath('app-icon.png'))
     : trayImage;
-  tray = new Tray(image);
+  tray = new Tray(process.platform === 'darwin' ? image.resize({ width: 18, height: 18 }) : image);
   tray.setToolTip('Parallel Agents');
 
   const menu = Menu.buildFromTemplate([
@@ -169,6 +172,7 @@ function toggleVisibility(): void {
 }
 
 app.whenReady().then(async () => {
+  await loadLoginPath();
   const { default: electronUpdater } = await import('electron-updater');
   const { autoUpdater } = electronUpdater;
   updates = new UpdateController({
@@ -187,8 +191,10 @@ app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId(APP_USER_MODEL_ID);
   }
+  const menu = applicationMenu(process.platform, () => void quitWithConfirm());
+  if (menu) Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
   createWindow();
-  createTray();
+  if (process.platform !== 'linux') createTray();
   updates.start();
 
   globalShortcut.register('F11', () => {

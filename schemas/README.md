@@ -1,17 +1,18 @@
 # Automation output contracts
 
-[validation-report.v2.schema.json](validation-report.v2.schema.json) describes the current
-version-two workflow receipt produced by [ci-report.mjs](../scripts/ci-report.mjs). The
-previous [validation-report.v1.schema.json](validation-report.v1.schema.json) remains available
+[validation-report.v3.schema.json](validation-report.v3.schema.json) describes the current
+version-three workflow receipt produced by [ci-report.mjs](../scripts/ci-report.mjs).
+[Version two](validation-report.v2.schema.json) and
+[version one](validation-report.v1.schema.json) remain available
 for consumers of historical receipts.
 The normative meanings, trust boundary, retention rules, and compatibility policy are documented in
-[Validation receipt protocol v2](../docs/specs/validation-v2.md).
+[Validation receipt protocol v3](../docs/specs/validation-v3.md).
 
 The receipt records explicit outcomes supplied by the workflow for install, lint, formatting,
 types, tests, documentation, agent instruction corpus validation, build, native validation, and
 dependency audit. Unknown or absent outcomes are errors; required skipped checks produce an
-incomplete result, not success. Linux records native validation as skipped because the desktop
-runtime is Windows-only.
+incomplete result, not success. Windows, macOS, and Linux all require native packaging;
+the Linux native command runs under Xvfb.
 
 Reports are written to unique directories under `reports/validation`. The associated Markdown
 summary contains fixed reproduction commands for failed checks. It is not a replacement for

@@ -26,6 +26,8 @@ jobs:
             label: Windows
           - os: ubuntu-latest
             label: Linux
+          - os: macos-15
+            label: macOS
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -41,6 +43,9 @@ jobs:
       - name: Install locked dependencies
         id: install
         run: npm ci
+
+      - name: Ensure Electron runtime is installed
+        run: node -e "const fs=require('node:fs'); const binary=require('electron'); if(!fs.existsSync(binary)) throw new Error('Electron runtime is missing');"
 
       - name: Prepare validation artifacts
         run: npm run ci:prepare
@@ -75,8 +80,19 @@ jobs:
 
       - name: Package and exercise native Electron and PTY
         id: native
-        if: runner.os == 'Windows'
+        if: runner.os != 'Linux'
         run: npm run pack
+
+      - name: Prepare the disposable Electron sandbox helper on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
+      - name: Package and exercise native Electron and PTY on Linux
+        id: native_linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run pack
 
       - name: Check known dependency advisories
         id: audit
@@ -87,7 +103,7 @@ jobs:
         env:
           CI_PLATFORM: ${{ matrix.label }}
           CI_STEPS_JSON: >-
-            {"install":"${{ steps.install.outcome }}","lint":"${{ steps.lint.outcome }}","format":"${{ steps.format.outcome }}","typecheck":"${{ steps.typecheck.outcome }}","tests":"${{ steps.tests.outcome }}","docs":"${{ steps.docs.outcome }}","agent-corpus":"${{ steps.agent_corpus.outcome }}","build":"${{ steps.build.outcome }}","native":"${{ steps.native.outcome }}","audit":"${{ steps.audit.outcome }}"}
+            {"install":"${{ steps.install.outcome }}","lint":"${{ steps.lint.outcome }}","format":"${{ steps.format.outcome }}","typecheck":"${{ steps.typecheck.outcome }}","tests":"${{ steps.tests.outcome }}","docs":"${{ steps.docs.outcome }}","agent-corpus":"${{ steps.agent_corpus.outcome }}","build":"${{ steps.build.outcome }}","native":"${{ runner.os == 'Linux' && steps.native_linux.outcome || steps.native.outcome }}","audit":"${{ steps.audit.outcome }}"}
         run: npm run ci:report -- --with-provenance
 
       - name: Retain validation evidence

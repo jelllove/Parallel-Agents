@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { build, transform } from 'esbuild';
+import { terminalShortcut } from '../src/renderer/terminal-shortcuts.ts';
 
 const require = createRequire(import.meta.url);
 const source = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -156,6 +157,7 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore };
+      if (id === '../terminal-shortcuts') return { terminalShortcut };
       if (id === '../../shared/typography')
         return {
           DEFAULT_FONT_SIZE: 14,

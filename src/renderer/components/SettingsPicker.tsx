@@ -7,6 +7,12 @@ interface Props {
 }
 
 export function SettingsPicker({ anchorRect, onClose }: Props) {
+  const clipboardKeys =
+    window.api.platform === 'darwin'
+      ? 'Command+C / Command+V'
+      : window.api.platform === 'linux'
+        ? 'Ctrl+Shift+C / Ctrl+Shift+V'
+        : 'Ctrl+C / Ctrl+V';
   const confirmOnCloseTab = useAppStore((s) => s.confirmOnCloseTab);
   const terminalMultilineEnter = useAppStore((s) => s.terminalMultilineEnter);
   const terminalCopyPaste = useAppStore((s) => s.terminalCopyPaste);
@@ -48,7 +54,10 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
             checked={terminalMultilineEnter}
             onChange={(e) => void setTerminalMultilineEnter(e.target.checked)}
           />
-          <span>Shift+Enter / Ctrl+Enter inserts newline in terminal</span>
+          <span>
+            Shift+Enter / {window.api.platform === 'darwin' ? 'Command' : 'Ctrl'}+Enter inserts
+            newline in terminal
+          </span>
         </label>
         <label className="settings-row">
           <input
@@ -56,7 +65,7 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
             checked={terminalCopyPaste}
             onChange={(e) => void setTerminalCopyPaste(e.target.checked)}
           />
-          <span>Ctrl+C / Ctrl+V copy/paste + right-click menu in terminal</span>
+          <span>{clipboardKeys} copy/paste + right-click menu in terminal</span>
         </label>
       </div>
     </>

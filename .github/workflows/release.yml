@@ -1,0 +1,114 @@
+name: Release packages
+
+on:
+  push:
+    branches: [feat/macos-installation]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            platform: win32
+            arch: x64
+          - os: macos-15
+            label: macOS
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            label: Linux
+            platform: linux
+            arch: x64
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Verify target architecture and release version
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "const p=require('./package.json'); if(process.platform!==process.env.EXPECTED_PLATFORM || process.arch!==process.env.EXPECTED_ARCH) throw new Error('Incorrect native runner'); if(process.env.GITHUB_REF_TYPE==='tag' && process.env.GITHUB_REF_NAME!=='v'+p.version) throw new Error('Tag does not match package version');"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Ensure Electron runtime is installed
+        run: node -e "const fs=require('node:fs'); const binary=require('electron'); if(!fs.existsSync(binary)) throw new Error('Electron runtime is missing');"
+
+      - name: Validate repository
+        run: npm run check
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install Linux package build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y rpm
+          rpmbuild --version
+
+      - name: Prepare the disposable Electron sandbox helper on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
+      - name: Build and verify distribution packages
+        if: runner.os != 'Linux'
+        run: npm run dist
+
+      - name: Build and verify distribution packages on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run dist
+
+      - name: Verify complete release assets and native receipts
+        run: node scripts/release-assets.mjs
+
+      - name: Retain verified distribution files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.label }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain native and packaged validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-${{ matrix.label }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14

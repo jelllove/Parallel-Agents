@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
+import { resolveShellLaunch } from '../src/main/shell-profiles.ts';
 
 async function createManager(resolveShell) {
   const processes = [];
@@ -9,6 +10,7 @@ async function createManager(resolveShell) {
   const timers = [];
   const harness = {
     resolveShell,
+    resolveShellLaunch,
     send: (...args) => events.push(args),
     spawn() {
       const process = {
@@ -42,7 +44,8 @@ async function createManager(resolveShell) {
         setup(builder) {
           const mocks = {
             'node-pty': 'export const spawn=harness.spawn;',
-            './shell-profiles.ts': 'export const resolveAvailableShell=harness.resolveShell;',
+            './shell-profiles.ts':
+              'export const resolveAvailableShell=harness.resolveShell; export const resolveShellLaunch=harness.resolveShellLaunch;',
             './window-messenger.ts': 'export const sendToWindow=harness.send;',
           };
           builder.onResolve(
