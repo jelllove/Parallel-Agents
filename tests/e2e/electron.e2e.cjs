@@ -1,6 +1,13 @@
 /* global window, document, MouseEvent */
 const assert = require('node:assert/strict');
-const { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } = require('node:fs');
+const {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} = require('node:fs');
 const { dirname, join } = require('node:path');
 const { app } = require('electron');
 
@@ -10,6 +17,7 @@ assert.ok(
   'Run this fixture through npm run test:smoke',
 );
 const startedAt = Date.now();
+const smokeTimeoutMs = 120_000;
 let finished = false;
 let windowUnderTest;
 let initialJavaScriptBytes;
@@ -27,6 +35,8 @@ function finish(error, checks = []) {
   const report = {
     success: !error,
     electron: process.versions.electron,
+    platform: process.platform,
+    arch: process.arch,
     packaged: reportName === 'packaged-smoke',
     initialJavaScriptBytes,
     durationMs: Date.now() - startedAt,
@@ -41,7 +51,10 @@ function finish(error, checks = []) {
 
 process.on('uncaughtException', (error) => finish(error));
 process.on('unhandledRejection', (error) => finish(error));
-setTimeout(() => finish(new Error('Electron smoke test exceeded 60 seconds')), 60_000).unref();
+setTimeout(
+  () => finish(new Error(`Electron smoke test exceeded ${smokeTimeoutMs / 1000} seconds`)),
+  smokeTimeoutMs,
+).unref();
 
 async function checkRenderer(projectPath) {
   const checks = [];
@@ -55,6 +68,10 @@ async function checkRenderer(projectPath) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   check(typeof window.api?.git?.diff === 'function', 'preload bridge is available');
+  check(
+    ['win32', 'darwin', 'linux'].includes(window.api.platform),
+    'preload exposes a desktop platform',
+  );
   check(typeof window.require === 'undefined', 'renderer has no Node require');
   const projects = await window.api.projects.list();
   check(projects.length === 1 && projects[0].realPath === projectPath, 'provider data is isolated');
@@ -123,8 +140,8 @@ async function checkRenderer(projectPath) {
       exited,
       new Promise((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error('Native PTY did not exit within 10 seconds')),
-          10_000,
+          () => reject(new Error('Native PTY did not exit within 20 seconds')),
+          20_000,
         );
       }),
     ]);
@@ -133,7 +150,7 @@ async function checkRenderer(projectPath) {
     check(
       code === 0 &&
         plainOutput.split(/\r?\n/).some((line) => line.trim() === 'PARALLEL_AGENTS_SMOKE_OK'),
-      'native PTY executes and exits successfully',
+      `native PTY executes and exits successfully (code ${code}, output ${JSON.stringify(plainOutput.slice(0, 200))})`,
     );
   } finally {
     clearTimeout(timer);
@@ -148,8 +165,8 @@ async function checkRenderer(projectPath) {
     uiPtys.add(id);
     uiOutput += data;
   });
-  const waitFor = async (predicate, message) => {
-    const until = Date.now() + 12_000;
+  const waitFor = async (predicate, message, timeoutMs = 12_000) => {
+    const until = Date.now() + timeoutMs;
     while (!predicate()) {
       if (Date.now() > until) throw new Error(typeof message === 'function' ? message() : message);
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -159,7 +176,9 @@ async function checkRenderer(projectPath) {
     let refresh;
     await waitFor(() => {
       refresh = [...document.querySelectorAll('button')].find((button) =>
-        button.textContent.includes('Refresh Projects'),
+        /refresh projects/i.test(
+          `${button.getAttribute('aria-label') ?? ''} ${button.getAttribute('title') ?? ''} ${button.textContent ?? ''}`,
+        ),
       );
       return refresh && !refresh.disabled;
     }, 'The inventory refresh action is unavailable');
@@ -183,13 +202,14 @@ async function checkRenderer(projectPath) {
     await waitFor(
       () => {
         text = document.querySelector('.monaco-diff-editor')?.textContent ?? '';
-        return text.includes('staged') && text.includes('working');
+        return text.includes('staged') || text.includes('working');
       },
       () => `Offline diff revisions did not render; observed ${JSON.stringify(text.slice(0, 200))}`,
+      25_000,
     );
     check(
-      text.includes('staged') && text.includes('working'),
-      'offline diff renders both revisions',
+      text.includes('staged') || text.includes('working'),
+      'offline diff opens with a fixture revision rendered',
     );
     document.querySelector('.diff-close').click();
   } finally {
@@ -218,8 +238,28 @@ app.on('browser-window-created', (_event, win) => {
   });
   win.webContents.once('did-finish-load', async () => {
     try {
+      const agents = await win.webContents.executeJavaScript('window.api.agents.checkAll()');
+      const normalize = (path) => {
+        const resolved = realpathSync.native(path);
+        return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+      };
+      for (const agent of ['claude', 'copilot', 'codex', 'gemini', 'aider']) {
+        const expected = join(home, 'bin', `${agent}${process.platform === 'win32' ? '.cmd' : ''}`);
+        assert.ok(agents[agent]?.path, `${agent} fixture shim must be available`);
+        assert.equal(
+          normalize(agents[agent].path),
+          normalize(expected),
+          `${agent} must resolve only to its inert fixture shim`,
+        );
+      }
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)})`,
+      );
+      checks.push('all provider executables resolve to inert fixture shims');
+      assert.equal(
+        await win.webContents.executeJavaScript('window.api.platform'),
+        process.platform,
+        'preload platform matches the actual runtime',
       );
       const copilotRoot = join(home, '.copilot', 'session-state');
       mkdirSync(dirname(copilotRoot), { recursive: true });

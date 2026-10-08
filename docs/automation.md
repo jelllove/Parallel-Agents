@@ -7,7 +7,7 @@ The [agent guide](../AGENTS.md) remains the shared boundary contract.
 
 [Validate](../.github/workflows/ci.yml) uses the runner's normal shell and separately names
 installation, lint, format verification, type checking, tests, documentation contracts, build,
-agent instruction corpus validation, Windows native/package checks, and dependency audit. Failures
+agent instruction corpus validation, Windows/macOS/Linux native/package checks, and dependency audit. Failures
 retain their original step outcome.
 
 `npm run test:ci` writes `junit.xml`, `coverage.lcov`, and `result.json` in a fresh directory under
@@ -16,6 +16,8 @@ Coverage describes executed modules, not total application or native-runtime cov
 `npm run ci:report` consumes the actual `CI_PLATFORM` and `CI_STEPS_JSON` workflow values,
 writes a unique receipt/summary under `reports/validation`, and returns nonzero when required
 checks failed or did not complete. It never invents missing results.
+Native packaging is required on all three desktop platforms; Linux uses Xvfb, and a skipped
+native step cannot produce a success receipt.
 
 `npm run check:agent-corpus` validates the repository-shipped agent instructions, prompts, and
 skills as a bounded machine-operable corpus. It verifies required files, frontmatter, prompt
@@ -23,11 +25,47 @@ sections, learned-rule lifecycle state, repeated active-rule evidence, and repos
 without invoking a provider model or changing application runtime files. Candidate and retired
 learned rules are validated but not consumed by later agent runs.
 
-The [version-two JSON schema](../schemas/validation-report.v2.schema.json) is the current consumer
-contract; [version one](../schemas/validation-report.v1.schema.json) remains available for
-historical receipts.
+The [version-three JSON schema](../schemas/validation-report.v3.schema.json) and
+[protocol](specs/validation-v3.md) are the current consumer contract.
+[Version two](../schemas/validation-report.v2.schema.json) and
+[version one](../schemas/validation-report.v1.schema.json) remain available for historical receipts.
 The report describes workflow-step outcomes; it is not independent proof of a live provider,
 installer/signing qualification, or remote branch-policy enforcement.
+
+## Agent throughput report
+
+[Agent throughput report](../.github/workflows/agent-throughput.yml) runs weekly or by manual
+dispatch with read-only repository permissions. It queries GitHub GraphQL pull-request metadata
+through `gh api`, selecting only author login/type, merge timestamp, and pagination/count metadata.
+It measures merged pull requests in the rolling 90 days ending at generation time and uploads the
+unique JSON file under `reports/agent-throughput`. It does not inspect provider histories or
+application data and does not write to the repository.
+
+For an authenticated repository query:
+
+```powershell
+node scripts/agent-throughput.mjs --repository owner/name
+```
+
+Tests and reproducible local inspection can inject a GitHub GraphQL JSON response without network
+access:
+
+```powershell
+node scripts/agent-throughput.mjs --repository owner/name --input tests/fixtures/agent-throughput-graphql-prs.json --now 2026-09-18T00:00:00.000Z
+```
+
+Each report records `windowDays`, merged PR count, agent-authored merged count and share,
+PRs-per-day, generation time, repository, source, category counts, and limitations. Classification
+uses only GitHub account type and a reviewed login-name policy: known coding-agent names are
+`agent`, Dependabot/Renovate/Snyk names are `dependency`, remaining `User` accounts are `human`, and
+all other identities are `otherAutomation`. The artifact contains aggregates only; it does not
+serialize tokens, environment variables, PR/review bodies, commit text, or author logins.
+
+GitHub Search returns at most 1,000 results. The report is therefore bounded and explicitly records
+when the API total indicates truncation or GitHub marks a response incomplete. Login-based
+classification can be imperfect, and PR counts do not measure effort, quality, unmerged work, or
+whether an agent had human assistance. Workflow configuration and a generated artifact also do not
+establish required-check enforcement.
 
 CI requests an additional [source-bound evidence envelope](specs/evidence-v1.md) with
 `--with-provenance`. It requires an unchanged committed checkout and binds the outcome receipt
@@ -39,6 +77,11 @@ inspection, fixed validation, and evidence verification without arbitrary comman
 check without dependency installation. This keeps a broken package install or an unrelated native
 job from hiding stale links/commands. The checker still deliberately covers a narrow executable
 contract, not all prose semantics; required-check enforcement remains an owner decision.
+
+The standalone workflow now verifies the generated inventory at
+[docs/documentation-contracts.md](documentation-contracts.md) with a checked diff. `npm run
+check:docs` fails when that inventory is stale, and `npm run docs:contracts:write` refreshes it
+before CI checks the resulting `git diff --exit-code`.
 
 ## Opt-in local hooks
 

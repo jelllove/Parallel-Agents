@@ -308,9 +308,9 @@ for (const mutation of ['version', 'root', 'name', 'dependencies', 'devDependenc
 
 for (const [platform, arch, status] of [
   ['win32', 'x64', 'pass'],
-  ['linux', 'x64', 'warn'],
+  ['linux', 'x64', 'pass'],
   ['linux', 'arm64', 'warn'],
-  ['darwin', 'arm64', 'warn'],
+  ['darwin', 'arm64', 'pass'],
   ['win32', 'arm64', 'warn'],
   ['freebsd', 'x64', 'fail'],
   ['win32', 'ia32', 'fail'],

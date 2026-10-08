@@ -1,17 +1,36 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useAppStore } from './store/app-store';
-import { Sidebar } from './components/Sidebar';
-import { TerminalTabs } from './components/TerminalTabs';
-import { Explorer } from './components/Explorer';
-import { GitPanel } from './components/GitPanel';
 import { StatusBar } from './components/StatusBar';
-import { AboutDialog } from './components/AboutDialog';
 import { AgentsBanner } from './components/AgentsBanner';
 import { ClaudeIcon } from './components/ClaudeIcon';
 import type { PaneId } from '../shared/types';
+import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
+import { sessionTabLabelSuffix } from '../shared/session-terminals';
+import { handleSessionTabShortcut } from './session-shortcuts';
 
-const INVENTORY_AUTO_REFRESH_MS = 60_000;
+const Sidebar = lazy(async () => ({
+  default: (await import('./components/Sidebar')).Sidebar,
+}));
+const TerminalTabs = lazy(async () => ({
+  default: (await import('./components/TerminalTabs')).TerminalTabs,
+}));
+const Explorer = lazy(async () => ({
+  default: (await import('./components/Explorer')).Explorer,
+}));
+const GitPanel = lazy(async () => ({
+  default: (await import('./components/GitPanel')).GitPanel,
+}));
+const AboutDialog = lazy(async () => ({
+  default: (await import('./components/AboutDialog')).AboutDialog,
+}));
+const UpdateReadyNotice = lazy(async () => ({
+  default: (await import('./components/UpdateReadyNotice')).UpdateReadyNotice,
+}));
+
+function PaneFallback() {
+  return <div className="pane-loading">Loading…</div>;
+}
 
 function RightColumn() {
   return (
@@ -36,9 +55,31 @@ export default function App() {
   const loadTheme = useAppStore((s) => s.loadTheme);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const openTabs = useAppStore((s) => s.openTabs);
+  const tabProjectId = useAppStore((s) => s.tabProjectId);
+  const tabSessionId = useAppStore((s) => s.tabSessionId);
+  const awaitingSession = useAppStore((s) => Object.keys(s.tabSessionBaseline).length > 0);
+  const sessions = useAppStore((s) => s.sessions);
   const findProject = useAppStore((s) => s.findProject);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const state = useAppStore.getState();
+      const modalOpen = !!document.querySelector(
+        'dialog[open], .modal-backdrop, .modal-overlay, .diff-backdrop',
+      );
+      handleSessionTabShortcut(
+        event,
+        state.openTabs,
+        state.activeTabId,
+        state.setActiveTab,
+        modalOpen,
+      );
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   useEffect(() => {
     void refreshProjectsAndAgents();
@@ -57,33 +98,61 @@ export default function App() {
   }, [refreshProjectsAndAgents]);
 
   useEffect(() => {
+    if (!awaitingSession) return;
+    const timer = window.setInterval(() => void refreshProjectsAndAgents(), 5000);
+    const timeout = window.setTimeout(() => window.clearInterval(timer), 60_000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(timeout);
+    };
+  }, [awaitingSession, refreshProjectsAndAgents]);
+
+  useEffect(() => {
     const off = window.api.window.onFullscreenChange((on) => setFullscreen(on));
     return off;
   }, []);
 
   useEffect(() => {
     (window as unknown as { __getOpenTabs: () => string[] }).__getOpenTabs = () =>
-      openTabs.map((id) => findProject(id)?.displayName ?? id);
-  }, [openTabs, findProject]);
+      openTabs.map((tabId) => {
+        const projectId = tabProjectId[tabId] ?? tabId;
+        const project = findProject(projectId);
+        if (!project) return tabId;
+        const sessionId = tabSessionId[tabId] ?? null;
+        if (!sessionId) return project.displayName;
+        const session = (sessions[projectId] ?? []).find((item) => item.id === sessionId);
+        return sessionTabLabelSuffix(session?.title ?? '', sessionId);
+      });
+  }, [openTabs, tabProjectId, tabSessionId, sessions, findProject]);
 
   const panes = useMemo(
     () => ({
       sidebar: {
-        node: <Sidebar onAbout={() => setAboutOpen(true)} />,
+        node: (
+          <Suspense fallback={<PaneFallback />}>
+            <Sidebar onAbout={() => setAboutOpen(true)} />
+          </Suspense>
+        ),
         minSize: 14,
         maxSize: 40 as number | undefined,
       },
       middle: {
         node: (
           <div className="middle">
-            <TerminalTabs />
+            <Suspense fallback={<PaneFallback />}>
+              <TerminalTabs />
+            </Suspense>
           </div>
         ),
         minSize: 20,
         maxSize: undefined as number | undefined,
       },
       right: {
-        node: <RightColumn />,
+        node: (
+          <Suspense fallback={<PaneFallback />}>
+            <RightColumn />
+          </Suspense>
+        ),
         minSize: 14,
         maxSize: 50 as number | undefined,
       },
@@ -120,7 +189,10 @@ export default function App() {
         </PanelGroup>
       </div>
       <StatusBar />
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      <Suspense fallback={null}>
+        <UpdateReadyNotice />
+        {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      </Suspense>
     </div>
   );
 }

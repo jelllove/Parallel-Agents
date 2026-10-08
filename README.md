@@ -1,11 +1,11 @@
 <div align="center">
   <img src="resources/app-icon.png" alt="Parallel Agents" width="120" />
   <h1>Parallel Agents</h1>
-  <p><strong>CLI coding agents in one Windows desktop window.</strong></p>
+  <p><strong>CLI coding agents in one desktop window.</strong></p>
   <p>
     <a href="https://github.com/jelllove/Parallel-Agents/releases"><img src="https://img.shields.io/github/v/release/jelllove/Parallel-Agents?color=0e639c&label=release" alt="release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/jelllove/Parallel-Agents?color=73c991" alt="license" /></a>
-    <img src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows" alt="platform" />
+    <img src="https://img.shields.io/badge/targets-Windows%20%7C%20macOS%20%7C%20Linux-0078D4" alt="desktop targets" />
     <img src="https://img.shields.io/badge/Electron-43.6.0-47848F?logo=electron" alt="Electron 43.6.0" />
   </p>
 </div>
@@ -19,29 +19,102 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 
 ## Features
 
-- **Project and session discovery** for supported Claude Code, Copilot CLI, and Gemini CLI history formats.
-- **Project tabs backed by real PTYs**, with agent start/resume commands and remembered agent choices.
+- **Project and session discovery** for supported Claude Code, Codex, Copilot CLI, and Gemini CLI
+  history formats, including Copilot repository/session metadata.
+- **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
+  choices, session rename/link flows, and optional attached shell panes.
+- **New project workflow** for opening folders directly or creating Git worktrees before launch.
+- **Project cleanup** for deleting missing provider histories after review and acknowledgement.
 - **File explorer** with create, rename, copy, move, trash, reveal, and default-application actions.
 - **Git panel** for status, staging, unstaging, discarding, commits, and read-only Monaco diffs
   using locally bundled editor assets loaded on demand.
-- **Configurable layout**, including six column orders, saved pane sizes, and dark/light themes.
-- **Tray lifecycle**: closing the window hides it; use the tray's Quit action to exit. F11 toggles fullscreen.
-
-Tabs and PTYs are currently keyed by project ID. Reopening the same ID reuses or restarts its tab;
-this is not arbitrary multiple independent tabs for the same project ID. Different provider project
-IDs can refer to the same directory. See the [identity and terminal flow](ARCHITECTURE.md#identity-and-terminal-flow).
+- **Configurable layout and typography**, including six column orders, saved pane sizes,
+  dark/light themes, and persisted font size, family, and bold settings.
+- **Automatic updates** for installed Windows builds, with explicit restart confirmation.
+- **Platform lifecycle**: Windows/macOS close hides the window; Linux close quits after session
+  confirmation and does not require a tray. F11 toggles fullscreen.
 
 ## Quick start
 
 ### Use a release
 
-Choose a Windows asset from [Releases](https://github.com/jelllove/Parallel-Agents/releases).
-For a portable archive, extract the whole directory before running `Parallel Agents.exe`; use the
-installer if that is the asset provided. Available artifacts depend on the release.
+Download the asset for your platform from
+[jelllove releases](https://github.com/jelllove/Parallel-Agents/releases) or the
+[qinqingxu mirror](https://github.com/qinqingxu/Parallel-Agents/releases).
+The same release source and packages are published to both repositories.
+Windows users should run the NSIS installer. For an older portable archive, extract the whole
+directory before running `Parallel Agents.exe`. Available artifacts depend on the release.
+Versions before 0.1.10 do not include automatic updates, so install an updater-enabled build
+manually once before relying on in-app checks.
+
+### macOS and Linux targets
+
+Starting with v0.1.16, the release build targets the following platforms. Each release must pass
+native and packaged-app smoke checks on its target host before its packages are published.
+macOS/Linux are initial desktop ports, not a claim of compatibility with every system.
+
+| Platform | Architecture          | Distribution                                        |
+| -------- | --------------------- | --------------------------------------------------- |
+| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`               |
+| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip` |
+| Linux    | x64, glibc desktop    | AppImage, DEB, and RPM (filenames below)            |
+
+On macOS, open the downloaded DMG and drag the application to
+Applications, or extract the ZIP. Initial Mac builds are ad-hoc signed, **not Developer ID signed
+or notarized**, and use no hardened-runtime release profile. Gatekeeper may block downloaded
+builds; use Apple's per-application approval only for a build you trust, not a global security
+bypass. Intel Mac builds are outside this initial target.
+
+Linux packages target x64 glibc desktops with X11 or XWayland:
+
+- **Debian/Ubuntu:** `Parallel-Agents-<version>-linux-amd64.deb`; install the local file with
+  `apt install` so dependencies are resolved.
+- **Fedora/RHEL-style packaging:** `Parallel-Agents-<version>-linux-x86_64.rpm`; install the
+  local file with `dnf install`. RPM generation does not establish compatibility with every
+  Fedora/RHEL release; verify its dependencies and native behavior on the intended distribution.
+- **Portable:** `Parallel-Agents-<version>-linux-x86_64.AppImage`; mark it executable and run it.
+
+RPM is an addition for the next release; the already-published v0.1.16 contains DEB and AppImage,
+not RPM. Use the asset list of the release you download as the authority.
+AppImage may require FUSE; distribution packages are preferable on systems that restrict
+unprivileged user namespaces.
+Do not run the app as root or pass `--no-sandbox` to work around a launch failure.
+Linux ARM and musl-based distributions are outside this initial target.
+
+Mac/Linux updates are manual; Windows automatic updates remain unchanged. Git and the desired
+agent CLIs must be installed separately. Desktop startup loads PATH from your login shell with
+a five-second timeout; failures warn and retain inherited PATH. Terminal clipboard shortcuts are
+Command+C/V on macOS and Ctrl+Shift+C/V on Linux, preserving Ctrl+C for interruption.
+
+Build and verify **on the target operating system**, then package without publishing:
+
+```sh
+npm ci
+npm run validate
+npm run dist
+```
+
+On Linux, `dist` builds AppImage, DEB, and RPM together. RPM packaging additionally needs
+`rpmbuild` (the `rpm` package on Debian/Ubuntu, `rpm-build` on Fedora) and `xz` on PATH.
+These are packaging prerequisites, not requirements for ordinary checks or application startup.
+
+`dist` includes native and packaged-app smoke checks. This does not certify DMG/AppImage/DEB/RPM
+installation, signing, or every desktop environment; review the
+[native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) and perform installation checks.
+
+Release packages include `SHA256SUMS` for download verification. The
+[release workflow](.github/workflows/release.yml) runs locked installation, repository checks,
+the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, and Linux x64.
+It preserves native/packaged smoke evidence and fails if required distribution files are missing.
+The Linux release runner installs RPM build tools and retains all three formats. The release
+asset checker requires nonempty DEB and RPM files and records their SHA-256 hashes, so a build
+with only one of these installer formats cannot be reported as release-ready.
+Publication is a separate explicit operation after all three builds succeed. The workflow itself
+does not create or replace a GitHub release; local `npm run release` also does not publish.
 
 ### Develop from source
 
-Use **Windows x64**, **Node.js 24**, **npm 11**, and **Git on PATH**.
+Use **Windows x64**, **macOS arm64**, or **Linux x64**, with **Node.js 24**, **npm 11**, and **Git on PATH**.
 [.node-version](.node-version) pins **24.17.0** for reproducible setup; the compatible engine ranges
 in [package.json](package.json) are Node `^24.17.0` and npm `>=11 <12`.
 The desktop runtime is **Electron 43** (`^43.6.0`), separate from the Node installation used for
@@ -55,6 +128,8 @@ Set-Location .\Parallel-Agents
 npm ci
 npm run dev
 ```
+
+On macOS/Linux, the same npm commands run in a terminal; use `cd Parallel-Agents` after cloning.
 
 Dependency installation may download Electron and native packages. Standard Windows x64 installation
 and packaging use the official N-API prebuilds shipped with `node-pty` 1.2.0-beta.13, including
@@ -78,8 +153,8 @@ npm run check
 npm run build
 ```
 
-`check` runs lint, formatting verification, TypeScript checking, local tests, and the documentation
-contract check. `build` type-checks and produces the Electron bundles in `out`.
+`check` runs lint, formatting verification, TypeScript checking, local tests, the documentation
+contract check, and the agent instruction corpus check. `build` type-checks and produces the Electron bundles in `out`.
 `npm run validate` combines both. These checks do not require AI provider credentials or make live
 agent requests; passing them does not prove native terminal behavior or provider compatibility.
 Optional `npm run test:coverage` adds Node's built-in coverage reporting for modules loaded by the
@@ -87,12 +162,12 @@ tests, not whole-repository or native-runtime coverage.
 The complete command reference and targeted test workflow are in [CONTRIBUTING.md](CONTRIBUTING.md#local-commands).
 
 `npm run test:ci` adds JUnit/LCOV artifacts, and `npm run test:e2e` is the conventional alias for
-the existing Windows native smoke. Optional hook setup starts as a preview and requires explicit
+the native smoke for the current desktop target. Optional hook setup starts as a preview and requires explicit
 opt-in; security and agent-environment workflows remain separate from application behavior.
 See the [engineering automation guide](docs/automation.md) for receipts, prerequisites, and
 the distinction between configured workflows and actual hosted enforcement.
 
-For Windows-only native integration checks, run `npm run test:smoke` **after `npm run build`**.
+For native integration checks, run `npm run test:smoke` **after `npm run build`** on the target host.
 It launches real Electron and a native command-shell PTY with generated disposable data and inert
 AI-provider CLI shims, not real agent CLIs or provider accounts. The fixture selects its generated
 Claude project in the UI and opens a diff with HTTP(S) blocked in the test window's Electron session,
@@ -107,7 +182,7 @@ scope, and the generated `reports\smoke.json` and `reports\smoke.png` artifacts.
 | GitHub Copilot CLI | `copilot`  | `$HOME\.copilot\session-state\<session>\events.jsonl`                              |
 | Claude Code        | `claude`   | `$HOME\.claude\projects\<project>\*.jsonl`                                         |
 | Gemini CLI         | `gemini`   | `$HOME\.gemini\tmp\<project>\chats\*.jsonl`, with `.project_root` project metadata |
-| Codex CLI          | `codex`    | No automatic history scan; launch/resume command support                           |
+| Codex CLI          | `codex`    | `$HOME\.codex\sessions\**\*.jsonl` plus `session_index.jsonl` titles               |
 | Aider              | `aider`    | No automatic history scan; launch/restore command support                          |
 
 The Copilot executable is standalone **`copilot`**, not a GitHub CLI subcommand.

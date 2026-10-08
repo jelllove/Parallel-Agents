@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import type { GitDiff } from '../../shared/types';
+import { resolveFontFamily } from '../../shared/typography';
 
 const DiffEditor = lazy(async () => {
   const [mod, { monaco }] = await Promise.all([
@@ -52,6 +53,9 @@ export function DiffWindow({ repoPath, filePath, staged, onClose }: Props) {
   const [diff, setDiff] = useState<GitDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const themeMode = useAppStore((s) => s.theme);
+  const fontSize = useAppStore((s) => s.fontSize);
+  const fontFamily = useAppStore((s) => s.fontFamily);
+  const fontBold = useAppStore((s) => s.fontBold);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +116,9 @@ export function DiffWindow({ repoPath, filePath, staged, onClose }: Props) {
                   readOnly: true,
                   renderSideBySide: true,
                   minimap: { enabled: false },
-                  fontSize: 13,
+                  fontSize,
+                  fontWeight: fontBold ? '700' : '400',
+                  fontFamily: resolveFontFamily(fontFamily),
                   scrollBeyondLastLine: false,
                 }}
               />
