@@ -2,7 +2,7 @@
 
 This is the previous version-one consumer contract for historical
 [CI receipts](../../scripts/ci-report.mjs), not a development plan or a claim that a workflow ran.
-Current receipts use [Validation receipt protocol v2](validation-v2.md).
+Current receipts use [Validation receipt protocol v3](validation-v3.md).
 The machine-readable definition is
 [validation-report.v1.schema.json](../../schemas/validation-report.v1.schema.json).
 

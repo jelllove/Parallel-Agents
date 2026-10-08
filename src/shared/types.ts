@@ -143,6 +143,7 @@ export interface UpdateStatus {
 }
 
 export interface Api {
+  platform: 'win32' | 'darwin' | 'linux' | 'other';
   updates: {
     getStatus(): Promise<UpdateStatus>;
     check(): Promise<UpdateStatus>;

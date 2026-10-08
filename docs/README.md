@@ -10,12 +10,13 @@ separate from screenshots of a verified running build.
 
 ## Capture review evidence
 
-1. On Windows, run `npm run build` followed by `npm run test:smoke`.
+1. On the target host (Windows x64, macOS arm64, or Linux x64), run `npm run build`
+   followed by `npm run test:smoke`. Headless Linux needs Xvfb.
 2. Inspect the generated `reports/smoke.json` and `reports/smoke.png`.
    These show isolated fixture data and inert CLI shims, not live AI-provider
    sessions. `npm run pack` also generates packaged-payload smoke evidence.
-3. For interactive changes, capture the affected feature with the Windows
-   Snipping Tool or ShareX. Use a consistent window size and identify the theme.
+3. For interactive changes, capture the affected feature with the host's screenshot tool.
+   Use a consistent window size and identify the theme.
 4. Remove private paths, prompts, credentials, and session content before sharing.
    Attach before/after evidence to the pull request.
 

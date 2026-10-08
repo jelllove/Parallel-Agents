@@ -6,9 +6,12 @@ For substantial changes, discuss scope in the
 [repository's issues](https://github.com/jelllove/Parallel-Agents/issues) before expanding the product.
 Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
-## Windows-first setup
+## Desktop setup
 
-- **Windows x64** is the desktop packaging target.
+- Desktop packaging targets are **Windows x64**, **macOS arm64**, and **Linux x64**.
+  Linux targets glibc desktops with X11 or XWayland, with DEB packages for Debian/Ubuntu,
+  RPM packages for Fedora/RHEL-style packaging, and portable AppImage output. Native receipts and
+  installation checks on each host are required before claiming a release is qualified.
 - [.node-version](.node-version) pins **Node.js 24.17.0** for reproducible setup.
   [package.json](package.json) permits Node `^24.17.0` and npm `>=11 <12` (**npm 11**).
 - **Git** must be available on PATH for the Git panel and Git fixture tests.
@@ -21,6 +24,11 @@ Set-Location .\Parallel-Agents
 npm ci
 npm run dev
 ```
+
+On macOS/Linux, clone in a terminal, change into the checkout with `cd`, and use the same npm
+commands. Initial Mac builds use ad-hoc signing, not Developer ID signing/notarization; macOS/Linux
+updates are manual. The [README platform guide](README.md#macos-and-linux-targets) describes
+installation boundaries and target architectures.
 
 Use `npm ci` to install the lockfile's dependency graph rather than casually regenerating the
 lockfile. Installation may download dependencies and native artifacts; it is not an offline step.
@@ -82,7 +90,7 @@ evidence verification; they cannot install, publish, run arbitrary commands, or 
 | `npm run format`            | Apply formatting; inspect the diff and avoid unrelated rewrites                             |
 | `npm test`                  | Run the Node test suite with TypeScript stripping                                           |
 | `npm run test:ci`           | Run unit/regression tests with JUnit and tested-module LCOV output                          |
-| `npm run test:e2e`          | Run the existing Windows native smoke after a build                                         |
+| `npm run test:e2e`          | Run the current desktop target's native smoke after a build                                 |
 | `npm run check:docs`        | Run the offline, bounded Markdown-to-repository contract check described below              |
 | `npm run check:secrets`     | Scan Git-visible source with pinned, fully redacted local Gitleaks tooling                  |
 | `npm run test:security`     | Verify real scanner detection/redaction using generated disposable data                     |
@@ -138,9 +146,10 @@ install hooks, mutate remote settings, or contact real AI-provider CLIs.
 
 ### Windows native smoke test
 
-The native smoke test is **Windows-only** and separate from the fast `npm run check` workflow.
+This existing anchor now covers **Windows x64, macOS arm64, and Linux x64** native smoke.
+The native smoke test is separate from the fast `npm run check` workflow.
 `npm run validate` remains **check plus build**; it does not include native smoke testing.
-Use an installed dependency tree, Git on PATH, and the bundled Windows x64 N-API prebuilds.
+Use an installed dependency tree, Git on PATH, and the target's bundled node-pty N-API prebuilds.
 The standard smoke path does not require a local C++ toolchain. The smoke command does not build
 the application for you:
 
@@ -152,8 +161,10 @@ npm run test:smoke
 [scripts/smoke.mjs](scripts/smoke.mjs) starts real Electron through
 [tests/e2e/electron.e2e.cjs](tests/e2e/electron.e2e.cjs). It generates a temporary
 home, separate Electron userData/sessionData directories, Claude JSONL history, and a disposable
-Git repository. HOME/USERPROFILE point to the generated home, and inert `.cmd` provider shims are
-prepended to PATH. Real Electron, Git, and `cmd.exe` are exercised, but **no real AI-provider CLI
+Git repository. HOME/USERPROFILE and XDG paths point to the generated home; POSIX uses an isolated
+`/bin/sh` and clears shell startup overrides. Inert `.cmd` (Windows) or executable shell
+(macOS/Linux) provider shims are prepended to PATH. Real Electron, Git, and a native shell are
+exercised, but **no real AI-provider CLI
 or provider account is contacted**. The outer runner removes its temporary home in a `finally` block.
 
 The test window's Electron session blocks all HTTP(S) requests. This tests the renderer's offline
@@ -167,11 +178,31 @@ The fixture checks:
 - Concurrent project preferences and settings IPC updates retaining the changed fields.
 - Git IPC comparing the index to later working-tree content, and filesystem IPC reading only
   the fixture's visible entries.
-- A real native `cmd.exe` PTY executing an echo and exiting successfully.
+- A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
+
+Linux requires a graphical session, or `xvfb-run -a npm run test:smoke` for headless CI.
+Keep Electron's sandbox enabled. Restricted Linux hosts may need the distribution's supported
+Chromium sandbox setup; do not disable the sandbox or change global user-namespace policy.
+The hosted Linux workflow grants root ownership and mode 4755 only to its disposable checkout's
+Electron `chrome-sandbox` helper. This is not a local setup step or a system-wide policy change.
+
+`npm run pack` builds, runs native smoke, creates unpacked output with `--publish never`, and runs
+the same fixture against the actual app.asar. Layouts are `release/win-unpacked`,
+`release/mac-arm64/Parallel Agents.app`, and `release/linux-unpacked`. `npm run dist` adds the
+platform's distributable formats, preserving both smoke gates. Build on the target host;
+cross-compilation does not substitute for loading that host's native PTY.
+
+Linux `dist` builds DEB, RPM, and AppImage in one invocation. Local RPM packaging needs
+`rpmbuild` and `xz` on PATH; install the distribution's build prerequisites explicitly
+(`rpm` on Debian/Ubuntu, `rpm-build` on Fedora). Ordinary `check`, `build`, and unpacked `pack`
+do not require RPM tools. The [release workflow](.github/workflows/release.yml) installs them
+only on its disposable Linux runner, collects `.deb` and `.rpm`, and requires both in the
+[release asset check](scripts/release-assets.mjs). RPM artifacts use `x86_64`; DEB uses `amd64`.
+An Ubuntu native smoke receipt does not qualify installation or startup on Fedora/RHEL.
 
 A successful run writes `reports\smoke.json` and a window capture at `reports\smoke.png`.
 Use the command's exit status and the JSON `success`/`checks`/`error` fields as evidence for that
@@ -224,7 +255,10 @@ The manifest intentionally contains this **scoped** override:
 {
   "overrides": {
     "monaco-editor": {
-      "dompurify": "^3.4.15"
+      "dompurify": "^3.4.16"
+    },
+    "app-builder-lib": {
+      "@electron/get": "^5.1.0"
     }
   }
 }
@@ -240,8 +274,17 @@ Remove this override only after an upstream Monaco release declares a safe DOMPu
 2. Remove only the Monaco-specific DOMPurify override and refresh the lockfile with the supported
    npm version. Confirm the resulting Monaco dependency subtree resolves a patched DOMPurify
    without relying on the override.
-3. Review the new audit result and run `npm run validate`; use the separate Windows
-   `npm run test:smoke` for native/renderer fixture verification after that build.
+
+Packaging pins stable electron-builder 26.17.0 with a scoped `@electron/get` 5.1 override
+to remove the vulnerable Got/cacheable-request subtree. Because this downloader uses native Fetch,
+the packaging CLI enables Node's environment-proxy support and imports
+[fetch-downloads.mjs](scripts/fetch-downloads.mjs) in that process only. The adapter translates
+the builder's Got request timeout to an abort signal and preserves cancellation; HTTP(S)_PROXY
+and NO_PROXY routing uses Node's native environment proxy, not Got agents. Custom programmatic
+Got agents are outside the CLI's supported configuration. Local-server tests check actual proxy
+routing and timeout enforcement. Preserve these options and native gates, and run actual
+distribution packaging before changing the override. Keep the full high-severity audit gate. 3. Review the new audit result and run `npm run validate`; use the separate Windows
+`npm run test:smoke` for native/renderer fixture verification after that build.
 
 Do not remove the override merely because the audit is clean **with it installed**.
 At the 2026-09-16 upgrade checkpoint, installation reported **0 audited vulnerabilities**, down
@@ -250,18 +293,20 @@ not a guarantee of vulnerability-free code or evidence that native/packaging ver
 
 ## CI definitions and owner settings
 
-[.github/workflows/ci.yml](.github/workflows/ci.yml) defines two jobs:
-**`Validate (Windows)`** on `windows-latest` and **`Validate (Linux)`** on `ubuntu-latest`.
+[.github/workflows/ci.yml](.github/workflows/ci.yml) defines three jobs:
+**`Validate (Windows)`** on `windows-latest`, **`Validate (Linux)`** on `ubuntu-latest`,
+and **`Validate (macOS)`** on the Apple Silicon `macos-15` runner.
 Configured triggers are pull requests, pushes to `main`, and manual dispatch.
 These are repository definitions, not evidence that a remote workflow has run.
 
 The normal successful path is `npm ci`, followed by separate default-shell lint, formatting,
 typecheck, `npm run test:ci`, and `npm run check:docs` steps, then `npm run build`,
-Windows-only `npm run pack`, and `npm audit --audit-level=high`.
-The current Windows workflow calls **`pack`**, not just the standalone smoke command: this includes
+`npm run pack` on every target (wrapped in Xvfb on Linux), and `npm audit --audit-level=high`.
+The native workflow calls **`pack`**, not just the standalone smoke command: this includes
 native smoke, local unpacked packaging with `--publish never`, and the unpacked-bundle smoke check.
-It does not publish a release. Linux performs non-GUI checks and a build, **not native smoke,
-packaging, or supported Linux product-runtime verification**. Windows remains the product target.
+It does not publish a release. Native and packaged checks are required on all three platforms;
+skipped native execution is incomplete, not success. This configuration is not evidence that
+Mac/Linux native runs or installer qualification have actually passed.
 
 The audit threshold fails on high/critical advisories; passing it is not a zero-vulnerability
 guarantee. Dependency installation and audit can access the package registry, while the fixture
@@ -272,7 +317,8 @@ The workflow configures:
 - Actions pinned to immutable commit SHAs, `contents: read`, and checkout credentials not persisted.
 - Cancellation of older runs for the same workflow/ref and a **20-minute per-job timeout**.
 - Per-step GitHub logs, JUnit/LCOV artifacts, versioned JSON receipts under `reports/validation`,
-  an outcome summary, and `validation-Windows` / `validation-Linux` artifacts retained for seven days.
+  an outcome summary, and `validation-Windows`, `validation-Linux`, and `validation-macOS`
+  artifacts retained for seven days.
   Summary/artifact steps are configured with `always()`; missing, failed, or required skipped
   steps are not reported as success. Definitions do not mean hosted reports already exist.
 

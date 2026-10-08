@@ -38,6 +38,34 @@ Filesystem, process, and Git channels remain privileged operations.
 
 ## Runtime and build toolchain
 
+### Desktop portability contract
+
+The port targets Windows x64, macOS Apple Silicon (`arm64`), and Linux x64
+(glibc desktops with X11 or XWayland). Intel macOS, Linux ARM,
+musl distributions, signed/notarized Mac releases, and automatic updates outside Windows
+are outside this initial scope. Existing Windows installer/update behavior must remain intact.
+
+Main owns platform integration: a bounded login-shell PATH import precedes CLI discovery
+and Git operations on POSIX, Bourne-style agent terminals use login shells, and platform menus preserve
+quit confirmation. Windows/macOS close hides the window; Linux close requests a confirmed
+quit so desktop environments without a tray cannot strand the application.
+Preload adds a read-only `platform` identifier alongside the existing typed API for renderer
+shortcuts. Command+C/V on macOS
+and Ctrl+Shift+C/V on Linux leave Ctrl+C available to interrupt POSIX terminals.
+
+Packaging uses upstream node-pty prebuilds and real app.asar smoke checks for each target,
+with generated homes and inert executable provider shims. CI must require native checks
+on all three platforms (Xvfb on Linux), rather than counting skipped checks as success.
+Static Windows tests cannot establish native Mac/Linux operation; native receipts and
+manual installation checks on those hosts remain necessary before a release claim.
+
+Linux distribution output preserves AppImage and DEB and adds RPM, all for x64, without
+changing application runtime code. Electron-builder maps x64 to `amd64` for DEB and `x86_64`
+for RPM/AppImage filenames. The release workflow supplies `rpmbuild` on its Linux runner and
+uploads both installer formats. Release readiness requires all three nonempty Linux assets
+and records their hashes alongside native/packaged smoke receipts. RPM generation is not proof
+of Fedora/RHEL installation compatibility; validate the target distribution separately.
+
 The confirmed stable refresh uses these declared ranges in [package.json](package.json).
 [package-lock.json](package-lock.json) records the exact resolved dependency graph.
 
@@ -46,9 +74,9 @@ The confirmed stable refresh uses these declared ranges in [package.json](packag
 | `electron`          | `^43.6.0`      | Desktop runtime                           |
 | `electron-vite`     | `^5.0.0`       | Main/preload/renderer build orchestration |
 | `vite`              | `^7.3.6`       | Bundling and development tooling          |
-| `electron-builder`  | `^26.15.3`     | Local unpacked/distribution packaging     |
+| `electron-builder`  | `26.17.0`      | Local unpacked/distribution packaging     |
 | `@electron/rebuild` | `^4.2.0`       | Explicit native source rebuilds           |
-| `sharp`             | `^0.35.4`      | Image processing for icon generation      |
+| `sharp`             | `^0.35.5`      | Image processing for icon generation      |
 
 Node **24.17.0** remains the pinned host-tooling baseline; Electron supplies its own runtime.
 The installed `node-pty` 1.2.0-beta.13 uses `node-addon-api` and ships official N-API prebuilds,
@@ -63,12 +91,19 @@ libraries are needed only for explicit `npm run rebuild` / source builds. See
 This tooling refresh leaves the React 18, xterm, and Monaco API contracts unchanged; an installation
 or audit result alone is not native or packaged-runtime verification.
 
-The manifest scopes a `dompurify: ^3.4.15` override to `monaco-editor`. Monaco's pinned transitive
+The manifest scopes a `dompurify: ^3.4.16` override to `monaco-editor`. Monaco's pinned transitive
 dependency could not be made safe by a normal compatible `npm audit fix` alone; the scoped override
 updates that subtree without imposing a global DOMPurify override. Remove it only when upstream
 Monaco allows a safe version and the refreshed lockfile resolves it without the override.
 The [dependency-maintenance procedure](CONTRIBUTING.md#dependency-maintenance) gives the verification
 and removal conditions.
+
+Packaging pins electron-builder 26.17.0 and scopes `@electron/get: ^5.1.0` under app-builder-lib,
+removing the vulnerable Got HTTP-cache subtree. The packaging CLI uses Node's environment proxy
+and [fetch-downloads.mjs](scripts/fetch-downloads.mjs) to translate request deadlines to Fetch abort
+signals while preserving cancellation. The adapter is loaded only into the builder process,
+not the Electron app. Local proxy/timeout fixtures, actual target-host distribution packaging,
+and the full audit are the validation gate.
 
 `pack` and `dist` run build → native smoke → electron-builder with `--publish never` →
 `test:packaged`; `pack` adds `--dir` for unpacked output. `test:packaged` runs the same native/offline
@@ -79,28 +114,31 @@ It does not publish over the network, but it can replace existing local artifact
 
 ## Source map
 
-| Module                                                             | Responsibility                                                                                                            |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| [src/main/ipc.ts](src/main/ipc.ts)                                 | Register IPC handlers and attach main-process event destinations                                                          |
-| [src/main/projects.ts](src/main/projects.ts)                       | Discover/register supported provider projects, create worktree projects, apply saved preferences, remove provider history |
-| [src/main/sessions.ts](src/main/sessions.ts)                       | List/delete provider sessions and map metadata into the shared session model                                              |
-| [src/main/session-metadata.ts](src/main/session-metadata.ts)       | Read and validate Claude, Copilot, and Gemini JSONL metadata without Electron                                             |
-| [src/main/codex-storage.ts](src/main/codex-storage.ts)             | Scan Codex rollout files and session index metadata                                                                       |
-| [src/main/agent-providers.ts](src/main/agent-providers.ts)         | Agent catalogue, installation guidance, binary discovery via `where`/`which` and Windows Copilot fallback paths           |
-| [src/shared/agent-commands.ts](src/shared/agent-commands.ts)       | Pure start/resume commands and executable-directory PATH hints                                                            |
-| [src/main/pty-manager.ts](src/main/pty-manager.ts)                 | Bind the PTY manager to the native `node-pty` spawn implementation                                                        |
-| [src/main/pty-session-manager.ts](src/main/pty-session-manager.ts) | Manage keyed agent/shell PTYs, initial-command timers, resize, exit, shell profile resolution, and cleanup                |
-| [src/main/shell-profiles.ts](src/main/shell-profiles.ts)           | Discover interactive shell choices for attached shell panes                                                               |
-| [src/main/update-controller.ts](src/main/update-controller.ts)     | Wrap updater checks/download/install state and restart confirmation                                                       |
-| [src/main/window-messenger.ts](src/main/window-messenger.ts)       | Send events only to usable window/webContents targets                                                                     |
-| [src/main/fs-explorer.ts](src/main/fs-explorer.ts)                 | Filesystem operations plus Electron trash/reveal/default-application integration                                          |
-| [src/main/git.ts](src/main/git.ts)                                 | Local Git commands, NUL-delimited status, diff content, and repository watchers                                           |
-| [src/main/config.ts](src/main/config.ts)                           | Electron home-path adapter for the config store                                                                           |
-| [src/main/config-schema.ts](src/main/config-schema.ts)             | Defaults, persisted-value validation, and legacy project-ID migration                                                     |
-| [src/main/config-store.ts](src/main/config-store.ts)               | Path-injected, queued configuration reads/updates and staged-file replacement                                             |
-| [src/renderer/store/app-store.ts](src/renderer/store/app-store.ts) | Projects, sessions, tabs, agent choices, preferences, and Git state                                                       |
-| [src/renderer/monaco.ts](src/renderer/monaco.ts)                   | Local Monaco editor/worker setup used by the diff UI                                                                      |
-| [src/renderer/styles/theme.css](src/renderer/styles/theme.css)     | Shared styling and theme variables                                                                                        |
+| Module                                                                   | Responsibility                                                                                                            |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| [src/main/ipc.ts](src/main/ipc.ts)                                       | Register IPC handlers and attach main-process event destinations                                                          |
+| [src/main/projects.ts](src/main/projects.ts)                             | Discover/register supported provider projects, create worktree projects, apply saved preferences, remove provider history |
+| [src/main/sessions.ts](src/main/sessions.ts)                             | List/delete provider sessions and map metadata into the shared session model                                              |
+| [src/main/session-metadata.ts](src/main/session-metadata.ts)             | Read and validate Claude, Copilot, and Gemini JSONL metadata without Electron                                             |
+| [src/main/codex-storage.ts](src/main/codex-storage.ts)                   | Scan Codex rollout files and session index metadata                                                                       |
+| [src/main/agent-providers.ts](src/main/agent-providers.ts)               | Agent catalogue, installation guidance, binary discovery via `where`/`which` and Windows Copilot fallback paths           |
+| [src/main/login-path.ts](src/main/login-path.ts)                         | Bounded POSIX login-shell PATH import; diagnostic fallback preserves inherited environment                                |
+| [src/main/application-menu.ts](src/main/application-menu.ts)             | Platform application menus and close-to-hide versus close-to-quit policy                                                  |
+| [src/renderer/terminal-shortcuts.ts](src/renderer/terminal-shortcuts.ts) | Pure platform-aware terminal key mapping                                                                                  |
+| [src/shared/agent-commands.ts](src/shared/agent-commands.ts)             | Pure start/resume commands and executable-directory PATH hints                                                            |
+| [src/main/pty-manager.ts](src/main/pty-manager.ts)                       | Bind the PTY manager to the native `node-pty` spawn implementation                                                        |
+| [src/main/pty-session-manager.ts](src/main/pty-session-manager.ts)       | Manage keyed agent/shell PTYs, initial-command timers, resize, exit, shell profile resolution, and cleanup                |
+| [src/main/shell-profiles.ts](src/main/shell-profiles.ts)                 | Discover interactive shell choices for attached shell panes                                                               |
+| [src/main/update-controller.ts](src/main/update-controller.ts)           | Wrap updater checks/download/install state and restart confirmation                                                       |
+| [src/main/window-messenger.ts](src/main/window-messenger.ts)             | Send events only to usable window/webContents targets                                                                     |
+| [src/main/fs-explorer.ts](src/main/fs-explorer.ts)                       | Filesystem operations plus Electron trash/reveal/default-application integration                                          |
+| [src/main/git.ts](src/main/git.ts)                                       | Local Git commands, NUL-delimited status, diff content, and repository watchers                                           |
+| [src/main/config.ts](src/main/config.ts)                                 | Electron home-path adapter for the config store                                                                           |
+| [src/main/config-schema.ts](src/main/config-schema.ts)                   | Defaults, persisted-value validation, and legacy project-ID migration                                                     |
+| [src/main/config-store.ts](src/main/config-store.ts)                     | Path-injected, queued configuration reads/updates and staged-file replacement                                             |
+| [src/renderer/store/app-store.ts](src/renderer/store/app-store.ts)       | Projects, sessions, tabs, agent choices, preferences, and Git state                                                       |
+| [src/renderer/monaco.ts](src/renderer/monaco.ts)                         | Local Monaco editor/worker setup used by the diff UI                                                                      |
+| [src/renderer/styles/theme.css](src/renderer/styles/theme.css)           | Shared styling and theme variables                                                                                        |
 
 ## IPC contract
 
@@ -131,6 +169,10 @@ The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the 
 it exports the `ptyManager` singleton using `node-pty`'s real `spawn`.
 [src/main/pty-session-manager.ts](src/main/pty-session-manager.ts) owns the lifecycle class and
 accepts an injected spawn function. Deterministic tests import that class, not the native singleton.
+It also accepts platform/environment injection. Agent PTYs retain `cmd.exe` on Windows and use
+login shells on POSIX (PowerShell/Nushell retain their own default arguments). When an initial
+agent command has executable-directory hints, POSIX wraps
+it with `/usr/bin/env` and a quoted PATH so a login profile cannot discard those hints.
 
 Discovered project IDs are provider-namespaced. Claude/Gemini IDs use their provider directory name;
 Copilot projects are grouped by the project path recorded in session metadata. Directory-picker
@@ -272,17 +314,20 @@ selection. This reports **tested-module coverage**, not whole-repository coverag
 loaded by the tests are not thereby proven covered. It does not establish native PTY/Electron or
 live-provider coverage, and it is not included in `check` or `validate`.
 
-### Windows native smoke
+### Desktop native smoke
 
-Run `npm run build` before the Windows-only `npm run test:smoke`. This is a separate native
+Run `npm run build` before `npm run test:smoke` on Windows x64, macOS arm64, or Linux x64.
+Linux needs a graphical session or Xvfb. This is a separate native
 integration surface, not part of the fast `check` gate or `validate` (which remains check plus build).
 The runner launches real Electron against the built application, with generated temporary
 home/userData/sessionData directories, Claude history, and a disposable Git repository.
-HOME/USERPROFILE and provider roots are isolated; PATH begins with inert provider `.cmd` shims.
+HOME/USERPROFILE, XDG paths, and provider roots are isolated; PATH includes inert `.cmd`
+shims on Windows and executable shell shims on POSIX. POSIX smoke uses a generated home and
+`/bin/sh`, not the user's shell startup files.
 Real Git and a native command shell are used, but no real AI-provider CLIs or accounts are contacted.
 
 The fixture exercises preload/renderer boundaries, concurrent settings updates, Git's
-index-to-working-tree diff, filesystem IPC, native `cmd.exe` PTY echo/exit, and the
+index-to-working-tree diff, filesystem IPC, native shell PTY echo/exit, and the
 `window-all-closed` tray lifecycle event. It selects the generated Claude project through the UI,
 checks delivery of the inert initial terminal command, and opens the Git diff. HTTP(S) requests
 are blocked in that Electron session, and the fixture asserts that both revisions render in
@@ -291,7 +336,8 @@ Monaco offline. This is not a host-wide network sandbox or complete UI/tray cove
 The runner cleans its temporary home. Successful runs produce `reports\smoke.json` and
 `reports\smoke.png`; inspect the current exit status and report before claiming verification.
 See [CONTRIBUTING.md](CONTRIBUTING.md#windows-native-smoke-test) for prerequisites and failure/report
-handling. The JSON records the Electron version and whether the input was the unpacked bundle.
+handling. The JSON records the Electron version, platform, CPU architecture, and whether the
+input was the unpacked bundle.
 A successful ordinary smoke run (`packaged: false`) does not prove packaging or installer startup,
 and neither smoke mode proves live-provider compatibility.
 
@@ -305,11 +351,13 @@ AI provider was exercised.
 
 ### CI configuration boundary
 
-[The CI workflow](.github/workflows/ci.yml) configures `Validate (Windows)` and `Validate (Linux)`
-for pull requests, `main` pushes, and manual dispatch. Both install locked dependencies, run
-`check`, build, and audit at the high-advisory threshold. Windows additionally invokes `npm run pack`,
+[The CI workflow](.github/workflows/ci.yml) configures `Validate (Windows)`, `Validate (macOS)`,
+and `Validate (Linux)` for pull requests, `main` pushes, and manual dispatch. All install locked
+dependencies, run checks, build, and audit at the high-advisory threshold. All invoke `npm run pack`
+(wrapped in Xvfb on Linux),
 which includes native smoke and local unpacked-bundle packaging/testing with `--publish never`.
-Linux is a non-GUI validation/build target, not a supported product runtime or a native smoke target.
+Native validation is required for each configured desktop target. This configuration alone does
+not prove Mac/Linux execution or installation qualification.
 
 The definitions use SHA-pinned actions, read-only repository contents permissions, cancellation
 of superseded workflow/ref runs, 20-minute job timeouts, and report artifacts/job summaries.
