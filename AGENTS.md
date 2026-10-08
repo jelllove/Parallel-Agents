@@ -1,6 +1,6 @@
 # Repository guide for coding agents
 
-Parallel Agents is an existing Electron application with Windows x64, macOS arm64, and Linux x64
+Parallel Agents is an existing Electron application with Windows x64, macOS arm64/x64, and Linux x64
 desktop targets. Improve it through scoped,
 behavior-preserving fixes, tests, and maintainable boundaries; do not add product features,
 dependencies, fake commands, or assessment-only scaffolding without a real task requirement.
@@ -32,7 +32,7 @@ Use Windows paths and PowerShell for local setup. [.node-version](.node-version)
 5. Report exact commands/results and any remaining unverified behavior. A passing build is not a
    live-provider test, evidence of remote CI, or a claim of enforced branch protection.
 
-The configured `Validate (Windows)`, `Validate (macOS)`, and `Validate (Linux)` jobs are described in the
+The configured `Validate (Windows)`, `Validate (macOS)`, `Validate (macOS-Intel)`, and `Validate (Linux)` jobs are described in the
 [CI boundary guide](CONTRIBUTING.md#ci-definitions-and-owner-settings). Native/package checks are
 configured for each desktop target, but configuration alone does not prove native qualification. Workflow/CODEOWNERS
 files do not enable required checks or owner-review enforcement. Those remote settings remain
@@ -53,6 +53,8 @@ For native changes, the separate target-host `npm run test:smoke` requires `npm 
 It runs real Electron/PTY checks against generated disposable data, without provider accounts.
 Linux needs a graphical session or Xvfb. Preserve Electron's sandbox; do not use `--no-sandbox`.
 Mac/Linux updates are manual, and Mac builds are initially ad-hoc signed, not notarized.
+Packaging selects the native host architecture, with separate Mac receipts. Linux qualification
+is pinned to Ubuntu 24.04; RPM generation alone does not qualify Fedora/RHEL installation.
 It is not part of `check` or `validate`; follow the
 [native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) and report the actual result.
 The docs checker fixture can run without dependencies:

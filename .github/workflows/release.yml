@@ -30,7 +30,11 @@ jobs:
             label: macOS
             platform: darwin
             arch: arm64
-          - os: ubuntu-latest
+          - os: macos-15-intel
+            label: macOS-Intel
+            platform: darwin
+            arch: x64
+          - os: ubuntu-24.04
             label: Linux
             platform: linux
             arch: x64
@@ -101,6 +105,7 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.rpm
+            release/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 

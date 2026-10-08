@@ -171,14 +171,14 @@ export function diagnose({
   const nativeTarget =
     (platform === 'win32' && arch === 'x64') ||
     (platform === 'linux' && arch === 'x64') ||
-    (platform === 'darwin' && arch === 'arm64');
+    (platform === 'darwin' && (arch === 'arm64' || arch === 'x64'));
   add(
     'platform',
     true,
     !supportedTooling ? 'fail' : nativeTarget ? 'pass' : 'warn',
     nativeTarget
       ? `${platform}/${arch}: configured desktop target. Setup runs non-GUI checks, not desktop/native smoke. Validate native operation on this host separately; Linux needs a graphical session or Xvfb.`
-      : `${platform}/${arch}: ${supportedTooling ? 'non-GUI checks/builds only; desktop support is not claimed' : 'not a supported bootstrap platform; use Windows x64 or Linux/macOS x64/arm64 for non-GUI tooling'}. Desktop packaging targets are Windows x64, Linux x64 and macOS arm64.`,
+      : `${platform}/${arch}: ${supportedTooling ? 'non-GUI checks/builds only; desktop support is not claimed' : 'not a supported bootstrap platform; use Windows x64 or Linux/macOS x64/arm64 for non-GUI tooling'}. Desktop packaging targets are Windows x64, Linux x64 and macOS arm64/x64.`,
   );
   add(
     'native-tools',

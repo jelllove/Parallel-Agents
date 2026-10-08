@@ -3,9 +3,15 @@ export function desktopTarget(platform = process.platform, arch = process.arch) 
     return { asarSegments: ['win-unpacked', 'resources', 'app.asar'] };
   if (platform === 'linux' && arch === 'x64')
     return { asarSegments: ['linux-unpacked', 'resources', 'app.asar'] };
-  if (platform === 'darwin' && arch === 'arm64')
+  if (platform === 'darwin' && (arch === 'arm64' || arch === 'x64'))
     return {
-      asarSegments: ['mac-arm64', 'Parallel Agents.app', 'Contents', 'Resources', 'app.asar'],
+      asarSegments: [
+        arch === 'arm64' ? 'mac-arm64' : 'mac',
+        'Parallel Agents.app',
+        'Contents',
+        'Resources',
+        'app.asar',
+      ],
     };
   throw new Error(`Unsupported desktop target: ${platform}/${arch}.`);
 }

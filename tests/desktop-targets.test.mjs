@@ -20,7 +20,14 @@ test('native smoke resolves actual app.asar layouts for each desktop target', ()
     'Resources',
     'app.asar',
   ]);
-  assert.throws(() => desktopTarget('darwin', 'x64'), /Unsupported desktop target/);
+  assert.deepEqual(desktopTarget('darwin', 'x64').asarSegments, [
+    'mac',
+    'Parallel Agents.app',
+    'Contents',
+    'Resources',
+    'app.asar',
+  ]);
+  assert.throws(() => desktopTarget('win32', 'arm64'), /Unsupported desktop target/);
   assert.throws(() => desktopTarget('linux', 'arm64'), /Unsupported desktop target/);
 });
 
