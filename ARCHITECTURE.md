@@ -76,7 +76,7 @@ The confirmed stable refresh uses these declared ranges in [package.json](packag
 | `vite`              | `^7.3.6`       | Bundling and development tooling          |
 | `electron-builder`  | `26.17.0`      | Local unpacked/distribution packaging     |
 | `@electron/rebuild` | `^4.2.0`       | Explicit native source rebuilds           |
-| `sharp`             | `^0.35.4`      | Image processing for icon generation      |
+| `sharp`             | `^0.35.5`      | Image processing for icon generation      |
 
 Node **24.17.0** remains the pinned host-tooling baseline; Electron supplies its own runtime.
 The installed `node-pty` 1.2.0-beta.13 uses `node-addon-api` and ships official N-API prebuilds,
