@@ -64,6 +64,13 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
+      - name: Install Linux package build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y rpm
+          rpmbuild --version
+
       - name: Prepare the disposable Electron sandbox helper on Linux
         if: runner.os == 'Linux'
         run: |
@@ -93,6 +100,7 @@ jobs:
             release/*.zip
             release/*.AppImage
             release/*.deb
+            release/*.rpm
           if-no-files-found: error
           retention-days: 14
 

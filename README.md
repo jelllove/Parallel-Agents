@@ -53,11 +53,11 @@ Starting with v0.1.16, the release build targets the following platforms. Each r
 native and packaged-app smoke checks on its target host before its packages are published.
 macOS/Linux are initial desktop ports, not a claim of compatibility with every system.
 
-| Platform | Architecture          | Distribution                                                                                     |
-| -------- | --------------------- | ------------------------------------------------------------------------------------------------ |
-| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`                                                            |
-| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip`                                              |
-| Linux    | x64, glibc desktop    | `Parallel-Agents-<version>-linux-x86_64.AppImage` or `Parallel-Agents-<version>-linux-amd64.deb` |
+| Platform | Architecture          | Distribution                                        |
+| -------- | --------------------- | --------------------------------------------------- |
+| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`               |
+| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip` |
+| Linux    | x64, glibc desktop    | AppImage, DEB, and RPM (filenames below)            |
 
 On macOS, open the downloaded DMG and drag the application to
 Applications, or extract the ZIP. Initial Mac builds are ad-hoc signed, **not Developer ID signed
@@ -65,9 +65,19 @@ or notarized**, and use no hardened-runtime release profile. Gatekeeper may bloc
 builds; use Apple's per-application approval only for a build you trust, not a global security
 bypass. Intel Mac builds are outside this initial target.
 
-On Linux, use an Ubuntu/Debian-style desktop with X11 or XWayland. Install the generated `.deb`
-with your package manager, or mark the AppImage executable and run it. AppImage may require FUSE;
-the Debian package is preferable on systems that restrict unprivileged user namespaces.
+Linux packages target x64 glibc desktops with X11 or XWayland:
+
+- **Debian/Ubuntu:** `Parallel-Agents-<version>-linux-amd64.deb`; install the local file with
+  `apt install` so dependencies are resolved.
+- **Fedora/RHEL-style packaging:** `Parallel-Agents-<version>-linux-x86_64.rpm`; install the
+  local file with `dnf install`. RPM generation does not establish compatibility with every
+  Fedora/RHEL release; verify its dependencies and native behavior on the intended distribution.
+- **Portable:** `Parallel-Agents-<version>-linux-x86_64.AppImage`; mark it executable and run it.
+
+RPM is an addition for the next release; the already-published v0.1.16 contains DEB and AppImage,
+not RPM. Use the asset list of the release you download as the authority.
+AppImage may require FUSE; distribution packages are preferable on systems that restrict
+unprivileged user namespaces.
 Do not run the app as root or pass `--no-sandbox` to work around a launch failure.
 Linux ARM and musl-based distributions are outside this initial target.
 
@@ -84,7 +94,11 @@ npm run validate
 npm run dist
 ```
 
-`dist` includes native and packaged-app smoke checks. This does not certify DMG/AppImage/deb
+On Linux, `dist` builds AppImage, DEB, and RPM together. RPM packaging additionally needs
+`rpmbuild` (the `rpm` package on Debian/Ubuntu, `rpm-build` on Fedora) and `xz` on PATH.
+These are packaging prerequisites, not requirements for ordinary checks or application startup.
+
+`dist` includes native and packaged-app smoke checks. This does not certify DMG/AppImage/DEB/RPM
 installation, signing, or every desktop environment; review the
 [native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) and perform installation checks.
 
@@ -92,6 +106,9 @@ Release packages include `SHA256SUMS` for download verification. The
 [release workflow](.github/workflows/release.yml) runs locked installation, repository checks,
 the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, and Linux x64.
 It preserves native/packaged smoke evidence and fails if required distribution files are missing.
+The Linux release runner installs RPM build tools and retains all three formats. The release
+asset checker requires nonempty DEB and RPM files and records their SHA-256 hashes, so a build
+with only one of these installer formats cannot be reported as release-ready.
 Publication is a separate explicit operation after all three builds succeed. The workflow itself
 does not create or replace a GitHub release; local `npm run release` also does not publish.
 

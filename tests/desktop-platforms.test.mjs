@@ -53,11 +53,32 @@ test('desktop packaging defines Mac arm64 and Linux x64 without changing Windows
   assert.deepEqual(build.linux.target, [
     { target: 'AppImage', arch: ['x64'] },
     { target: 'deb', arch: ['x64'] },
+    { target: 'rpm', arch: ['x64'] },
   ]);
   assert.match(build.mac.artifactName, /\$\{arch\}/);
   assert.match(build.linux.artifactName, /\$\{arch\}/);
   assert.equal(build.mac.identity, '-');
   assert.equal(build.mac.hardenedRuntime, false);
+});
+
+test('release workflow installs RPM build tools and retains both Linux package formats', async () => {
+  const source = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+  const setup = source.indexOf('name: Install Linux package build tools');
+  const distribution = source.indexOf('name: Build and verify distribution packages on Linux');
+  assert.ok(
+    setup >= 0 && setup < distribution,
+    'RPM tooling must exist before distribution builds',
+  );
+  assert.match(source.slice(setup, distribution), /if: runner\.os == 'Linux'/);
+  assert.match(
+    source.slice(setup, distribution),
+    /sudo apt-get install --no-install-recommends -y rpm/,
+  );
+  assert.match(source, /release\/\*\.deb/);
+  assert.match(source, /release\/\*\.rpm/);
 });
 
 test('POSIX initial agent commands preserve PATH hints even when a login profile resets PATH', async (t) => {

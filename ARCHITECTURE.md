@@ -41,7 +41,7 @@ Filesystem, process, and Git channels remain privileged operations.
 ### Desktop portability contract
 
 The port targets Windows x64, macOS Apple Silicon (`arm64`), and Linux x64
-(Ubuntu/Debian-style glibc desktops with X11 or XWayland). Intel macOS, Linux ARM,
+(glibc desktops with X11 or XWayland). Intel macOS, Linux ARM,
 musl distributions, signed/notarized Mac releases, and automatic updates outside Windows
 are outside this initial scope. Existing Windows installer/update behavior must remain intact.
 
@@ -58,6 +58,13 @@ with generated homes and inert executable provider shims. CI must require native
 on all three platforms (Xvfb on Linux), rather than counting skipped checks as success.
 Static Windows tests cannot establish native Mac/Linux operation; native receipts and
 manual installation checks on those hosts remain necessary before a release claim.
+
+Linux distribution output preserves AppImage and DEB and adds RPM, all for x64, without
+changing application runtime code. Electron-builder maps x64 to `amd64` for DEB and `x86_64`
+for RPM/AppImage filenames. The release workflow supplies `rpmbuild` on its Linux runner and
+uploads both installer formats. Release readiness requires all three nonempty Linux assets
+and records their hashes alongside native/packaged smoke receipts. RPM generation is not proof
+of Fedora/RHEL installation compatibility; validate the target distribution separately.
 
 The confirmed stable refresh uses these declared ranges in [package.json](package.json).
 [package-lock.json](package-lock.json) records the exact resolved dependency graph.

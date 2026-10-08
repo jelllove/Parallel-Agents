@@ -9,7 +9,8 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 ## Desktop setup
 
 - Desktop packaging targets are **Windows x64**, **macOS arm64**, and **Linux x64**.
-  Linux targets glibc-based Ubuntu/Debian desktops with X11 or XWayland. Native receipts and
+  Linux targets glibc desktops with X11 or XWayland, with DEB packages for Debian/Ubuntu,
+  RPM packages for Fedora/RHEL-style packaging, and portable AppImage output. Native receipts and
   installation checks on each host are required before claiming a release is qualified.
 - [.node-version](.node-version) pins **Node.js 24.17.0** for reproducible setup.
   [package.json](package.json) permits Node `^24.17.0` and npm `>=11 <12` (**npm 11**).
@@ -194,6 +195,14 @@ the same fixture against the actual app.asar. Layouts are `release/win-unpacked`
 `release/mac-arm64/Parallel Agents.app`, and `release/linux-unpacked`. `npm run dist` adds the
 platform's distributable formats, preserving both smoke gates. Build on the target host;
 cross-compilation does not substitute for loading that host's native PTY.
+
+Linux `dist` builds DEB, RPM, and AppImage in one invocation. Local RPM packaging needs
+`rpmbuild` and `xz` on PATH; install the distribution's build prerequisites explicitly
+(`rpm` on Debian/Ubuntu, `rpm-build` on Fedora). Ordinary `check`, `build`, and unpacked `pack`
+do not require RPM tools. The [release workflow](.github/workflows/release.yml) installs them
+only on its disposable Linux runner, collects `.deb` and `.rpm`, and requires both in the
+[release asset check](scripts/release-assets.mjs). RPM artifacts use `x86_64`; DEB uses `amd64`.
+An Ubuntu native smoke receipt does not qualify installation or startup on Fedora/RHEL.
 
 A successful run writes `reports\smoke.json` and a window capture at `reports\smoke.png`.
 Use the command's exit status and the JSON `success`/`checks`/`error` fields as evidence for that

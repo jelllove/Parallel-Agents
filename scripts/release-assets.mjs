@@ -22,6 +22,7 @@ export async function inspectReleaseAssets(root, platform, arch) {
         : [
             `Parallel-Agents-${version}-linux-x86_64.AppImage`,
             `Parallel-Agents-${version}-linux-amd64.deb`,
+            `Parallel-Agents-${version}-linux-x86_64.rpm`,
           ];
   const smoke = [];
   for (const [name, packaged] of [

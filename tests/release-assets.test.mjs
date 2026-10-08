@@ -14,7 +14,11 @@ const names = (platform) =>
       ]
     : platform === 'darwin'
       ? ['Parallel-Agents-0.1.16-mac-arm64.dmg', 'Parallel-Agents-0.1.16-mac-arm64.zip']
-      : ['Parallel-Agents-0.1.16-linux-x86_64.AppImage', 'Parallel-Agents-0.1.16-linux-amd64.deb'];
+      : [
+          'Parallel-Agents-0.1.16-linux-x86_64.AppImage',
+          'Parallel-Agents-0.1.16-linux-amd64.deb',
+          'Parallel-Agents-0.1.16-linux-x86_64.rpm',
+        ];
 
 async function fixture(t, platform = 'win32') {
   const root = await mkdtemp(join(tmpdir(), 'parallel-agents-release-'));
@@ -59,6 +63,21 @@ test('a missing or empty package fails publication readiness', async (t) => {
   await writeFile(join(root, 'release', names(platform)[0]), '');
   await assert.rejects(inspectReleaseAssets(root, platform, arch), /empty|regular/i);
 });
+
+for (const extension of ['deb', 'rpm']) {
+  test(`Linux release readiness rejects a missing or empty ${extension} even when other formats exist`, async (t) => {
+    const { root, platform, arch } = await fixture(t, 'linux');
+    const name = names(platform).find((name) => name.endsWith(`.${extension}`));
+    const asset = join(root, 'release', name);
+    await rm(asset);
+    await assert.rejects(
+      inspectReleaseAssets(root, platform, arch),
+      (error) => error.code === 'ENOENT' && error.path === asset,
+    );
+    await writeFile(asset, '');
+    await assert.rejects(inspectReleaseAssets(root, platform, arch), /empty|regular/i);
+  });
+}
 
 test('a symlink cannot substitute for a release asset', async (t) => {
   const { root, platform, arch } = await fixture(t);
