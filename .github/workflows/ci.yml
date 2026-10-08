@@ -24,10 +24,24 @@ jobs:
         include:
           - os: windows-latest
             label: Windows
-          - os: ubuntu-latest
+            platformLabel: Windows
+            platform: win32
+            arch: x64
+          - os: ubuntu-24.04
             label: Linux
+            platformLabel: Linux
+            platform: linux
+            arch: x64
           - os: macos-15
             label: macOS
+            platformLabel: macOS
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            label: macOS-Intel
+            platformLabel: macOS
+            platform: darwin
+            arch: x64
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -39,6 +53,12 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "if(process.platform!==process.env.EXPECTED_PLATFORM || process.arch!==process.env.EXPECTED_ARCH) throw new Error('Incorrect native runner');"
 
       - name: Install locked dependencies
         id: install
@@ -101,7 +121,7 @@ jobs:
       - name: Record outcomes and failure reproduction guidance
         if: always()
         env:
-          CI_PLATFORM: ${{ matrix.label }}
+          CI_PLATFORM: ${{ matrix.platformLabel }}
           CI_STEPS_JSON: >-
             {"install":"${{ steps.install.outcome }}","lint":"${{ steps.lint.outcome }}","format":"${{ steps.format.outcome }}","typecheck":"${{ steps.typecheck.outcome }}","tests":"${{ steps.tests.outcome }}","docs":"${{ steps.docs.outcome }}","agent-corpus":"${{ steps.agent_corpus.outcome }}","build":"${{ steps.build.outcome }}","native":"${{ runner.os == 'Linux' && steps.native_linux.outcome || steps.native.outcome }}","audit":"${{ steps.audit.outcome }}"}
         run: npm run ci:report -- --with-provenance

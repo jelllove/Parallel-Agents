@@ -40,8 +40,8 @@ Filesystem, process, and Git channels remain privileged operations.
 
 ### Desktop portability contract
 
-The port targets Windows x64, macOS Apple Silicon (`arm64`), and Linux x64
-(glibc desktops with X11 or XWayland). Intel macOS, Linux ARM,
+The packaging contract targets Windows x64, macOS Apple Silicon (`arm64`) and Intel (`x64`),
+and Linux x64 (Ubuntu 24.04 glibc desktops with X11 or XWayland). Linux ARM,
 musl distributions, signed/notarized Mac releases, and automatic updates outside Windows
 are outside this initial scope. Existing Windows installer/update behavior must remain intact.
 
@@ -59,10 +59,25 @@ on all three platforms (Xvfb on Linux), rather than counting skipped checks as s
 Static Windows tests cannot establish native Mac/Linux operation; native receipts and
 manual installation checks on those hosts remain necessary before a release claim.
 
-Linux distribution output preserves AppImage and DEB and adds RPM, all for x64, without
+The distribution matrix adds an uninstalled Windows ZIP alongside the existing NSIS installer,
+separate native Intel Mac DMG/ZIP files alongside ARM64, and Linux tar.gz alongside DEB,
+AppImage, and RPM. These changes do not migrate user data or change application runtime code.
+Windows ZIP is an unpack-and-run application, not a profile-isolated portable-data mode.
+Linux archives preserve the full Electron application; they are not system packages.
+
+[package-desktop.mjs](scripts/package-desktop.mjs) reads the manifest's target list and invokes
+the builder with explicit target names and exactly the host architecture, retaining
+`--publish never`, the Node environment proxy, and the fetch timeout adapter. Merely passing
+`--x64` while leaving target names empty causes electron-builder to expand both configured Mac
+architectures; explicit targets prevent cross-architecture builds from borrowing a native receipt.
+Intel smoke resolves `release/mac/Parallel Agents.app`; ARM64 resolves `release/mac-arm64`.
+CI and release jobs use separate Mac labels and artifacts; both pass `macOS` to the existing
+v3 CI receipt platform field, while native smoke records the actual architecture.
+
+Linux distribution output preserves AppImage, DEB, and RPM and adds tar.gz for x64, without
 changing application runtime code. Electron-builder maps x64 to `amd64` for DEB and `x86_64`
 for RPM/AppImage filenames. The release workflow supplies `rpmbuild` on its Linux runner and
-uploads both installer formats. Release readiness requires all three nonempty Linux assets
+uploads both installer formats and the archives. Release readiness requires all four nonempty Linux assets
 and records their hashes alongside native/packaged smoke receipts. RPM generation is not proof
 of Fedora/RHEL installation compatibility; validate the target distribution separately.
 
@@ -106,7 +121,7 @@ not the Electron app. Local proxy/timeout fixtures, actual target-host distribut
 and the full audit are the validation gate.
 
 `pack` and `dist` run build → native smoke → electron-builder with `--publish never` →
-`test:packaged`; `pack` adds `--dir` for unpacked output. `test:packaged` runs the same native/offline
+`test:packaged`; `pack` selects the builder's `dir` target for unpacked output. `test:packaged` runs the same native/offline
 UI fixture against the real `app.asar` bundle with fresh isolated data and emits
 `reports\packaged-smoke.json` / `reports\packaged-smoke.png`.
 `release` runs `pack` and promotes to `release\latest` only after both smoke gates succeed.
@@ -316,7 +331,7 @@ live-provider coverage, and it is not included in `check` or `validate`.
 
 ### Desktop native smoke
 
-Run `npm run build` before `npm run test:smoke` on Windows x64, macOS arm64, or Linux x64.
+Run `npm run build` before `npm run test:smoke` on Windows x64, macOS arm64/x64, or Linux x64.
 Linux needs a graphical session or Xvfb. This is a separate native
 integration surface, not part of the fast `check` gate or `validate` (which remains check plus build).
 The runner launches real Electron against the built application, with generated temporary
@@ -352,7 +367,8 @@ AI provider was exercised.
 ### CI configuration boundary
 
 [The CI workflow](.github/workflows/ci.yml) configures `Validate (Windows)`, `Validate (macOS)`,
-and `Validate (Linux)` for pull requests, `main` pushes, and manual dispatch. All install locked
+`Validate (macOS-Intel)`, and `Validate (Linux)` for pull requests, `main` pushes, and manual dispatch.
+Linux is pinned to Ubuntu 24.04; Mac runs use native ARM64 and Intel hosts. All install locked
 dependencies, run checks, build, and audit at the high-advisory threshold. All invoke `npm run pack`
 (wrapped in Xvfb on Linux),
 which includes native smoke and local unpacked-bundle packaging/testing with `--publish never`.

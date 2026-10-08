@@ -41,9 +41,12 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 Download the asset for your platform from
 [jelllove releases](https://github.com/jelllove/Parallel-Agents/releases) or the
 [qinqingxu mirror](https://github.com/qinqingxu/Parallel-Agents/releases).
-The same release source and packages are published to both repositories.
-Windows users should run the NSIS installer. For an older portable archive, extract the whole
-directory before running `Parallel Agents.exe`. Available artifacts depend on the release.
+Mirror availability depends on the release; compare the tag and asset list rather than
+assuming both repositories' latest versions are identical.
+Windows users can run the NSIS installer or extract the entire ZIP before running
+`Parallel Agents.exe`. ZIP is an unpack-and-run distribution; preferences and provider histories
+still use your home directory, not a portable profile stored alongside the executable.
+Available artifacts depend on the release.
 Versions before 0.1.10 do not include automatic updates, so install an updater-enabled build
 manually once before relying on in-app checks.
 
@@ -53,17 +56,24 @@ Starting with v0.1.16, the release build targets the following platforms. Each r
 native and packaged-app smoke checks on its target host before its packages are published.
 macOS/Linux are initial desktop ports, not a claim of compatibility with every system.
 
-| Platform | Architecture          | Distribution                                        |
-| -------- | --------------------- | --------------------------------------------------- |
-| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`               |
-| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip` |
-| Linux    | x64, glibc desktop    | AppImage, DEB, and RPM (filenames below)            |
+| Platform       | Architecture          | Main package                                | Additional formats                      |
+| -------------- | --------------------- | ------------------------------------------- | --------------------------------------- |
+| Windows        | x64                   | `Parallel-Agents-Setup-<version>.exe`       | `Parallel-Agents-<version>-win-x64.zip` |
+| macOS          | Apple Silicon / ARM64 | `Parallel-Agents-<version>-mac-arm64.dmg`   | `.zip` with the same basename           |
+| macOS          | Intel / x64           | `Parallel-Agents-<version>-mac-x64.dmg`     | `.zip` with the same basename           |
+| Linux / Ubuntu | x64, glibc            | `Parallel-Agents-<version>-linux-amd64.deb` | AppImage, tar.gz, RPM (filenames below) |
+
+Windows ZIP, Intel macOS, Linux tar.gz, and RPM are additions in v0.1.17.
+Already-published v0.1.16 has the Windows installer, ARM64 Mac DMG/ZIP, and Linux DEB/AppImage;
+it does not gain new assets merely because the source configuration changes.
 
 On macOS, open the downloaded DMG and drag the application to
 Applications, or extract the ZIP. Initial Mac builds are ad-hoc signed, **not Developer ID signed
 or notarized**, and use no hardened-runtime release profile. Gatekeeper may block downloaded
 builds; use Apple's per-application approval only for a build you trust, not a global security
-bypass. Intel Mac builds are outside this initial target.
+bypass. Select the native ARM64 or Intel x64 asset for your Mac; these are separate packages,
+not a universal binary. Each Mac architecture must pass its own native build/smoke gate
+before its release assets are published.
 
 Linux packages target x64 glibc desktops with X11 or XWayland:
 
@@ -73,15 +83,31 @@ Linux packages target x64 glibc desktops with X11 or XWayland:
   local file with `dnf install`. RPM generation does not establish compatibility with every
   Fedora/RHEL release; verify its dependencies and native behavior on the intended distribution.
 - **Portable:** `Parallel-Agents-<version>-linux-x86_64.AppImage`; mark it executable and run it.
+- **Archive:** `Parallel-Agents-<version>-linux-x64.tar.gz`; extract the whole directory and run
+  its `parallel-agents` executable. Keep the bundled resources, native libraries, and sandbox helper
+  together. This archive does not install a desktop entry or system dependencies.
 
-RPM is an addition for the next release; the already-published v0.1.16 contains DEB and AppImage,
-not RPM. Use the asset list of the release you download as the authority.
+Use the asset list of the release you download as the authority.
 AppImage may require FUSE; distribution packages are preferable on systems that restrict
 unprivileged user namespaces.
 Do not run the app as root or pass `--no-sandbox` to work around a launch failure.
 Linux ARM and musl-based distributions are outside this initial target.
 
-Mac/Linux updates are manual; Windows automatic updates remain unchanged. Git and the desired
+#### Verified Linux distribution boundary
+
+| Distribution                                     | Actual evidence                                                                                                                                                                                                     | Not established                                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Ubuntu 24.04.5 x64 (GitHub `ubuntu-24.04` image) | [Native CI at commit `86a5292`](https://github.com/jelllove/Parallel-Agents/actions/runs/37736832858): real Electron/PTY and app.asar smoke passed under Xvfb; DEB, AppImage, and RPM generation/hash checks passed | Interactive desktop installation, tar.gz runtime, or every Ubuntu version                                             |
+| Debian, Fedora, RHEL and derivatives             | Package formats are available/configured                                                                                                                                                                            | Distribution-specific dependency resolution, installation, SELinux behavior and native runtime have not been verified |
+
+Linux CI is pinned to `ubuntu-24.04` so its qualification target does not change when
+`ubuntu-latest` moves. Generating RPM on Ubuntu is not a Fedora/RHEL compatibility certification.
+Archive users must still satisfy Electron's system-library and sandbox requirements.
+
+Mac/Linux updates are manual; installed Windows automatic updates remain unchanged.
+For the Windows ZIP, replace the extracted folder for archive updates; choosing the Windows
+in-app installer update installs the NSIS distribution rather than replacing that folder.
+Git and the desired
 agent CLIs must be installed separately. Desktop startup loads PATH from your login shell with
 a five-second timeout; failures warn and retain inherited PATH. Terminal clipboard shortcuts are
 Command+C/V on macOS and Ctrl+Shift+C/V on Linux, preserving Ctrl+C for interruption.
@@ -94,27 +120,31 @@ npm run validate
 npm run dist
 ```
 
-On Linux, `dist` builds AppImage, DEB, and RPM together. RPM packaging additionally needs
+`dist` builds only the current host architecture. On Windows it creates EXE and ZIP; on each
+Mac host it creates that architecture's DMG and ZIP, never both architectures from one native receipt.
+On Linux, `dist` builds AppImage, DEB, RPM, and tar.gz together. RPM packaging additionally needs
 `rpmbuild` (the `rpm` package on Debian/Ubuntu, `rpm-build` on Fedora) and `xz` on PATH.
 These are packaging prerequisites, not requirements for ordinary checks or application startup.
 
-`dist` includes native and packaged-app smoke checks. This does not certify DMG/AppImage/DEB/RPM
+`dist` includes native and packaged-app smoke checks. This does not certify every archive,
+DMG/AppImage/DEB/RPM
 installation, signing, or every desktop environment; review the
 [native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) and perform installation checks.
 
 Release packages include `SHA256SUMS` for download verification. The
 [release workflow](.github/workflows/release.yml) runs locked installation, repository checks,
-the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, and Linux x64.
+the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, Intel macOS, and
+Ubuntu 24.04 x64, using separate native runners and separate Mac artifact names.
 It preserves native/packaged smoke evidence and fails if required distribution files are missing.
-The Linux release runner installs RPM build tools and retains all three formats. The release
-asset checker requires nonempty DEB and RPM files and records their SHA-256 hashes, so a build
-with only one of these installer formats cannot be reported as release-ready.
-Publication is a separate explicit operation after all three builds succeed. The workflow itself
+The Linux release runner installs RPM build tools and retains all four formats. The release
+asset checker requires the complete platform matrix, including Windows ZIP and Linux tar.gz,
+and records each file's SHA-256 hash; Mac receipts must match the native architecture.
+Publication is a separate explicit operation after all four builds succeed. The workflow itself
 does not create or replace a GitHub release; local `npm run release` also does not publish.
 
 ### Develop from source
 
-Use **Windows x64**, **macOS arm64**, or **Linux x64**, with **Node.js 24**, **npm 11**, and **Git on PATH**.
+Use **Windows x64**, **macOS arm64/x64**, or **Linux x64**, with **Node.js 24**, **npm 11**, and **Git on PATH**.
 [.node-version](.node-version) pins **24.17.0** for reproducible setup; the compatible engine ranges
 in [package.json](package.json) are Node `^24.17.0` and npm `>=11 <12`.
 The desktop runtime is **Electron 43** (`^43.6.0`), separate from the Node installation used for

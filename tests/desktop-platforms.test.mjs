@@ -42,23 +42,50 @@ test('macOS without SHELL falls back to its system zsh', () => {
   });
 });
 
-test('desktop packaging defines Mac arm64 and Linux x64 without changing Windows', async () => {
+test('desktop packaging adds native Intel and archives without changing the Windows installer name', async () => {
   const { build } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
   assert.equal(build.npmRebuild, false);
-  assert.deepEqual(build.win.target, [{ target: 'nsis', arch: ['x64'] }]);
+  assert.deepEqual(build.win.target, [
+    { target: 'nsis', arch: ['x64'] },
+    { target: 'zip', arch: ['x64'] },
+  ]);
+  assert.equal(build.nsis.artifactName, 'Parallel-Agents-Setup-${version}.${ext}');
+  assert.equal(build.win.artifactName, 'Parallel-Agents-${version}-win-${arch}.${ext}');
   assert.deepEqual(build.mac.target, [
-    { target: 'dmg', arch: ['arm64'] },
-    { target: 'zip', arch: ['arm64'] },
+    { target: 'dmg', arch: ['arm64', 'x64'] },
+    { target: 'zip', arch: ['arm64', 'x64'] },
   ]);
   assert.deepEqual(build.linux.target, [
     { target: 'AppImage', arch: ['x64'] },
     { target: 'deb', arch: ['x64'] },
     { target: 'rpm', arch: ['x64'] },
+    { target: 'tar.gz', arch: ['x64'] },
   ]);
   assert.match(build.mac.artifactName, /\$\{arch\}/);
   assert.match(build.linux.artifactName, /\$\{arch\}/);
   assert.equal(build.mac.identity, '-');
   assert.equal(build.mac.hardenedRuntime, false);
+});
+
+test('native workflows separate Mac architectures and pin the Linux verification distribution', async () => {
+  for (const workflow of ['ci.yml', 'release.yml']) {
+    const source = await readFile(
+      new URL(`../.github/workflows/${workflow}`, import.meta.url),
+      'utf8',
+    );
+    assert.match(source, /os: macos-15-intel/);
+    assert.match(source, /os: macos-15\n/);
+    assert.match(source, /os: ubuntu-24\.04/);
+    assert.doesNotMatch(source, /os: ubuntu-latest/);
+  }
+  const release = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+  assert.match(release, /label: macOS-Intel/);
+  assert.match(release, /release\/\*\.tar\.gz/);
+  const ci = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(ci, /CI_PLATFORM: \$\{\{ matrix\.platformLabel \}\}/);
 });
 
 test('release workflow installs RPM build tools and retains both Linux package formats', async () => {

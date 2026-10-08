@@ -18,6 +18,10 @@ writes a unique receipt/summary under `reports/validation`, and returns nonzero 
 checks failed or did not complete. It never invents missing results.
 Native packaging is required on all three desktop platforms; Linux uses Xvfb, and a skipped
 native step cannot produce a success receipt.
+The four native jobs distinguish ARM64 and Intel Mac artifacts/check names while passing
+the existing `macOS` value to the v3 receipt platform field; native smoke records architecture.
+Linux runs pin Ubuntu 24.04. The release checker requires Windows EXE/ZIP, each native Mac
+DMG/ZIP, and Linux DEB/AppImage/tar.gz/RPM, not merely any matching uploaded file.
 
 `npm run check:agent-corpus` validates the repository-shipped agent instructions, prompts, and
 skills as a bounded machine-operable corpus. It verifies required files, frontmatter, prompt

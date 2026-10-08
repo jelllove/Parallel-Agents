@@ -1,6 +1,6 @@
 {
   "name": "parallel-agents",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Run multiple CLI coding agents side by side in one window.",
   "main": "out/main/index.js",
   "author": {
@@ -45,8 +45,8 @@
     "validate": "npm run check && npm run build",
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "pack": "npm run build && npm run test:smoke && node --use-env-proxy --import ./scripts/fetch-downloads.mjs node_modules/electron-builder/cli.js --dir --publish never && npm run test:packaged",
-    "dist": "npm run build && npm run test:smoke && node --use-env-proxy --import ./scripts/fetch-downloads.mjs node_modules/electron-builder/cli.js --publish never && npm run test:packaged",
+    "pack": "npm run build && npm run test:smoke && node scripts/package-desktop.mjs --dir && npm run test:packaged",
+    "dist": "npm run build && npm run test:smoke && node scripts/package-desktop.mjs && npm run test:packaged",
     "release": "npm run pack && node scripts/promote-latest.cjs",
     "build:icons": "node scripts/build-icons.cjs"
   },
@@ -103,7 +103,8 @@
       "releaseType": "release"
     },
     "nsis": {
-      "differentialPackage": true
+      "differentialPackage": true,
+      "artifactName": "Parallel-Agents-Setup-${version}.${ext}"
     },
     "directories": {
       "output": "release",
@@ -142,13 +143,15 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ],
@@ -177,16 +180,28 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "resources/app-icon.png",
       "category": "Development"
     },
     "win": {
-      "artifactName": "Parallel-Agents-Setup-${version}.${ext}",
+      "artifactName": "Parallel-Agents-${version}-win-${arch}.${ext}",
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "x64"
           ]

@@ -10,7 +10,7 @@ separate from screenshots of a verified running build.
 
 ## Capture review evidence
 
-1. On the target host (Windows x64, macOS arm64, or Linux x64), run `npm run build`
+1. On the target host (Windows x64, macOS arm64/x64, or Linux x64), run `npm run build`
    followed by `npm run test:smoke`. Headless Linux needs Xvfb.
 2. Inspect the generated `reports/smoke.json` and `reports/smoke.png`.
    These show isolated fixture data and inert CLI shims, not live AI-provider

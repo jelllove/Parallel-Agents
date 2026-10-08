@@ -248,7 +248,8 @@ test('release configuration produces GitHub NSIS update artifacts', async () => 
     releaseType: 'release',
   });
   assert.equal(pkg.build.nsis.differentialPackage, true);
-  assert.equal(pkg.build.win.artifactName, 'Parallel-Agents-Setup-${version}.${ext}');
+  assert.equal(pkg.build.nsis.artifactName, 'Parallel-Agents-Setup-${version}.${ext}');
+  assert.equal(pkg.build.win.artifactName, 'Parallel-Agents-${version}-win-${arch}.${ext}');
   assert.ok(pkg.build.win.target.some((target) => target.target === 'nsis'));
 });
 

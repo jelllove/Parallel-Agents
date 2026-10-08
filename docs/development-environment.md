@@ -1,6 +1,7 @@
 # Reproducible development environment
 
-Desktop targets are Windows x64, macOS Apple Silicon, and Linux x64. These tools prepare repository checks without reading
+Desktop targets are Windows x64, macOS Apple Silicon/Intel, and Linux x64 (Ubuntu 24.04 qualification).
+These tools prepare repository checks without reading
 provider accounts or changing application source, runtime dependencies, or packaging behavior.
 
 ## Diagnostics and setup
