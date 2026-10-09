@@ -141,6 +141,14 @@ asset checker requires the complete platform matrix, including Windows ZIP and L
 and records each file's SHA-256 hash; Mac receipts must match the native architecture.
 Publication is a separate explicit operation after all four builds succeed. The workflow itself
 does not create or replace a GitHub release; local `npm run release` also does not publish.
+AI-authored releases must follow the
+[release-authoring skill](.github/skills/release-authoring/SKILL.md). The final
+**Verify complete release set** job rejects missing platforms, mixed versions/commits,
+incorrect native receipts, and changed asset bytes. Its `verified-release-set` artifact includes
+all package formats, `SHA256SUMS`, and `release-set.json` for the explicitly authorized publication.
+The same guard is available locally as `npm run verify:release -- --artifacts <download-directory>
+--commit <source-sha>`. Neither the skill nor the guard grants publication permission or makes
+direct manual GitHub uploads technically impossible.
 
 ### Develop from source
 

@@ -34,7 +34,19 @@ test('agent instruction corpus remains machine-operable and scoped', async () =>
   assert.deepEqual(result.errors, []);
   assert.ok(result.prompts.includes('.github/prompts/validation-repair.prompt.md'));
   assert.ok(result.skills.includes('.github/skills/validate-changes/SKILL.md'));
+  assert.ok(result.skills.includes('.github/skills/release-authoring/SKILL.md'));
   assert.ok(result.instructions.includes('.github/instructions/tooling.instructions.md'));
+});
+
+test('release-authoring remains a required skill even if its directory disappears', async (t) => {
+  const root = await writeFiles({ 'AGENTS.md': '# Fixture guide\n' });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const result = await checkAgentCorpus(root);
+  assert.ok(
+    result.errors.some((error) =>
+      error.startsWith('.github/skills/release-authoring/SKILL.md: missing required'),
+    ),
+  );
 });
 
 test('prompt validation fails closed on missing structured guardrails', async (t) => {

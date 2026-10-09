@@ -31,6 +31,7 @@
     "check:docs": "node scripts/check-docs.mjs --check-contract",
     "docs:contracts:write": "node scripts/check-docs.mjs --write-contract",
     "check:agent-corpus": "node scripts/check-agent-corpus.mjs",
+    "verify:release": "node scripts/verify-release-set.mjs",
     "check:secrets": "node scripts/scan-secrets.mjs",
     "ci:prepare": "node scripts/ci-report.mjs --prepare",
     "ci:report": "node scripts/ci-report.mjs",

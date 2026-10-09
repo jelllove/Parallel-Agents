@@ -32,6 +32,12 @@ Use Windows paths and PowerShell for local setup. [.node-version](.node-version)
 5. Report exact commands/results and any remaining unverified behavior. A passing build is not a
    live-provider test, evidence of remote CI, or a claim of enforced branch protection.
 
+For every release preparation/publication or package-matrix change, invoke or read the mandatory
+[release-authoring skill](.github/skills/release-authoring/SKILL.md) before proceeding.
+Do not publish a partial release: require same-version/same-commit Windows x64, native macOS
+ARM64 and Intel x64, and Linux x64 artifacts plus a successful complete-set gate. Ordinary code
+changes are not release/push/merge authorization; do not weaken native/audit gates or fabricate receipts.
+
 The configured `Validate (Windows)`, `Validate (macOS)`, `Validate (macOS-Intel)`, and `Validate (Linux)` jobs are described in the
 [CI boundary guide](CONTRIBUTING.md#ci-definitions-and-owner-settings). Native/package checks are
 configured for each desktop target, but configuration alone does not prove native qualification. Workflow/CODEOWNERS

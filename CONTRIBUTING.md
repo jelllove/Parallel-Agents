@@ -78,28 +78,29 @@ For optional agent-driven tooling, see [bounded local MCP tools](docs/agent-tool
 They expose diagnostics, read-only maintenance inspection, fixed validation commands and source-bound
 evidence verification; they cannot install, publish, run arbitrary commands, or apply maintenance.
 
-| Command                     | Contract                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| `npm ci`                    | Install the locked dependency graph                                                         |
-| `npm run doctor`            | Inspect required and optional prerequisites without installation or provider access         |
-| `npm run setup`             | Explicit locked dependency installation followed by non-GUI repository checks               |
-| `npm run dev`               | Start electron-vite's development application; this can read real user data                 |
-| `npm run typecheck`         | Run TypeScript checking without emitting bundles                                            |
-| `npm run lint`              | Check the active JavaScript/TypeScript code with ESLint                                     |
-| `npm run format:check`      | Verify formatting without rewriting files                                                   |
-| `npm run format`            | Apply formatting; inspect the diff and avoid unrelated rewrites                             |
-| `npm test`                  | Run the Node test suite with TypeScript stripping                                           |
-| `npm run test:ci`           | Run unit/regression tests with JUnit and tested-module LCOV output                          |
-| `npm run test:e2e`          | Run the current desktop target's native smoke after a build                                 |
-| `npm run check:docs`        | Run the offline, bounded Markdown-to-repository contract check described below              |
-| `npm run check:secrets`     | Scan Git-visible source with pinned, fully redacted local Gitleaks tooling                  |
-| `npm run test:security`     | Verify real scanner detection/redaction using generated disposable data                     |
-| `npm run hooks:install`     | Preview opt-in local hook setup; mutation requires explicit `--apply`                       |
-| `npm run maintenance:check` | Inspect bounded non-runtime formatting drift without repair                                 |
-| `npm run maintenance:apply` | Explicit clean-tree formatting repair with validation, rollback, and optional new artifacts |
-| `npm run check`             | Run lint, format checking, type checking, tests, documentation, and agent-corpus checks     |
-| `npm run build`             | Run type checking, then electron-vite build into `out`                                      |
-| `npm run validate`          | Run `check` followed by `build`                                                             |
+| Command                                                            | Contract                                                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `npm ci`                                                           | Install the locked dependency graph                                                         |
+| `npm run doctor`                                                   | Inspect required and optional prerequisites without installation or provider access         |
+| `npm run setup`                                                    | Explicit locked dependency installation followed by non-GUI repository checks               |
+| `npm run dev`                                                      | Start electron-vite's development application; this can read real user data                 |
+| `npm run typecheck`                                                | Run TypeScript checking without emitting bundles                                            |
+| `npm run lint`                                                     | Check the active JavaScript/TypeScript code with ESLint                                     |
+| `npm run format:check`                                             | Verify formatting without rewriting files                                                   |
+| `npm run format`                                                   | Apply formatting; inspect the diff and avoid unrelated rewrites                             |
+| `npm test`                                                         | Run the Node test suite with TypeScript stripping                                           |
+| `npm run test:ci`                                                  | Run unit/regression tests with JUnit and tested-module LCOV output                          |
+| `npm run test:e2e`                                                 | Run the current desktop target's native smoke after a build                                 |
+| `npm run check:docs`                                               | Run the offline, bounded Markdown-to-repository contract check described below              |
+| `npm run check:secrets`                                            | Scan Git-visible source with pinned, fully redacted local Gitleaks tooling                  |
+| `npm run test:security`                                            | Verify real scanner detection/redaction using generated disposable data                     |
+| `npm run hooks:install`                                            | Preview opt-in local hook setup; mutation requires explicit `--apply`                       |
+| `npm run maintenance:check`                                        | Inspect bounded non-runtime formatting drift without repair                                 |
+| `npm run maintenance:apply`                                        | Explicit clean-tree formatting repair with validation, rollback, and optional new artifacts |
+| `npm run check`                                                    | Run lint, format checking, type checking, tests, documentation, and agent-corpus checks     |
+| `npm run build`                                                    | Run type checking, then electron-vite build into `out`                                      |
+| `npm run validate`                                                 | Run `check` followed by `build`                                                             |
+| `npm run verify:release -- --artifacts <directory> --commit <sha>` | Verify and stage one complete four-target release from downloaded native receipts/packages  |
 
 Start with the smallest relevant test command. Use `npm run check` for the complete local
 static/type/test/docs/agent-corpus gate, and `npm run validate` when bundle validation is also needed.
@@ -241,6 +242,21 @@ with `--publish never` → packaged smoke**. A failed gate stops the command.
 
 Despite its name, `release` performs local packaging/promotion, not GitHub or npm publishing.
 Keep the explicit `--publish never` arguments in their packaging runner.
+
+For release authoring, follow the required
+[release-authoring skill](.github/skills/release-authoring/SKILL.md). The
+[complete-set verifier](scripts/verify-release-set.mjs) reuses the per-target filename contract,
+requires all four native identities at one version/commit, and checks actual sizes/digests before
+staging a fresh publication directory under `reports/release-sets`. Missing files/platforms,
+ambiguous or failed native receipts, extra files and symlink escapes fail explicitly.
+Only matching archive blockmaps are accepted beyond required files. Copies are rehashed before
+writing `SHA256SUMS` and `release-set.json`; prior outputs are retained.
+
+The final release workflow job depends on every native package job succeeding, downloads only
+that run's artifacts, and uploads a `verified-release-set`. This consistency check trusts actual
+native workflow receipts; it is not independent execution proof or an automatic publisher.
+Publishing still needs explicit authorization, correct accounts, draft-upload digest checks and
+any repository approvals. Never fabricate success receipts or silently omit an OS to get green.
 
 Do not upload artifacts, invoke publishing, or replace a user's existing release directory without
 an explicit request. Packaging may need downloads even though publishing is disabled.

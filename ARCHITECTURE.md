@@ -127,6 +127,19 @@ UI fixture against the real `app.asar` bundle with fresh isolated data and emits
 `release` runs `pack` and promotes to `release\latest` only after both smoke gates succeed.
 It does not publish over the network, but it can replace existing local artifacts.
 
+Release authoring is governed by the mandatory
+[project skill](.github/skills/release-authoring/SKILL.md), not by local build success alone.
+[release-assets.mjs](scripts/release-assets.mjs) exposes the shared four-target/filename and
+streamed hash contracts used by both the native jobs and
+[verify-release-set.mjs](scripts/verify-release-set.mjs). The latter aggregates one run's
+downloaded receipts/packages, requires the same exact source/version, verifies both native
+smoke identities and byte hashes, rejects links/unexpected or missing inputs, and creates a
+fresh checksum-bound publication set. The release workflow's aggregate job depends on all four
+native jobs and emits `verified-release-set`; publication remains an explicit separate action.
+The release-set v1 manifest records artifact consistency, not independent native execution or
+installer/signing qualification. Runtime, packaging target selection, and provider state do not
+depend on this authoring skill or aggregate verifier.
+
 ## Source map
 
 | Module                                                                   | Responsibility                                                                                                            |
