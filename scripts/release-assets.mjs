@@ -6,29 +6,45 @@ import { fileURLToPath } from 'node:url';
 import { desktopTarget } from './desktop-targets.mjs';
 import { prepareReportDirectory } from './ci-report.mjs';
 
-export async function inspectReleaseAssets(root, platform, arch) {
+export const releaseTargets = [
+  { label: 'Windows', platform: 'win32', arch: 'x64' },
+  { label: 'macOS', platform: 'darwin', arch: 'arm64' },
+  { label: 'macOS-Intel', platform: 'darwin', arch: 'x64' },
+  { label: 'Linux', platform: 'linux', arch: 'x64' },
+];
+
+export function requiredReleaseAssets(version, platform, arch) {
   desktopTarget(platform, arch);
-  const { version } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Expected a stable package version.');
-  const names =
-    platform === 'win32'
-      ? [
-          `Parallel-Agents-Setup-${version}.exe`,
-          `Parallel-Agents-Setup-${version}.exe.blockmap`,
-          'latest.yml',
-          `Parallel-Agents-${version}-win-x64.zip`,
-        ]
-      : platform === 'darwin'
-        ? [
-            `Parallel-Agents-${version}-mac-${arch}.dmg`,
-            `Parallel-Agents-${version}-mac-${arch}.zip`,
-          ]
-        : [
-            `Parallel-Agents-${version}-linux-x86_64.AppImage`,
-            `Parallel-Agents-${version}-linux-amd64.deb`,
-            `Parallel-Agents-${version}-linux-x86_64.rpm`,
-            `Parallel-Agents-${version}-linux-x64.tar.gz`,
-          ];
+  return platform === 'win32'
+    ? [
+        `Parallel-Agents-Setup-${version}.exe`,
+        `Parallel-Agents-Setup-${version}.exe.blockmap`,
+        'latest.yml',
+        `Parallel-Agents-${version}-win-x64.zip`,
+      ]
+    : platform === 'darwin'
+      ? [`Parallel-Agents-${version}-mac-${arch}.dmg`, `Parallel-Agents-${version}-mac-${arch}.zip`]
+      : [
+          `Parallel-Agents-${version}-linux-x86_64.AppImage`,
+          `Parallel-Agents-${version}-linux-amd64.deb`,
+          `Parallel-Agents-${version}-linux-x86_64.rpm`,
+          `Parallel-Agents-${version}-linux-x64.tar.gz`,
+        ];
+}
+
+export async function readReleaseAsset(path) {
+  const info = await lstat(path);
+  if (!info.isFile() || info.size === 0)
+    throw new Error(`Expected nonempty regular asset: ${path}`);
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return { bytes: info.size, sha256: digest.digest('hex') };
+}
+
+export async function inspectReleaseAssets(root, platform, arch) {
+  const { version } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  const names = requiredReleaseAssets(version, platform, arch);
   const smoke = [];
   for (const [name, packaged] of [
     ['smoke', false],
@@ -50,12 +66,7 @@ export async function inspectReleaseAssets(root, platform, arch) {
   const assets = [];
   for (const name of names) {
     const path = join(root, 'release', name);
-    const info = await lstat(path);
-    if (!info.isFile() || info.size === 0)
-      throw new Error(`Expected nonempty regular asset: ${name}`);
-    const digest = createHash('sha256');
-    for await (const chunk of createReadStream(path)) digest.update(chunk);
-    assets.push({ name, bytes: info.size, sha256: digest.digest('hex') });
+    assets.push({ name, ...(await readReleaseAsset(path)) });
   }
   return { schemaVersion: 1, version, platform, arch, assets, smoke };
 }

@@ -117,3 +117,42 @@ jobs:
           path: reports/
           if-no-files-found: warn
           retention-days: 14
+
+  verify-set:
+    name: Verify complete release set
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+
+      - name: Download all current-run native packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: packages-*
+          path: reports/release-set-input
+
+      - name: Download all current-run native receipts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-evidence-*
+          path: reports/release-set-input
+
+      - name: Reject incomplete or mismatched publication sets
+        run: node scripts/verify-release-set.mjs --artifacts reports/release-set-input --commit "${{ github.sha }}"
+
+      - name: Retain only the complete verified publication set
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-release-set
+          path: reports/release-sets/run-*/*
+          if-no-files-found: error
+          retention-days: 14

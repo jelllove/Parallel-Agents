@@ -23,6 +23,33 @@ the existing `macOS` value to the v3 receipt platform field; native smoke record
 Linux runs pin Ubuntu 24.04. The release checker requires Windows EXE/ZIP, each native Mac
 DMG/ZIP, and Linux DEB/AppImage/tar.gz/RPM, not merely any matching uploaded file.
 
+## Release authoring and complete-set gate
+
+The mandatory project [release-authoring skill](../.github/skills/release-authoring/SKILL.md)
+is linked from the agent guide and required by the agent-corpus check. Removing it makes
+ordinary `npm run check` fail. It records account/version authorization, exact source selection,
+native verification, draft-upload hash checks and honest publication/mirror handoff.
+
+The [release workflow](../.github/workflows/release.yml) finishes with
+**Verify complete release set**, dependent on all four successful native package jobs.
+It downloads that run's package/evidence artifacts without merging their target folders.
+[verify-release-set.mjs](../scripts/verify-release-set.mjs) uses the shared filename contract to
+reject missing platforms/formats, schema/version/commit/architecture mismatches, unsuccessful
+native/packaged receipts, corrupt bytes, unexpected files, ambiguous receipts and links.
+Local verification uses `npm run verify:release -- --artifacts <directory> --commit <sha>`.
+
+Successful verification creates a new `reports/release-sets/run-*` publication directory,
+including all verified packages, supported blockmaps, `SHA256SUMS`, and `release-set.json`.
+The manifest is versioned (`schemaVersion: 1`) and identifies its authority as
+`native-artifact-consistency-check`: it checks declared native evidence and file integrity,
+not independently executed native checks, signing, or distro installation qualification.
+Existing outputs and inputs are never replaced; failed validation emits no success manifest.
+The workflow retains the complete set as `verified-release-set` with read-only repository
+permissions. It does not publish, relax approvals or create releases. A manual upload can
+bypass this workflow, so publication permissions remain an owner-controlled boundary.
+
+## Agent instruction corpus
+
 `npm run check:agent-corpus` validates the repository-shipped agent instructions, prompts, and
 skills as a bounded machine-operable corpus. It verifies required files, frontmatter, prompt
 sections, learned-rule lifecycle state, repeated active-rule evidence, and repository containment

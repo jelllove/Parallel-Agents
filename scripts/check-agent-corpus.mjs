@@ -9,6 +9,7 @@ const requiredFiles = [
   '.github/instructions/tooling.instructions.md',
   '.github/skills/review-maintenance/SKILL.md',
   '.github/skills/validate-changes/SKILL.md',
+  '.github/skills/release-authoring/SKILL.md',
   '.github/prompts/validation-repair.prompt.md',
 ];
 const promptDirectory = '.github/prompts';
