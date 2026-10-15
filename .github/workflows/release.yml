@@ -2,7 +2,7 @@ name: Release packages
 
 on:
   push:
-    branches: [feat/macos-installation]
+    branches: [feat/macos-installation, feat/recent-project-folders]
     tags: ['v*']
   workflow_dispatch:
 

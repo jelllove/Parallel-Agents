@@ -186,6 +186,9 @@ export interface Api {
   dialog: {
     pickDirectory(): Promise<string | null>;
   };
+  workspace: {
+    getRecentFolders(): Promise<string[]>;
+  };
   agents: {
     list(): Promise<AgentInfo[]>;
     checkAll(): Promise<Record<AgentId, AgentStatus>>;

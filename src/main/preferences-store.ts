@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile, unlink } from 'fs/promises';
-import { dirname, join } from 'path';
+import { mkdir, readFile, rename, stat, writeFile, unlink } from 'fs/promises';
+import { dirname, join, posix, win32 } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { validateSessionName } from '../shared/session-presentation.ts';
@@ -18,6 +18,7 @@ interface Preferences {
   fontFamily: FontFamilyId;
   fontBold: boolean;
   projects: RegisteredProject[];
+  recentFolders: string[];
 }
 
 const agentIds = new Set<AgentId>(['claude', 'codex', 'gemini', 'aider', 'copilot']);
@@ -51,9 +52,38 @@ function validateRegisteredProject(value: unknown): RegisteredProject {
 export class PreferencesStore {
   private pending: Promise<unknown> = Promise.resolve();
   private readonly path: string;
+  private readonly paths: typeof posix;
 
-  constructor(path: string) {
+  constructor(path: string, platform: NodeJS.Platform = process.platform) {
     this.path = path;
+    this.paths = platform === 'win32' ? win32 : posix;
+  }
+
+  private normalizeFolder(folder: unknown): string {
+    if (
+      typeof folder !== 'string' ||
+      !folder.trim() ||
+      folder.includes('\0') ||
+      !this.paths.isAbsolute(folder)
+    ) {
+      throw new Error('Recent folder must be a non-empty absolute path.');
+    }
+    const normalized = this.paths.normalize(folder);
+    return normalized.length > this.paths.parse(normalized).root.length
+      ? normalized.replace(this.paths === win32 ? /[\\/]+$/ : /\/+$/, '')
+      : normalized;
+  }
+
+  private uniqueFolders(folders: string[]): string[] {
+    const seen = new Set<string>();
+    return folders
+      .map((folder) => this.normalizeFolder(folder))
+      .filter((folder) => {
+        const key = this.paths === win32 ? folder.toLowerCase() : folder;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   }
 
   async read(): Promise<Preferences> {
@@ -73,6 +103,7 @@ export class PreferencesStore {
         fontFamily: DEFAULT_FONT_FAMILY,
         fontBold: false,
         projects: [],
+        recentFolders: [],
       };
     }
     const data: Preferences = JSON.parse(text);
@@ -91,7 +122,17 @@ export class PreferencesStore {
     if (!Object.hasOwn(data, 'fontBold')) data.fontBold = false;
     if (typeof data.fontBold !== 'boolean') throw new Error('Font bold must be a boolean.');
     for (const name of Object.values(data.sessionNames)) validateSessionName(name);
-    return { ...data, projects: data.projects.map(validateRegisteredProject) };
+    const projects = data.projects.map(validateRegisteredProject);
+    if (Object.hasOwn(data, 'recentFolders') && !Array.isArray(data.recentFolders))
+      throw new Error('Invalid recent folders.');
+    const recentFolders = this.uniqueFolders([
+      ...(data.recentFolders ?? []),
+      ...projects
+        .map((project) => project.realPath)
+        .reverse()
+        .filter((path) => this.paths.isAbsolute(path)),
+    ]);
+    return { ...data, projects, recentFolders };
   }
 
   private update(change: (data: Preferences) => Preferences): Promise<void> {
@@ -139,11 +180,23 @@ export class PreferencesStore {
     await this.update((data) => ({ ...data, fontBold: bold }));
   }
 
-  registerProject(project: RegisteredProject): Promise<void> {
+  async addRecentFolder(folder: string): Promise<void> {
+    const path = this.normalizeFolder(folder);
+    if (!(await stat(path)).isDirectory())
+      throw new Error('Recent folder must be an existing directory.');
+    await this.update((data) => ({
+      ...data,
+      recentFolders: this.uniqueFolders([path, ...data.recentFolders]),
+    }));
+  }
+
+  registerProject(project: RegisteredProject, baseFolders: string[] = []): Promise<void> {
     const registered = validateRegisteredProject(project);
+    const folders = this.uniqueFolders([registered.realPath, ...baseFolders]);
     return this.update((data) => ({
       ...data,
       projects: [...data.projects.filter((p) => p.id !== registered.id), registered],
+      recentFolders: this.uniqueFolders([...folders, ...data.recentFolders]),
     }));
   }
 

@@ -24,6 +24,9 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
   choices, session rename/link flows, and optional attached shell panes.
 - **New project workflow** for opening folders directly or creating Git worktrees before launch.
+- **Recently opened folders in the same Create/Open dialog**, with searchable full paths and
+  one-click reuse for both folder and worktree modes. Successfully opened folders persist across
+  restarts, are deduplicated and sorted by latest use, and are not truncated to a fixed count.
 - **Project cleanup** for deleting missing provider histories after review and acknowledgement.
 - **File explorer** with create, rename, copy, move, trash, reveal, and default-application actions.
 - **Git panel** for status, staging, unstaging, discarding, commits, and read-only Monaco diffs
@@ -35,6 +38,22 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   confirmation and does not require a tray. F11 toggles fullscreen.
 
 ## Quick start
+
+### Reuse an opened folder
+
+Choose **New Project**, select an agent, then select a path under **Recently opened folders**.
+This fills the existing folder field without launching anything until you confirm.
+The same list is available when choosing a base repository for a Git worktree; selecting a
+different base updates generated worktree paths but does not overwrite a manually entered target.
+Use the filter to find a folder by name or full path.
+
+History is local to the application preferences and shared across agents. Existing registered
+project paths seed the list when upgrading; older provider-only folders appear after you open
+them again. Successful folder/worktree creation records the workspace and its worktree base;
+successful terminal opens also record the workspace. Browsing then cancelling does not add history.
+Missing/moved folders remain visible; attempting to open one reports an error rather than deleting
+it or silently opening another folder. A malformed/unwritable preferences file is reported without
+resetting user data. Removing a registered project does not erase its folder history.
 
 ### Use a release
 

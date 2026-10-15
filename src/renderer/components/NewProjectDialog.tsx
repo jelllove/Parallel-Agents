@@ -14,8 +14,30 @@ export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: 
   const [startPoint, setStartPoint] = useState('HEAD');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recentFolders, setRecentFolders] = useState<string[]>([]);
+  const [historyError, setHistoryError] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [folderFilter, setFolderFilter] = useState('');
   useEffect(() => {
     dialog.current?.showModal();
+    let active = true;
+    void window.api.workspace
+      .getRecentFolders()
+      .then((folders) => {
+        if (active) setRecentFolders(folders);
+      })
+      .catch((error: unknown) => {
+        if (active)
+          setHistoryError(
+            `Could not load recent folders: ${error instanceof Error ? error.message : String(error)}`,
+          );
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function browse() {
@@ -100,6 +122,55 @@ export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: 
             </button>
           </div>
         </label>
+        <section className="recent-folders-section" aria-label="Recent folders">
+          <label className="workflow-field">
+            Recently opened folders
+            <input
+              type="search"
+              aria-label="Filter recent folders"
+              placeholder="Filter by folder name or path"
+              value={folderFilter}
+              disabled={busy}
+              onChange={(event) => setFolderFilter(event.target.value)}
+            />
+          </label>
+          {historyLoading && <p role="status">Loading recent folders...</p>}
+          {historyError && (
+            <p className="inventory-error" role="alert">
+              {historyError}
+            </p>
+          )}
+          {!historyLoading &&
+            !historyError &&
+            (recentFolders.length === 0 ? (
+              <p>No previously opened folders yet.</p>
+            ) : (
+              <ul className="recent-folders" aria-label="Recently opened folder paths">
+                {recentFolders
+                  .filter((folder) => folder.toLowerCase().includes(folderFilter.toLowerCase()))
+                  .map((folder) => (
+                    <li key={folder}>
+                      <button
+                        type="button"
+                        className={`recent-folder${folder === basePath ? ' selected' : ''}`}
+                        title={folder}
+                        disabled={busy}
+                        aria-pressed={folder === basePath}
+                        onClick={() => updateBasePath(folder)}
+                      >
+                        <span className="recent-folder-name">
+                          {folder.split(/[\\/]/).filter(Boolean).pop() ?? folder}
+                        </span>
+                        <span className="recent-folder-path">{folder}</span>
+                      </button>
+                    </li>
+                  ))}
+                {recentFolders.every(
+                  (folder) => !folder.toLowerCase().includes(folderFilter.toLowerCase()),
+                ) && <li>No matching folders.</li>}
+              </ul>
+            ))}
+        </section>
         {mode === 'worktree' && (
           <>
             <label className="workflow-field">

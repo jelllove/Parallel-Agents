@@ -98,8 +98,12 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle('pty:spawn', (_e, opts: PtySpawnOptions) => {
-    return ptyManager.spawn(
+  ipcMain.handle(
+    'workspace:getRecentFolders',
+    async () => (await preferences.read()).recentFolders,
+  );
+  ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
+    await ptyManager.spawn(
       opts.projectId,
       opts.cwd,
       opts.cols,
@@ -108,6 +112,14 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       opts.extraPath,
       opts.shellProfile,
     );
+    try {
+      await preferences.addRecentFolder(opts.cwd);
+    } catch (error) {
+      throw new Error(
+        `Terminal opened, but saving folder history failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
   });
   ipcMain.handle('pty:write', (_e, projectId: string, data: string) => {
     ptyManager.write(projectId, data);

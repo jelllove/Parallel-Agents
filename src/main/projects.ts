@@ -428,7 +428,10 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       ? ((await findProjectRepositoryRoot(realPath)) ?? realPath)
       : realPath;
   try {
-    await preferences.registerProject({ id, agent: options.agent, realPath, historyPath });
+    await preferences.registerProject(
+      { id, agent: options.agent, realPath, historyPath },
+      options.mode === 'worktree' ? [options.basePath] : [],
+    );
   } catch (error) {
     throw new Error(
       `Folder is ready at "${realPath}", but saving the project failed: ${error instanceof Error ? error.message : String(error)}`,

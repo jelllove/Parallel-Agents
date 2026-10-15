@@ -193,6 +193,26 @@ watchers and PTYs. A channel's TypeScript annotation does not validate an arbitr
 
 ## Identity and terminal flow
 
+### Recent workspace folders
+
+[PreferencesStore](src/main/preferences-store.ts) persists a shared `recentFolders` array beside
+registered projects. Legacy preferences seed normalized unique paths from registered projects;
+reads do not write migration data. Successful registration updates project and folder history in
+one serialized atomic write, including the base for a worktree. Successful `pty:spawn` records
+its cwd after native spawn resolves; native failure does not add a history item, and a subsequent
+history-write error is explicitly reported as "Terminal opened, but saving folder history failed".
+Windows path identities ignore case, POSIX identities retain case, and paths must be absolute.
+There is no fixed history-count cap; duplicate opens move a path to the front.
+
+The typed `workspace.getRecentFolders` preload/IPC method feeds
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its bounded-height searchable
+list lives inside the existing modal for both open-folder and worktree modes; selection fills
+the path but never submits. Async loads are guarded on unmount and errors are visible rather
+than converted to an empty-history success. Missing paths stay in history and normal open
+validation reports the failure. Generated target paths update on selection while explicit targets
+remain untouched. The native fixture verifies real persistence, list rendering, path selection,
+and dialog reopening with generated provider data only.
+
 The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:
 it exports the `ptyManager` singleton using `node-pty`'s real `spawn`.
 [src/main/pty-session-manager.ts](src/main/pty-session-manager.ts) owns the lifecycle class and

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -59,6 +59,13 @@ test('new project survives restart, discovers history under stable ID, and renam
   const api = await backend(home);
   const created = await api.createProject({ agent: 'codex', mode: 'folder', basePath: folder });
   assert.equal(created.agent, 'codex');
+  const preferencesPath = join(home, '.claude', 'parallel-agents-preferences.json');
+  assert.deepEqual(JSON.parse(await readFile(preferencesPath, 'utf8')).recentFolders, [folder]);
+  await assert.rejects(
+    api.createProject({ agent: 'codex', mode: 'folder', basePath: join(home, 'missing') }),
+    /existing absolute/,
+  );
+  assert.deepEqual(JSON.parse(await readFile(preferencesPath, 'utf8')).recentFolders, [folder]);
   assert.equal((await api.listProjects()).length, 1);
   assert.deepEqual(await api.listSessionsForProject(created.id), []);
   const rollout = join(home, '.codex', 'sessions', '2026');
@@ -153,4 +160,49 @@ test('Copilot subfolder projects share repository history while preserving launc
   assert.equal((await restarted.listSessionsForProject(app.id))[0].id, 'copilot-one');
   await restarted.deleteProject(app.id);
   assert.equal((await restarted.listSessionsForProject(lib.id))[0].id, 'copilot-one');
+});
+
+test('successful worktree creation remembers both base and generated folders across restart', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-history-worktree-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const base = join(home, 'base');
+  const target = join(home, 'worktree');
+  await mkdir(base);
+  const exec = promisify(execFile);
+  await exec('git', ['init', '--initial-branch=main', base]);
+  await exec('git', [
+    '-C',
+    base,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    '-c',
+    'core.hooksPath=' + join(home, 'no-hooks'),
+    'commit',
+    '--allow-empty',
+    '-m',
+    'Fixture',
+  ]);
+  const api = await backend(home);
+  const created = await api.createProject({
+    agent: 'codex',
+    mode: 'worktree',
+    basePath: base,
+    targetPath: target,
+    branch: 'feature/history',
+    startPoint: 'HEAD',
+  });
+  const data = JSON.parse(
+    await readFile(join(home, '.claude', 'parallel-agents-preferences.json'), 'utf8'),
+  );
+  assert.deepEqual(data.recentFolders, [created.realPath, base]);
+  await api.deleteProject(data.projects[0].id);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(home, '.claude', 'parallel-agents-preferences.json'), 'utf8'))
+      .recentFolders,
+    [created.realPath, base],
+  );
 });

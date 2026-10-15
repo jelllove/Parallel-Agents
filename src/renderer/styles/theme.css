@@ -144,6 +144,44 @@ b {
   min-width: 0;
   flex: 1;
 }
+
+.recent-folders {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.recent-folder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.recent-folder:hover,
+.recent-folder.selected {
+  background: var(--bg-hover);
+}
+.recent-folder:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.recent-folder-name {
+  font-weight: var(--app-font-weight);
+}
+.recent-folder-path {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .workflow-actions {
   display: flex;
   justify-content: flex-end;

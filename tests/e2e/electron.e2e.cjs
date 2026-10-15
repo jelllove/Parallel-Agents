@@ -192,6 +192,52 @@ async function checkRenderer(projectPath) {
     document.querySelector('.project-item').click();
     await waitFor(() => uiOutput.includes('SMOKE_AGENT'), 'The initial inert CLI command was lost');
     checks.push('the initial CLI command reaches the mounted terminal');
+    check(
+      (await window.api.workspace.getRecentFolders()).includes(projectPath),
+      'opening an existing project persists its folder history',
+    );
+    const openNewDialog = async () => {
+      const newProject = [...document.querySelectorAll('button')].find((button) =>
+        button.textContent.includes('New Project'),
+      );
+      newProject.click();
+      await waitFor(
+        () => document.querySelector('.agent-picker-row[title="Claude Code"]'),
+        'New Project agent picker unavailable',
+      );
+      document.querySelector('.agent-picker-row[title="Claude Code"]').click();
+      await waitFor(
+        () => document.querySelector('dialog[open] .recent-folder'),
+        'Recent folder list did not appear',
+      );
+    };
+    await openNewDialog();
+    const recent = [...document.querySelectorAll('.recent-folder')].find(
+      (button) => button.title === projectPath,
+    );
+    check(Boolean(recent), 'Create/Open dialog displays the previously opened folder');
+    recent.click();
+    await waitFor(
+      () => document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      'recent folder selection did not update the project path',
+    );
+    check(
+      document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      'recent folder selection fills the existing project path',
+    );
+    const cancelNew = () =>
+      [...document.querySelectorAll('dialog[open] button')]
+        .find((button) => button.textContent === 'Cancel')
+        .click();
+    cancelNew();
+    await openNewDialog();
+    check(
+      [...document.querySelectorAll('.recent-folder')].some(
+        (button) => button.title === projectPath,
+      ),
+      'folder history survives closing and reopening the Create/Open dialog',
+    );
+    cancelNew();
     await waitFor(
       () => document.querySelectorAll('.git-row[title="notes.txt"]').length === 2,
       'Git panel did not show the fixture changes',

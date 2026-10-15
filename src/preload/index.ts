@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { Api, UpdateStatus } from '../shared/types';
 
 const api: Api = {
+  workspace: {
+    getRecentFolders: () => ipcRenderer.invoke('workspace:getRecentFolders'),
+  },
   platform:
     process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux'
       ? process.platform
