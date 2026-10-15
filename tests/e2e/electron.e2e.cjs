@@ -76,6 +76,33 @@ async function checkRenderer(projectPath) {
   const projects = await window.api.projects.list();
   check(projects.length === 1 && projects[0].realPath === projectPath, 'provider data is isolated');
   const projectId = projects[0].id;
+  await window.api.agents.setLaunchOptions(
+    'claude',
+    { approvalMode: 'plan', model: 'sonnet' },
+    false,
+  );
+  await window.api.agents.setLaunchOptions(
+    'copilot',
+    { approvalMode: 'default', model: 'smoke-copilot-model' },
+    false,
+  );
+  const launchSettings = await window.api.agents.getLaunchSettings();
+  check(
+    launchSettings.claude.model === 'sonnet' &&
+      launchSettings.copilot.model === 'smoke-copilot-model',
+    'launch settings persist models independently for each provider',
+  );
+  let rejectedUnsafeSave = false;
+  try {
+    await window.api.agents.setLaunchOptions(
+      'copilot',
+      { approvalMode: 'auto-tools', model: '' },
+      false,
+    );
+  } catch (error) {
+    rejectedUnsafeSave = /acknowledge/i.test(String(error));
+  }
+  check(rejectedUnsafeSave, 'main rejects unacknowledged reduced-approval settings');
   await Promise.all([
     window.api.projects.pin(projectId, true),
     window.api.projects.hide(projectId, true),
@@ -191,7 +218,72 @@ async function checkRenderer(projectPath) {
     );
     document.querySelector('.project-item').click();
     await waitFor(() => uiOutput.includes('SMOKE_AGENT'), 'The initial inert CLI command was lost');
+    await waitFor(
+      () =>
+        uiOutput.includes(
+          'SMOKE_AGENT_ARGS --resume smoke-session --permission-mode plan --model sonnet',
+        ),
+      'The selected provider mode/model did not reach the actual inert CLI argv',
+    );
+    checks.push(
+      'existing project session receives exact provider-specific mode and model arguments',
+    );
     checks.push('the initial CLI command reaches the mounted terminal');
+    const originalTerminal = document.querySelector('.xterm');
+    const originalTabCount = document.querySelectorAll('.terminal-tab').length;
+    const originalPtys = [...uiPtys].sort().join(',');
+    const beforeLayout = await window.api.config.getLayout();
+    const togglePane = async (label, isHidden) => {
+      const control = document.querySelector(`button[aria-label="${label}"]`);
+      await waitFor(() => !control.disabled, `${label} control is unavailable`);
+      control.click();
+      await waitFor(isHidden, `${label} did not update pane visibility`);
+      await waitFor(() => !control.disabled, `${label} did not persist pane visibility`);
+    };
+    const projectPane = () => document.querySelector('.workspace-pane[data-pane="sidebar"]');
+    const filesPane = () => document.querySelector('.workspace-pane[data-pane="right"]');
+    const codingPane = () => document.querySelector('.workspace-pane[data-pane="middle"]');
+    await togglePane('Toggle project sidebar', () => projectPane().hidden);
+    check(
+      !filesPane().hidden && codingPane().getBoundingClientRect().width > 200,
+      'project sidebar hides independently while coding remains visible',
+    );
+    await togglePane('Toggle project sidebar', () => !projectPane().hidden);
+    await togglePane('Toggle files and Git sidebar', () => filesPane().hidden);
+    check(!projectPane().hidden, 'files and Git sidebar hides independently');
+    await togglePane('Toggle files and Git sidebar', () => !filesPane().hidden);
+    await togglePane('Focus coding', () => filesPane().hidden && projectPane().hidden);
+    await waitFor(
+      () =>
+        codingPane().getBoundingClientRect().width >=
+        document.querySelector('.app-body').getBoundingClientRect().width - 8,
+      'focused terminal did not fill the coding workspace',
+    );
+    check(
+      document.querySelector('.xterm') === originalTerminal,
+      'focus coding preserves the mounted terminal rather than recreating it',
+    );
+    check(
+      document.querySelector('button[aria-label="Focus coding"]') !== null,
+      'restore controls remain accessible with both sidebars hidden',
+    );
+    const focusedLayout = await window.api.config.getLayout();
+    check(
+      focusedLayout.hiddenPanes.includes('sidebar') && focusedLayout.hiddenPanes.includes('right'),
+      'focus mode persists sidebar visibility',
+    );
+    await togglePane('Focus coding', () => !filesPane().hidden && !projectPane().hidden);
+    const afterLayout = await window.api.config.getLayout();
+    check(
+      afterLayout.sizes.every((size, index) => Math.abs(size - beforeLayout.sizes[index]) < 0.1),
+      'restoring sidebars retains the original expanded widths',
+    );
+    check(
+      document.querySelector('.xterm') === originalTerminal &&
+        document.querySelectorAll('.terminal-tab').length === originalTabCount &&
+        [...uiPtys].sort().join(',') === originalPtys,
+      'sidebar toggles keep session tabs and PTY identities unchanged',
+    );
     check(
       (await window.api.workspace.getRecentFolders()).includes(projectPath),
       'opening an existing project persists its folder history',
@@ -212,6 +304,27 @@ async function checkRenderer(projectPath) {
       );
     };
     await openNewDialog();
+    [...document.querySelectorAll('dialog[open] button')]
+      .find((button) => button.textContent.includes('Configure Claude Code'))
+      .click();
+    await waitFor(
+      () =>
+        document.querySelector('.agent-launch-dialog[open] input[aria-label="Model ID"]')?.value ===
+        'sonnet',
+      'Agent launch options did not load in the actual dialog',
+    );
+    const launchDialog = document.querySelector('.agent-launch-dialog[open]');
+    check(
+      launchDialog.querySelector('select[aria-label="Approval mode"]').value === 'plan',
+      'launch dialog shows Claude mode and model without mixing Copilot settings',
+    );
+    [...launchDialog.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Cancel')
+      .click();
+    await waitFor(
+      () => !document.querySelector('.agent-launch-dialog[open]'),
+      'Launch options dialog did not close',
+    );
     const recent = [...document.querySelectorAll('.recent-folder')].find(
       (button) => button.title === projectPath,
     );
@@ -230,6 +343,51 @@ async function checkRenderer(projectPath) {
         .find((button) => button.textContent === 'Cancel')
         .click();
     cancelNew();
+    let resumed = '';
+    const offResume = window.api.pty.onData((id, data) => {
+      if (id === 'smoke-resume-options') resumed += data;
+    });
+    try {
+      await window.api.pty.spawn({
+        projectId: 'smoke-resume-options',
+        cwd: projectPath,
+        cols: 100,
+        rows: 24,
+        initialCommand: 'claude --resume smoke-session',
+      });
+      await waitFor(
+        () =>
+          resumed.includes(
+            'SMOKE_AGENT_ARGS --resume smoke-session --permission-mode plan --model sonnet',
+          ),
+        'Resume command lost its session ID or provider launch settings',
+      );
+      checks.push('resumed agent receives the same mode/model while preserving its session ID');
+    } finally {
+      offResume();
+      await window.api.pty.kill('smoke-resume-options');
+    }
+    let started = '';
+    const offStart = window.api.pty.onData((id, data) => {
+      if (id === 'smoke-start-options') started += data;
+    });
+    try {
+      await window.api.pty.spawn({
+        projectId: 'smoke-start-options',
+        cwd: projectPath,
+        cols: 100,
+        rows: 24,
+        initialCommand: 'claude',
+      });
+      await waitFor(
+        () => started.includes('SMOKE_AGENT_ARGS --permission-mode plan --model sonnet'),
+        'New agent command did not receive its configured mode/model',
+      );
+      checks.push('new agent launches receive exact provider-specific mode and model arguments');
+    } finally {
+      offStart();
+      await window.api.pty.kill('smoke-start-options');
+    }
     await openNewDialog();
     check(
       [...document.querySelectorAll('.recent-folder')].some(

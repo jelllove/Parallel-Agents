@@ -7,6 +7,7 @@ interface Props {
 }
 
 export function SettingsPicker({ anchorRect, onClose }: Props) {
+  const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const clipboardKeys =
     window.api.platform === 'darwin'
       ? 'Command+C / Command+V'
@@ -40,6 +41,16 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="layout-picker-title">Settings</div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => {
+            showAgentLaunchSettings('copilot');
+            onClose();
+          }}
+        >
+          Agent approval modes and models...
+        </button>
         <label className="settings-row">
           <input
             type="checkbox"

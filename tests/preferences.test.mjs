@@ -88,6 +88,7 @@ test('legacy preferences default typography options and preserve existing settin
     fontFamily: 'default',
     fontBold: false,
     recentFolders: [],
+    agentLaunchOptions: {},
   });
   await store.setFontSize(21);
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
@@ -96,6 +97,7 @@ test('legacy preferences default typography options and preserve existing settin
     fontFamily: 'default',
     fontBold: false,
     recentFolders: [],
+    agentLaunchOptions: {},
   });
 });
 

@@ -40,6 +40,9 @@ import type {
   PtySpawnOptions,
 } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
+import { prepareAgentLaunch } from './agent-launcher.ts';
+import { AGENT_LAUNCH } from '../shared/agent-launch.ts';
+import type { AgentLaunchOptions } from '../shared/agent-launch.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
 
@@ -103,7 +106,24 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     async () => (await preferences.read()).recentFolders,
   );
   ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
-    await ptyManager.spawn(
+    const prepareCommand = (command: string | undefined) =>
+      prepareAgentLaunch(command, {
+        load: async () => (await preferences.read()).agentLaunchOptions,
+        confirm: async (agent, mode, command) => {
+          const result = await dialog.showMessageBox(win, {
+            type: 'warning',
+            title: `Start ${AGENT_LAUNCH[agent].name} with fewer approvals?`,
+            message: mode.label,
+            detail: `${mode.description}\n\nWorking folder: ${opts.cwd}\nCommand: ${command}\n\nOnly continue in a trusted project. This setting does not make the CLI safe or grant a sandbox.`,
+            buttons: ['Start with this mode', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true,
+          });
+          return result.response === 0;
+        },
+      });
+    const opened = await ptyManager.spawn(
       opts.projectId,
       opts.cwd,
       opts.cols,
@@ -111,7 +131,9 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       opts.initialCommand,
       opts.extraPath,
       opts.shellProfile,
+      prepareCommand,
     );
+    if (!opened) return;
     try {
       await preferences.addRecentFolder(opts.cwd);
     } catch (error) {
@@ -142,6 +164,15 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
 
   ipcMain.handle('agents:list', () => listAgents());
   ipcMain.handle('agents:checkAll', () => checkAllAgents());
+  ipcMain.handle(
+    'agents:getLaunchSettings',
+    async () => (await preferences.read()).agentLaunchOptions,
+  );
+  ipcMain.handle(
+    'agents:setLaunchOptions',
+    (_e, agent: AgentId, options: AgentLaunchOptions, acknowledged: boolean) =>
+      preferences.setAgentLaunchOptions(agent, options, acknowledged),
+  );
 
   ipcMain.handle('config:getLastAgent', (_e, projectId: string) => getLastAgent(projectId));
   ipcMain.handle('config:setLastAgent', (_e, projectId: string, agentId: AgentId) =>

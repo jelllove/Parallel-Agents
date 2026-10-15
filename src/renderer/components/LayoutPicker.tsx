@@ -63,8 +63,10 @@ export function LayoutPicker({ anchorRect, onClose }: Props) {
       currentSizes[currentOrder.indexOf(newOrder[1])],
       currentSizes[currentOrder.indexOf(newOrder[2])],
     ];
-    const next: LayoutConfig = { order: newOrder, sizes: reorderedSizes };
-    void setLayoutAction(next);
+    const next: LayoutConfig = { ...layout, order: newOrder, sizes: reorderedSizes };
+    void setLayoutAction(next).catch(() => {
+      // setLayout exposes the failure in the persistent status-bar alert.
+    });
     onClose();
   }
 

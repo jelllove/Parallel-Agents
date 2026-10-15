@@ -67,6 +67,9 @@ const api: Api = {
     pickDirectory: () => ipcRenderer.invoke('dialog:pickDirectory'),
   },
   agents: {
+    getLaunchSettings: () => ipcRenderer.invoke('agents:getLaunchSettings'),
+    setLaunchOptions: (agent, options, acknowledged) =>
+      ipcRenderer.invoke('agents:setLaunchOptions', agent, options, acknowledged),
     list: () => ipcRenderer.invoke('agents:list'),
     checkAll: () => ipcRenderer.invoke('agents:checkAll'),
   },

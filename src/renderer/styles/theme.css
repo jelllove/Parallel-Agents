@@ -188,6 +188,43 @@ b {
   gap: 8px;
   margin-top: 24px;
 }
+
+.agent-launch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.agent-launch-preview code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.agent-launch-warning {
+  padding: 0 10px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-hover);
+}
+.agent-launch-configure {
+  flex-shrink: 0;
+}
+
+.workspace-pane {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.workspace-pane[hidden] {
+  display: none;
+}
+.layout-error {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .workflow-actions .btn-primary {
   width: auto;
   margin: 0;

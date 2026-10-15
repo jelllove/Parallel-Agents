@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store';
 
 export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: () => void }) {
   const createProject = useAppStore((s) => s.createProject);
+  const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const agentName = useAppStore((s) => s.agents.find((a) => a.id === agent)?.displayName ?? agent);
   const dialog = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<'folder' | 'worktree'>('folder');
@@ -91,6 +92,14 @@ export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: 
         }}
       >
         <h2>New Project · {agentName}</h2>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={busy}
+          onClick={() => showAgentLaunchSettings(agent)}
+        >
+          Configure {agentName} approval mode and model
+        </button>
         <label className="workflow-field">
           Workspace mode
           <select

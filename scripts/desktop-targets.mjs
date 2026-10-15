@@ -19,8 +19,16 @@ export function desktopTarget(platform = process.platform, arch = process.arch) 
 export function providerShim(agent, platform) {
   if (!/^[a-z][a-z0-9-]*$/.test(agent)) throw new Error('Invalid provider shim name.');
   if (platform === 'win32')
-    return { name: `${agent}.cmd`, content: '@echo off\r\necho SMOKE_AGENT\r\n', mode: 0o644 };
+    return {
+      name: `${agent}.cmd`,
+      content: '@echo off\r\necho SMOKE_AGENT\r\necho SMOKE_AGENT_ARGS %*\r\n',
+      mode: 0o644,
+    };
   if (platform !== 'darwin' && platform !== 'linux')
     throw new Error(`Unsupported provider shim platform: ${platform}.`);
-  return { name: agent, content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\n', mode: 0o755 };
+  return {
+    name: agent,
+    content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\nprintf "SMOKE_AGENT_ARGS %s\\n" "$*"\n',
+    mode: 0o755,
+  };
 }

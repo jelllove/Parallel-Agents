@@ -193,6 +193,53 @@ watchers and PTYs. A channel's TypeScript annotation does not validate an arbitr
 
 ## Identity and terminal flow
 
+### Persistent side-pane visibility
+
+`LayoutConfig.hiddenPanes` optionally contains `sidebar` and/or `right`; old layouts keep their
+exact shape and default to visible. The config schema rejects invalid/duplicate names and cannot
+hide `middle`. [pane-visibility.ts](src/shared/pane-visibility.ts) projects hidden widths to zero
+and transfers that space to the terminal for all six column orders without changing stored
+expanded sizes. The status bar exposes independent and focus/restore controls outside the panes.
+
+App keeps the same panel/content nodes and stable horizontal group key while visibility changes,
+updates native panel constraints, hides corresponding resize handles, and applies the projected
+layout through its imperative group handle. Hidden contents remain mounted and receive
+`hidden`/`aria-hidden`, preserving PTYs/session tabs and removing hidden actions from keyboard
+navigation. Layout transitions do not persist intermediate collapsed sizes; focus mode keeps
+original expanded widths for restore. Persistence errors are explicit, with failed visibility
+changes rolled back and surfaced in a status-bar alert. The native fixture checks full-width
+focus, restore accessibility, original dimensions, terminal DOM identity and PTY identities.
+
+### Provider-specific launch configuration
+
+[agent-launch.ts](src/shared/agent-launch.ts) owns the per-provider mode catalog, model guidance,
+strict saved-options validation and fixed managed start/resume command recognition. Only known
+approval flag arrays are generated. Models are one bounded shell-safe token, not arbitrary extra
+arguments; no model list is inferred from another provider or queried from live accounts.
+The unchanged [agent-commands.ts](src/shared/agent-commands.ts) still builds base commands and
+session identity; an empty/default launch setting leaves them byte-for-byte compatible.
+
+[PreferencesStore](src/main/preferences-store.ts) atomically saves `agentLaunchOptions` keyed
+by agent, with empty legacy defaults and explicit rejection/preservation of malformed settings.
+The typed `agents.getLaunchSettings` / `agents.setLaunchOptions` IPC/preload methods connect
+the [launch dialog](src/renderer/components/AgentLaunchDialog.tsx) through agent selection,
+New Project and Settings. Saving reduced-approval choices requires acknowledgement; async form
+loads are guarded, errors are visible and failed reads cannot overwrite unknown saved choices.
+
+`pty:spawn` injects [prepareAgentLaunch](src/main/agent-launcher.ts) into the manager's starting
+token lifecycle, so every managed new/resume/restart path reads current provider settings before
+native spawn. Reduced-approval modes require a native confirmation for each actual launch,
+showing cwd and command with Cancel selected by default. Duplicate pending starts cannot show
+duplicate prompts; killing a pending tab invalidates its token and prevents later native creation.
+Only an actually created PTY records recent-folder history. The external API remains Promise<void>;
+the injected manager returns a boolean for actual creation.
+
+The isolated native fixture uses inert shims that print received argv; it verifies independent
+provider settings, rejected unacknowledged writes, rendered options, exact new/resume arguments,
+and preserved session IDs. This is argument/UX verification, not live-provider compatibility or
+proof that a particular CLI/model/account supports a flag. CLI default permissions, managed
+policies, version differences and provider-specific sandbox semantics remain authoritative.
+
 ### Recent workspace folders
 
 [PreferencesStore](src/main/preferences-store.ts) persists a shared `recentFolders` array beside

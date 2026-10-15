@@ -88,9 +88,24 @@ export function layoutSetting(value: unknown): LayoutConfig {
   ) {
     invalid('layout.sizes must contain three finite percentages totaling 100');
   }
+  const hiddenPanes = Object.hasOwn(layout, 'hiddenPanes')
+    ? array(layout.hiddenPanes, 'layout.hiddenPanes')
+    : undefined;
+  if (
+    hiddenPanes &&
+    (hiddenPanes.some((pane) => pane !== 'sidebar' && pane !== 'right') ||
+      new Set(hiddenPanes).size !== hiddenPanes.length)
+  ) {
+    invalid(
+      'layout.hiddenPanes must contain unique sidebar/right pane names; the terminal cannot be hidden',
+    );
+  }
   return {
     order: [order[0], order[1], order[2]],
     sizes: [sizes[0], sizes[1], sizes[2]],
+    ...(hiddenPanes
+      ? { hiddenPanes: hiddenPanes.map((pane) => (pane === 'sidebar' ? 'sidebar' : 'right')) }
+      : {}),
   };
 }
 

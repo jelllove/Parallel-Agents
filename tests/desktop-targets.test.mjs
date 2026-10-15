@@ -34,13 +34,13 @@ test('native smoke resolves actual app.asar layouts for each desktop target', ()
 test('provider shims are inert executable POSIX scripts or Windows cmd files', () => {
   assert.deepEqual(providerShim('claude', 'win32'), {
     name: 'claude.cmd',
-    content: '@echo off\r\necho SMOKE_AGENT\r\n',
+    content: '@echo off\r\necho SMOKE_AGENT\r\necho SMOKE_AGENT_ARGS %*\r\n',
     mode: 0o644,
   });
   for (const platform of ['darwin', 'linux']) {
     assert.deepEqual(providerShim('claude', platform), {
       name: 'claude',
-      content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\n',
+      content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\nprintf "SMOKE_AGENT_ARGS %s\\n" "$*"\n',
       mode: 0o755,
     });
   }

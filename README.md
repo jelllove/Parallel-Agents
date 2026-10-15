@@ -23,6 +23,8 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   history formats, including Copilot repository/session metadata.
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
   choices, session rename/link flows, and optional attached shell panes.
+- **Provider-specific launch settings** for approval modes and model IDs, saved independently
+  per agent and applied to managed new/resumed launches without restarting running terminals.
 - **New project workflow** for opening folders directly or creating Git worktrees before launch.
 - **Recently opened folders in the same Create/Open dialog**, with searchable full paths and
   one-click reuse for both folder and worktree modes. Successfully opened folders persist across
@@ -33,11 +35,61 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   using locally bundled editor assets loaded on demand.
 - **Configurable layout and typography**, including six column orders, saved pane sizes,
   dark/light themes, and persisted font size, family, and bold settings.
+- **Focused coding view**: hide or restore the project sidebar and the files/Git sidebar
+  independently, or hide both without restarting agent terminals.
 - **Automatic updates** for installed Windows builds, with explicit restart confirmation.
 - **Platform lifecycle**: Windows/macOS close hides the window; Linux close quits after session
   confirmation and does not require a tray. F11 toggles fullscreen.
 
 ## Quick start
+
+### Hide sidebars and focus on coding
+
+The bottom status bar always keeps three controls available:
+
+- **Projects** hides/shows the project and session sidebar.
+- **Files / Git** hides/shows the Explorer and Git column.
+- **Focus coding** hides both sidebars so the terminal area fills the workspace; **Restore panels**
+  shows both again.
+
+Visibility is saved across restarts and works with every column order. Hidden panes remain
+mounted, so toggling them does not restart agents, recreate terminals, or close session tabs.
+The last fully expanded pane widths are preserved for restore; resizing with a sidebar hidden
+does not overwrite those saved widths. Save failures are shown in the status bar and revert the
+visibility change rather than claiming it persisted.
+
+### Agent approval modes and models
+
+Use **Options** beside an agent in the picker, **Configure ... approval mode and model** inside
+New Project, or **Settings → Agent approval modes and models...**. Choose the provider first:
+settings are stored independently and never reuse another provider's model ID.
+
+| Agent          | Supported launch modes                                                                                                           | Model input                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| GitHub Copilot | CLI default; auto-approve tools (`--allow-all-tools`), without adding all-path/all-URL permission flags                          | Exact model ID from Copilot's `/model` picker                      |
+| Claude Code    | CLI default; normal prompts; plan; auto-accept edits; auto mode using Claude's safety classifier                                 | `sonnet`, `opus`, `haiku`, or a full supported Claude model ID     |
+| Codex          | CLI default; untrusted-command approval with workspace-write sandbox; read-only sandbox; no prompts with workspace-write sandbox | Codex-supported ID from `/model`                                   |
+| Gemini CLI     | CLI default; normal prompts; plan; auto-edit; YOLO approval mode                                                                 | Gemini model ID/alias from `/model`                                |
+| Aider          | CLI default; always answer yes (`--yes-always`)                                                                                  | Aider/provider-qualified ID, discoverable with `/models <keyword>` |
+
+Leave the model empty and select **Use CLI defaults** to preserve the previous command exactly.
+CLI defaults can inherit previously granted permissions, environment/config settings, and managed
+organization policies; it does not force every operation to ask. Copilot/Aider do not expose a
+portable "force all manual approvals" override here. The app does not read credentials, contact
+provider APIs, or present a supposedly universal/account-verified model list.
+
+Saving a reduced-approval mode requires an explicit acknowledgement. Every actual launch in
+that mode also shows a native confirmation with the agent, working folder and generated command;
+Cancel is the default. Declining starts no terminal. Closing a tab while confirmation is pending
+cannot start a late orphan process. Modes are not equivalent: Codex auto retains its workspace
+sandbox; Copilot tool approval is not an all-path/all-URL grant; Aider yes mode creates no sandbox;
+Claude auto uses the CLI classifier, not a permission bypass.
+
+Saved choices apply to subsequent managed starts, resumes and restarts, including existing projects.
+They do not modify running terminals, attached plain shells, or custom commands entered manually.
+Model IDs are passed as one shell-safe token (up to 200 characters); unsupported/missing modes or
+models are surfaced by the CLI, not silently replaced. Some modes require recent CLI versions,
+model support or account entitlements; check each CLI's help if startup is rejected.
 
 ### Reuse an opened folder
 

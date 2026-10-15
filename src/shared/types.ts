@@ -1,4 +1,5 @@
 import type { SessionShellProfile } from './session-terminals';
+import type { AgentLaunchOptions, AgentLaunchSettings } from './agent-launch';
 
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
 
@@ -86,6 +87,7 @@ export type PaneId = 'sidebar' | 'middle' | 'right';
 export interface LayoutConfig {
   order: [PaneId, PaneId, PaneId];
   sizes: [number, number, number];
+  hiddenPanes?: ('sidebar' | 'right')[];
 }
 
 export type ThemeMode = 'dark' | 'light';
@@ -192,6 +194,12 @@ export interface Api {
   agents: {
     list(): Promise<AgentInfo[]>;
     checkAll(): Promise<Record<AgentId, AgentStatus>>;
+    getLaunchSettings(): Promise<AgentLaunchSettings>;
+    setLaunchOptions(
+      agent: AgentId,
+      options: AgentLaunchOptions,
+      acknowledged: boolean,
+    ): Promise<void>;
   };
   config: {
     getFontSize(): Promise<number>;

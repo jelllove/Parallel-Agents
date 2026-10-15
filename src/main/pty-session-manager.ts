@@ -45,16 +45,19 @@ export class PtyManager {
     initialCommand?: string,
     extraPath?: string[],
     shellProfile?: SessionShellProfile,
-  ): Promise<void> {
-    if (this.ptys.has(projectId) || this.starting.has(projectId)) return;
+    prepareCommand?: (command: string | undefined) => Promise<string | undefined>,
+  ): Promise<boolean> {
+    if (this.ptys.has(projectId) || this.starting.has(projectId)) return false;
     const token = Symbol();
     this.starting.set(projectId, token);
 
     try {
+      if (prepareCommand) initialCommand = await prepareCommand(initialCommand);
+      if (this.starting.get(projectId) !== token) return false;
       const launch = shellProfile
         ? await resolveAvailableShell(shellProfile)
         : resolveShellLaunch(this.environment.platform, 'cmd', this.environment.env.SHELL ?? null);
-      if (this.starting.get(projectId) !== token) return;
+      if (this.starting.get(projectId) !== token) return false;
 
       const env = Object.fromEntries(
         Object.entries(this.environment.env).filter(
@@ -109,6 +112,7 @@ export class PtyManager {
           if (this.ptys.get(projectId) === entry) p.write(command + '\r');
         }, 250);
       }
+      return true;
     } finally {
       if (this.starting.get(projectId) === token) this.starting.delete(projectId);
     }

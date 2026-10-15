@@ -11,6 +11,12 @@ import {
   type FontFamilyId,
 } from '../shared/typography.ts';
 import type { AgentId, RegisteredProject } from '../shared/types.ts';
+import {
+  AGENT_LAUNCH,
+  validateLaunchOptions,
+  validateLaunchSettings,
+} from '../shared/agent-launch.ts';
+import type { AgentLaunchOptions, AgentLaunchSettings } from '../shared/agent-launch.ts';
 
 interface Preferences {
   sessionNames: Record<string, string>;
@@ -19,6 +25,7 @@ interface Preferences {
   fontBold: boolean;
   projects: RegisteredProject[];
   recentFolders: string[];
+  agentLaunchOptions: AgentLaunchSettings;
 }
 
 const agentIds = new Set<AgentId>(['claude', 'codex', 'gemini', 'aider', 'copilot']);
@@ -104,6 +111,7 @@ export class PreferencesStore {
         fontBold: false,
         projects: [],
         recentFolders: [],
+        agentLaunchOptions: {},
       };
     }
     const data: Preferences = JSON.parse(text);
@@ -132,7 +140,10 @@ export class PreferencesStore {
         .reverse()
         .filter((path) => this.paths.isAbsolute(path)),
     ]);
-    return { ...data, projects, recentFolders };
+    const agentLaunchOptions = Object.hasOwn(data, 'agentLaunchOptions')
+      ? validateLaunchSettings(data.agentLaunchOptions)
+      : {};
+    return { ...data, projects, recentFolders, agentLaunchOptions };
   }
 
   private update(change: (data: Preferences) => Preferences): Promise<void> {
@@ -187,6 +198,21 @@ export class PreferencesStore {
     await this.update((data) => ({
       ...data,
       recentFolders: this.uniqueFolders([path, ...data.recentFolders]),
+    }));
+  }
+
+  async setAgentLaunchOptions(
+    agent: AgentId,
+    options: AgentLaunchOptions,
+    acknowledged = false,
+  ): Promise<void> {
+    const validated = validateLaunchOptions(agent, options);
+    const mode = AGENT_LAUNCH[agent].modes.find((mode) => mode.id === validated.approvalMode)!;
+    if (mode.risky && acknowledged !== true)
+      throw new Error('Acknowledge the reduced-approval risk before saving this mode.');
+    await this.update((data) => ({
+      ...data,
+      agentLaunchOptions: { ...data.agentLaunchOptions, [agent]: validated },
     }));
   }
 
