@@ -14,6 +14,9 @@ import {
 } from './fs-explorer.ts';
 import {
   setProjectPinned,
+  getAgentLayout,
+  setAgentOrder,
+  setAgentPinned,
   setProjectHidden,
   setLastAgent,
   getLastAgent,
@@ -38,8 +41,12 @@ import type {
   ThemeMode,
   NewProjectOptions,
   PtySpawnOptions,
+  WorkspaceMode,
 } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
+import { prepareAgentLaunch } from './agent-launcher.ts';
+import { AGENT_LAUNCH } from '../shared/agent-launch.ts';
+import type { AgentLaunchOptions } from '../shared/agent-launch.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
 
@@ -98,8 +105,33 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle('pty:spawn', (_e, opts: PtySpawnOptions) => {
-    return ptyManager.spawn(
+  ipcMain.handle(
+    'workspace:getRecentFolders',
+    async () => (await preferences.read()).recentFolders,
+  );
+  ipcMain.handle('workspace:getMode', async () => (await preferences.read()).workspaceMode);
+  ipcMain.handle('workspace:setMode', (_e, mode: WorkspaceMode) =>
+    preferences.setWorkspaceMode(mode),
+  );
+  ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
+    const prepareCommand = (command: string | undefined) =>
+      prepareAgentLaunch(command, {
+        load: async () => (await preferences.read()).agentLaunchOptions,
+        confirm: async (agent, mode, command) => {
+          const result = await dialog.showMessageBox(win, {
+            type: 'warning',
+            title: `Start ${AGENT_LAUNCH[agent].name} with fewer approvals?`,
+            message: mode.label,
+            detail: `${mode.description}\n\nWorking folder: ${opts.cwd}\nCommand: ${command}\n\nOnly continue in a trusted project. This setting does not make the CLI safe or grant a sandbox.`,
+            buttons: ['Start with this mode', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true,
+          });
+          return result.response === 0;
+        },
+      });
+    const opened = await ptyManager.spawn(
       opts.projectId,
       opts.cwd,
       opts.cols,
@@ -107,7 +139,17 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       opts.initialCommand,
       opts.extraPath,
       opts.shellProfile,
+      prepareCommand,
     );
+    if (!opened) return;
+    try {
+      await preferences.addRecentFolder(opts.cwd);
+    } catch (error) {
+      throw new Error(
+        `Terminal opened, but saving folder history failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
   });
   ipcMain.handle('pty:write', (_e, projectId: string, data: string) => {
     ptyManager.write(projectId, data);
@@ -130,10 +172,24 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
 
   ipcMain.handle('agents:list', () => listAgents());
   ipcMain.handle('agents:checkAll', () => checkAllAgents());
+  ipcMain.handle(
+    'agents:getLaunchSettings',
+    async () => (await preferences.read()).agentLaunchOptions,
+  );
+  ipcMain.handle(
+    'agents:setLaunchOptions',
+    (_e, agent: AgentId, options: AgentLaunchOptions, acknowledged: boolean) =>
+      preferences.setAgentLaunchOptions(agent, options, acknowledged),
+  );
 
   ipcMain.handle('config:getLastAgent', (_e, projectId: string) => getLastAgent(projectId));
   ipcMain.handle('config:setLastAgent', (_e, projectId: string, agentId: AgentId) =>
     setLastAgent(projectId, agentId),
+  );
+  ipcMain.handle('config:getAgentLayout', () => getAgentLayout());
+  ipcMain.handle('config:setAgentOrder', (_e, ids: AgentId[]) => setAgentOrder(ids));
+  ipcMain.handle('config:setAgentPinned', (_e, agent: AgentId, pinned: boolean) =>
+    setAgentPinned(agent, pinned),
   );
   ipcMain.handle('config:getLayout', () => getLayout());
   ipcMain.handle('config:setLayout', (_e, layout: LayoutConfig) => setLayout(layout));

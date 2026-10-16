@@ -72,3 +72,49 @@ test('a pending launch is consumed exactly once when the terminal mounts', (t) =
   assert.deepEqual(useAppStore.getState().consumePendingCommand('tab'), pending);
   assert.equal(useAppStore.getState().consumePendingCommand('tab'), undefined);
 });
+
+test('collapsed pane projections cannot replace the saved expanded layout sizes', (t) => {
+  setup(t);
+  const layout = {
+    order: ['sidebar', 'middle', 'right'],
+    sizes: [20, 58, 22],
+    hiddenPanes: ['sidebar', 'right'],
+  };
+  useAppStore.setState({ layout });
+  useAppStore.getState().updateLayoutSizes([0, 100, 0]);
+  assert.deepEqual(useAppStore.getState().layout, layout);
+});
+
+test('failed visibility persistence reports an error and restores the previous layout', async (t) => {
+  setup(t);
+  globalThis.window.api.config.setLayout = async () => {
+    throw new Error('Disk unavailable');
+  };
+  const before = { order: ['sidebar', 'middle', 'right'], sizes: [20, 58, 22] };
+  useAppStore.setState({ layout: before });
+  await assert.rejects(
+    useAppStore.getState().setLayout({ ...before, hiddenPanes: ['sidebar'] }),
+    /Disk unavailable/,
+  );
+  assert.deepEqual(useAppStore.getState().layout, before);
+  assert.match(useAppStore.getState().layoutError, /Disk unavailable/);
+});
+
+test('constraint callbacks during a pending sidebar restore cannot erase rollback or expanded widths', async (t) => {
+  setup(t);
+  const pending = Promise.withResolvers();
+  globalThis.window.api.config.setLayout = () => pending.promise;
+  const previous = {
+    order: ['sidebar', 'middle', 'right'],
+    sizes: [20, 58, 22],
+    hiddenPanes: ['sidebar'],
+  };
+  useAppStore.setState({ layout: previous });
+  const restoring = useAppStore.getState().setLayout({ ...previous, hiddenPanes: [] });
+  useAppStore.getState().updateLayoutSizes([14, 64, 22]);
+  useAppStore.getState().updateLayoutSizes([20, 58, 22]);
+  pending.reject(new Error('Restore write failed'));
+  await assert.rejects(restoring, /Restore write failed/);
+  assert.deepEqual(useAppStore.getState().layout, previous);
+  assert.equal(useAppStore.getState().layoutSaving, false);
+});

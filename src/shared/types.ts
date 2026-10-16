@@ -1,6 +1,8 @@
 import type { SessionShellProfile } from './session-terminals';
+import type { AgentLaunchOptions, AgentLaunchSettings } from './agent-launch';
 
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
+export type WorkspaceMode = 'folder' | 'worktree';
 
 export interface AgentInfo {
   id: AgentId;
@@ -40,7 +42,7 @@ export interface RegisteredProject {
 export interface NewProjectOptions {
   agent: AgentId;
   basePath: string;
-  mode: 'folder' | 'worktree';
+  mode: WorkspaceMode;
   branch?: string;
   startPoint?: string;
   targetPath?: string;
@@ -86,11 +88,17 @@ export type PaneId = 'sidebar' | 'middle' | 'right';
 export interface LayoutConfig {
   order: [PaneId, PaneId, PaneId];
   sizes: [number, number, number];
+  hiddenPanes?: ('sidebar' | 'right')[];
 }
 
 export type ThemeMode = 'dark' | 'light';
 
-export interface AppConfig {
+export interface AgentLayout {
+  agentOrder: AgentId[];
+  pinnedAgents: AgentId[];
+}
+
+export interface AppConfig extends AgentLayout {
   pinned: string[];
   hidden: string[];
   lastAgentByProject: Record<string, AgentId>;
@@ -186,11 +194,25 @@ export interface Api {
   dialog: {
     pickDirectory(): Promise<string | null>;
   };
+  workspace: {
+    getRecentFolders(): Promise<string[]>;
+    getMode(): Promise<WorkspaceMode>;
+    setMode(mode: WorkspaceMode): Promise<void>;
+  };
   agents: {
     list(): Promise<AgentInfo[]>;
     checkAll(): Promise<Record<AgentId, AgentStatus>>;
+    getLaunchSettings(): Promise<AgentLaunchSettings>;
+    setLaunchOptions(
+      agent: AgentId,
+      options: AgentLaunchOptions,
+      acknowledged: boolean,
+    ): Promise<void>;
   };
   config: {
+    getAgentLayout(): Promise<AgentLayout>;
+    setAgentOrder(ids: AgentId[]): Promise<void>;
+    setAgentPinned(agent: AgentId, pinned: boolean): Promise<void>;
     getFontSize(): Promise<number>;
     setFontSize(size: number): Promise<void>;
     getFontFamily(): Promise<string>;

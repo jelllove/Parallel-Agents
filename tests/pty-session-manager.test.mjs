@@ -168,3 +168,42 @@ test('native kill failures are reported without blocking cleanup of other PTYs',
   assert.equal(manager.has('first'), false);
   assert.equal(manager.has('second'), false);
 });
+
+test('closing a tab while launch confirmation is pending cannot start a late orphan process', async (t) => {
+  const { manager, spawned } = setup(t);
+  const pending = Promise.withResolvers();
+  const starting = manager.spawn(
+    'pending',
+    '.',
+    80,
+    24,
+    'copilot',
+    undefined,
+    undefined,
+    () => pending.promise,
+  );
+  manager.kill('pending');
+  pending.resolve('copilot --allow-all-tools');
+  assert.equal(await starting, false);
+  assert.deepEqual(spawned, []);
+  assert.equal(manager.has('pending'), false);
+});
+
+test('duplicate launches do not display duplicate confirmations, and declined launches spawn nothing', async (t) => {
+  const { manager, spawned } = setup(t);
+  const pending = Promise.withResolvers();
+  let prompts = 0;
+  const prepare = () => {
+    prompts++;
+    return pending.promise;
+  };
+  const first = manager.spawn('pending', '.', 80, 24, 'copilot', undefined, undefined, prepare);
+  assert.equal(
+    await manager.spawn('pending', '.', 80, 24, 'copilot', undefined, undefined, prepare),
+    false,
+  );
+  pending.reject(new Error('Launch cancelled'));
+  await assert.rejects(first, /cancelled/);
+  assert.equal(prompts, 1);
+  assert.deepEqual(spawned, []);
+});

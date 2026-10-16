@@ -1,10 +1,13 @@
 import type { AgentId, AppConfig, LayoutConfig, PaneId, ThemeMode } from '../shared/types.ts';
+import { DEFAULT_AGENT_ORDER } from '../shared/sidebar-order.ts';
 
 const AGENTS: readonly AgentId[] = ['claude', 'codex', 'gemini', 'aider', 'copilot'];
 const PANES: readonly PaneId[] = ['sidebar', 'middle', 'right'];
 
 export function defaultConfig(): AppConfig {
   return {
+    agentOrder: [...DEFAULT_AGENT_ORDER],
+    pinnedAgents: [],
     pinned: [],
     hidden: [],
     lastAgentByProject: {},
@@ -55,6 +58,18 @@ export function agentId(value: unknown): AgentId {
   return agent;
 }
 
+export function agentIds(value: unknown, field: string): AgentId[] {
+  const ids = array(value, field).map(agentId);
+  if (new Set(ids).size !== ids.length) invalid(`${field} must contain unique agents`);
+  return ids;
+}
+
+export function agentOrderSetting(value: unknown): AgentId[] {
+  const ids = agentIds(value, 'agentOrder');
+  if (ids.length !== AGENTS.length) invalid('agentOrder must contain every agent exactly once');
+  return ids;
+}
+
 export function booleanSetting(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') invalid(`${field} must be a boolean`);
   return value;
@@ -88,9 +103,24 @@ export function layoutSetting(value: unknown): LayoutConfig {
   ) {
     invalid('layout.sizes must contain three finite percentages totaling 100');
   }
+  const hiddenPanes = Object.hasOwn(layout, 'hiddenPanes')
+    ? array(layout.hiddenPanes, 'layout.hiddenPanes')
+    : undefined;
+  if (
+    hiddenPanes &&
+    (hiddenPanes.some((pane) => pane !== 'sidebar' && pane !== 'right') ||
+      new Set(hiddenPanes).size !== hiddenPanes.length)
+  ) {
+    invalid(
+      'layout.hiddenPanes must contain unique sidebar/right pane names; the terminal cannot be hidden',
+    );
+  }
   return {
     order: [order[0], order[1], order[2]],
     sizes: [sizes[0], sizes[1], sizes[2]],
+    ...(hiddenPanes
+      ? { hiddenPanes: hiddenPanes.map((pane) => (pane === 'sidebar' ? 'sidebar' : 'right')) }
+      : {}),
   };
 }
 
@@ -109,6 +139,8 @@ export function validateConfig(value: unknown): AppConfig {
     projectOrder[agentId(agent)] = projectIds(ids, `projectOrder.${agent}`);
   }
   return {
+    agentOrder: agentOrderSetting(field('agentOrder')),
+    pinnedAgents: agentIds(field('pinnedAgents'), 'pinnedAgents'),
     pinned: projectIds(field('pinned'), 'pinned'),
     hidden: projectIds(field('hidden'), 'hidden'),
     lastAgentByProject,

@@ -1,45 +1,23 @@
 import { useEffect, useState } from 'react';
 import { ClaudeIcon } from './ClaudeIcon';
-import type { UpdateStatus } from '../../shared/types';
+import { useUpdateStatus } from '../hooks/use-update-status';
 
 interface Props {
   onClose: () => void;
 }
 
 export function AboutDialog({ onClose }: Props) {
-  const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  useEffect(() => {
-    let active = true;
-    let receivedEvent = false;
-    const unsubscribe = window.api.updates.onStatus((status) => {
-      receivedEvent = true;
-      if (active) setUpdate(status);
-    });
-    window.api.updates
-      .getStatus()
-      .then((status) => {
-        if (active && !receivedEvent) setUpdate(status);
-      })
-      .catch((error) => {
-        if (active) setUpdateError(String(error));
-      });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
+  const { update, updateError, pending, runUpdateAction } = useUpdateStatus();
+  const [linkError, setLinkError] = useState<string | null>(null);
 
-  async function runUpdateAction(action: 'check' | 'install') {
-    setPending(true);
-    setUpdateError(null);
+  async function openLink(url: string) {
+    setLinkError(null);
     try {
-      setUpdate(await window.api.updates[action]());
+      await window.api.shell.openExternal(url);
     } catch (error) {
-      setUpdateError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPending(false);
+      setLinkError(
+        `Could not open link: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -53,11 +31,17 @@ export function AboutDialog({ onClose }: Props) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal about-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="about-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <ClaudeIcon size={20} />
-          <span>About Parallel Agents</span>
-          <button className="modal-close" onClick={onClose}>
+          <span id="about-title">About Parallel Agents</span>
+          <button className="modal-close" onClick={onClose} aria-label="Close About">
             ×
           </button>
         </div>
@@ -77,13 +61,25 @@ export function AboutDialog({ onClose }: Props) {
             </dd>
             <dt>Author</dt>
             <dd>jelllove</dd>
+            <dt>Website</dt>
+            <dd>
+              <a
+                href="http://www.jelllove.com"
+                onClick={(event) => {
+                  event.preventDefault();
+                  return openLink('http://www.jelllove.com');
+                }}
+              >
+                www.jelllove.com
+              </a>
+            </dd>
             <dt>Email</dt>
             <dd>
               <a
-                href="#"
+                href="mailto:jelllove@gmail.com"
                 onClick={(e) => {
                   e.preventDefault();
-                  window.api.shell?.openExternal('mailto:jelllove@gmail.com');
+                  return openLink('mailto:jelllove@gmail.com');
                 }}
               >
                 jelllove@gmail.com
@@ -92,7 +88,16 @@ export function AboutDialog({ onClose }: Props) {
             <dt>Built with</dt>
             <dd>Electron · React · xterm.js · node-pty</dd>
           </dl>
-          <section aria-label="Application updates">
+          {linkError && (
+            <p role="alert" style={{ overflowWrap: 'anywhere' }}>
+              {linkError}
+            </p>
+          )}
+          <section className="about-updates" aria-label="Application updates">
+            <h3>Updates</h3>
+            <p className="about-installed-version">
+              Installed version: {__APP_BUILD_INFO__.version}
+            </p>
             <p role="status" aria-live="polite">
               {!update && !updateError && 'Loading update status…'}
               {update?.state === 'unavailable' && update.message}
@@ -105,6 +110,12 @@ export function AboutDialog({ onClose }: Props) {
               {update?.state === 'downloaded' && `Version ${update.version} is ready to install.`}
               {update?.state === 'installing' && 'Installing update and restarting…'}
             </p>
+            {update?.state === 'unavailable' && (
+              <p>
+                Updates for this installation are manual. Open the latest release and download the
+                package for your operating system and architecture.
+              </p>
+            )}
             {update?.state === 'downloading' && (
               <progress
                 aria-label="Update download progress"
@@ -117,28 +128,49 @@ export function AboutDialog({ onClose }: Props) {
                 {updateError ?? update?.message}
               </p>
             )}
-            <button
-              className="btn-secondary"
-              disabled={
-                !update ||
-                pending ||
-                update.state === 'unavailable' ||
-                update.canInstall ||
-                ['checking', 'available', 'downloading', 'installing'].includes(update.state)
-              }
-              onClick={() => void runUpdateAction('check')}
-            >
-              Check for updates
-            </button>
-            {update?.canInstall && (
+            {updateError && (
               <button
-                className="btn-primary"
-                disabled={pending || update.state === 'installing'}
-                onClick={() => void runUpdateAction('install')}
+                className="btn-secondary"
+                disabled={pending}
+                onClick={() => runUpdateAction('getStatus')}
               >
-                Restart to update
+                Retry update status
               </button>
             )}
+            <div className="about-update-actions">
+              <button
+                className="btn-secondary"
+                disabled={
+                  !update ||
+                  pending ||
+                  update.state === 'unavailable' ||
+                  update.canInstall ||
+                  ['checking', 'available', 'downloading', 'installing'].includes(update.state)
+                }
+                onClick={() => runUpdateAction('check')}
+              >
+                Check for updates
+              </button>
+              {update?.canInstall && (
+                <button
+                  className="btn-primary"
+                  disabled={pending || update.state === 'installing'}
+                  onClick={() => runUpdateAction('install')}
+                >
+                  Restart to update
+                </button>
+              )}
+              <a
+                className="about-release-link"
+                href="https://github.com/jelllove/Parallel-Agents/releases/latest"
+                onClick={(event) => {
+                  event.preventDefault();
+                  return openLink('https://github.com/jelllove/Parallel-Agents/releases/latest');
+                }}
+              >
+                View latest release / manual download
+              </a>
+            </div>
             {update && update.state !== 'unavailable' && (
               <p>
                 Updates download in the background. Agents are stopped only when you confirm a

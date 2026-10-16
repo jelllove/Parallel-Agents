@@ -23,29 +23,139 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   history formats, including Copilot repository/session metadata.
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
   choices, session rename/link flows, and optional attached shell panes.
+- **Provider-specific launch settings** for approval modes and model IDs, saved independently
+  per agent and applied to managed new/resumed launches without restarting running terminals.
 - **New project workflow** for opening folders directly or creating Git worktrees before launch.
+- **Recently opened folders in the same Create/Open dialog**, with folder icons, full paths and
+  one-click reuse for both folder and worktree modes. Successfully opened folders persist across
+  restarts, are deduplicated and sorted by latest use, and are not truncated to a fixed count.
 - **Project cleanup** for deleting missing provider histories after review and acknowledgement.
 - **File explorer** with create, rename, copy, move, trash, reveal, and default-application actions.
 - **Git panel** for status, staging, unstaging, discarding, commits, and read-only Monaco diffs
   using locally bundled editor assets loaded on demand.
 - **Configurable layout and typography**, including six column orders, saved pane sizes,
   dark/light themes, and persisted font size, family, and bold settings.
+- **Focused coding view**: hide or restore the project sidebar and the files/Git sidebar
+  independently, or hide both without restarting agent terminals.
 - **Automatic updates** for installed Windows builds, with explicit restart confirmation.
 - **Platform lifecycle**: Windows/macOS close hides the window; Linux close quits after session
   confirmation and does not require a tray. F11 toggles fullscreen.
 
 ## Quick start
 
+### Quick-create, pin, and arrange projects
+
+The top **New Project** button still opens the agent picker. Each agent heading also has a **+**
+button that opens the same Create/Open dialog directly for that agent, including recent folders
+and its launch settings. The shortcut is disabled when that CLI is not installed.
+
+Use the pin button on an agent heading or a project row to **Pin / Unpin** it. Pinned agents stay
+above other agents; pinned projects stay at the top of their own agent group. Drag an agent heading
+to arrange groups, or drag a project to arrange it within the same agent. Pinned and unpinned items
+are reordered separately: dragging does not change Pin status or move projects between agents.
+Right-click a heading or project for **Move up / Move down** as an alternative to dragging.
+
+Agent order, project order, and both kinds of pins are saved across restarts. These actions do not
+open projects or restart terminals. Configuration failures are shown in the sidebar with a reload
+action; an unsuccessful save is not shown as a persisted change.
+
+### Hide sidebars and focus on coding
+
+The bottom status bar always keeps three controls available:
+
+- **Projects** hides/shows the project and session sidebar.
+- **Files / Git** hides/shows the Explorer and Git column.
+- **Focus coding** hides both sidebars so the terminal area fills the workspace; **Restore panels**
+  shows both again.
+
+Visibility is saved across restarts and works with every column order. Hidden panes remain
+mounted, so toggling them does not restart agents, recreate terminals, or close session tabs.
+The last fully expanded pane widths are preserved for restore; resizing with a sidebar hidden
+does not overwrite those saved widths. Save failures are shown in the status bar and revert the
+visibility change rather than claiming it persisted.
+
+### Agent approval modes and models
+
+Use **Options** beside an agent in the picker, **Configure ... approval mode and model** inside
+New Project, or **Settings → Agent approval modes and models...**. Choose the provider first:
+settings are stored independently and never reuse another provider's model ID.
+
+| Agent          | Supported launch modes                                                                                                           | Model input                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| GitHub Copilot | CLI default; auto-approve tools (`--allow-all-tools`), without adding all-path/all-URL permission flags                          | Exact model ID from Copilot's `/model` picker                      |
+| Claude Code    | CLI default; normal prompts; plan; auto-accept edits; auto mode using Claude's safety classifier                                 | `sonnet`, `opus`, `haiku`, or a full supported Claude model ID     |
+| Codex          | CLI default; untrusted-command approval with workspace-write sandbox; read-only sandbox; no prompts with workspace-write sandbox | Codex-supported ID from `/model`                                   |
+| Gemini CLI     | CLI default; normal prompts; plan; auto-edit; YOLO approval mode                                                                 | Gemini model ID/alias from `/model`                                |
+| Aider          | CLI default; always answer yes (`--yes-always`)                                                                                  | Aider/provider-qualified ID, discoverable with `/models <keyword>` |
+
+Leave the model empty and select **Use CLI defaults** to preserve the previous command exactly.
+CLI defaults can inherit previously granted permissions, environment/config settings, and managed
+organization policies; it does not force every operation to ask. Copilot/Aider do not expose a
+portable "force all manual approvals" override here. The app does not read credentials, contact
+provider APIs, or present a supposedly universal/account-verified model list.
+
+Saving a reduced-approval mode requires an explicit acknowledgement. Every actual launch in
+that mode also shows a native confirmation with the agent, working folder and generated command;
+Cancel is the default. Declining starts no terminal. Closing a tab while confirmation is pending
+cannot start a late orphan process. Modes are not equivalent: Codex auto retains its workspace
+sandbox; Copilot tool approval is not an all-path/all-URL grant; Aider yes mode creates no sandbox;
+Claude auto uses the CLI classifier, not a permission bypass.
+
+Saved choices apply to subsequent managed starts, resumes and restarts, including existing projects.
+They do not modify running terminals, attached plain shells, or custom commands entered manually.
+Model IDs are passed as one shell-safe token (up to 200 characters); unsupported/missing modes or
+models are surfaced by the CLI, not silently replaced. Some modes require recent CLI versions,
+model support or account entitlements; check each CLI's help if startup is rejected.
+
+### Reuse an opened folder
+
+Choose **New Project**, select an agent, then select a path under **Recently opened folders**.
+This fills the existing folder field without launching anything until you confirm.
+The same list is available when choosing a base repository for a Git worktree; selecting a
+different base updates generated worktree paths but does not overwrite a manually entered target.
+The scrollable list shows each folder's icon, name, and full path without a separate search box.
+
+**Workspace mode** uses folder/branch icons to distinguish opening a local folder from creating
+a Git worktree. The app remembers the last selected mode globally across agents and restarts,
+even if you cancel the dialog without creating a project. Existing preferences default to opening
+a folder. A loading/saving failure is shown with retry; a failed save retains the previous selection.
+The approval/model configuration button is marked with a settings icon.
+
+History is local to the application preferences and shared across agents. Existing registered
+project paths seed the list when upgrading; older provider-only folders appear after you open
+them again. Successful folder/worktree creation records the workspace and its worktree base;
+successful terminal opens also record the workspace. Browsing then cancelling does not add history.
+Missing/moved folders remain visible; attempting to open one reports an error rather than deleting
+it or silently opening another folder. A malformed/unwritable preferences file is reported without
+resetting user data. Removing a registered project does not erase its folder history.
+
 ### Use a release
 
 Download the asset for your platform from
 [jelllove releases](https://github.com/jelllove/Parallel-Agents/releases) or the
 [qinqingxu mirror](https://github.com/qinqingxu/Parallel-Agents/releases).
-The same release source and packages are published to both repositories.
-Windows users should run the NSIS installer. For an older portable archive, extract the whole
-directory before running `Parallel Agents.exe`. Available artifacts depend on the release.
+Mirror availability depends on the release; compare the tag and asset list rather than
+assuming both repositories' latest versions are identical.
+Windows users can run the NSIS installer or extract the entire ZIP before running
+`Parallel Agents.exe`. ZIP is an unpack-and-run distribution; preferences and provider histories
+still use your home directory, not a portable profile stored alongside the executable.
+Available artifacts depend on the release.
 Versions before 0.1.10 do not include automatic updates, so install an updater-enabled build
 manually once before relying on in-app checks.
+
+### About and updates
+
+The sidebar keeps its original compact **About** entry. Open it to view update status,
+download progress, the installed version, source commit, author
+website ([www.jelllove.com](http://www.jelllove.com)), and **Check for updates**.
+Supported packaged Windows builds check automatically and download in the background;
+**Restart to update** still asks for confirmation before stopping agents. Simply opening
+About does not start an update check or install.
+
+macOS, Linux, and development builds use manual updates. **View latest release / manual
+download** opens the primary repository's latest release in your system browser so you can
+choose the correct operating-system and architecture package. Link-opening and update-status
+failures are shown in the dialog; a failed initial status read can be retried.
 
 ### macOS and Linux targets
 
@@ -53,17 +163,24 @@ Starting with v0.1.16, the release build targets the following platforms. Each r
 native and packaged-app smoke checks on its target host before its packages are published.
 macOS/Linux are initial desktop ports, not a claim of compatibility with every system.
 
-| Platform | Architecture          | Distribution                                        |
-| -------- | --------------------- | --------------------------------------------------- |
-| Windows  | x64                   | `Parallel-Agents-Setup-<version>.exe`               |
-| macOS    | Apple Silicon / arm64 | `Parallel-Agents-<version>-mac-arm64.dmg` or `.zip` |
-| Linux    | x64, glibc desktop    | AppImage, DEB, and RPM (filenames below)            |
+| Platform       | Architecture          | Main package                                | Additional formats                      |
+| -------------- | --------------------- | ------------------------------------------- | --------------------------------------- |
+| Windows        | x64                   | `Parallel-Agents-Setup-<version>.exe`       | `Parallel-Agents-<version>-win-x64.zip` |
+| macOS          | Apple Silicon / ARM64 | `Parallel-Agents-<version>-mac-arm64.dmg`   | `.zip` with the same basename           |
+| macOS          | Intel / x64           | `Parallel-Agents-<version>-mac-x64.dmg`     | `.zip` with the same basename           |
+| Linux / Ubuntu | x64, glibc            | `Parallel-Agents-<version>-linux-amd64.deb` | AppImage, tar.gz, RPM (filenames below) |
+
+Windows ZIP, Intel macOS, Linux tar.gz, and RPM are additions in v0.1.17.
+Already-published v0.1.16 has the Windows installer, ARM64 Mac DMG/ZIP, and Linux DEB/AppImage;
+it does not gain new assets merely because the source configuration changes.
 
 On macOS, open the downloaded DMG and drag the application to
 Applications, or extract the ZIP. Initial Mac builds are ad-hoc signed, **not Developer ID signed
 or notarized**, and use no hardened-runtime release profile. Gatekeeper may block downloaded
 builds; use Apple's per-application approval only for a build you trust, not a global security
-bypass. Intel Mac builds are outside this initial target.
+bypass. Select the native ARM64 or Intel x64 asset for your Mac; these are separate packages,
+not a universal binary. Each Mac architecture must pass its own native build/smoke gate
+before its release assets are published.
 
 Linux packages target x64 glibc desktops with X11 or XWayland:
 
@@ -73,15 +190,31 @@ Linux packages target x64 glibc desktops with X11 or XWayland:
   local file with `dnf install`. RPM generation does not establish compatibility with every
   Fedora/RHEL release; verify its dependencies and native behavior on the intended distribution.
 - **Portable:** `Parallel-Agents-<version>-linux-x86_64.AppImage`; mark it executable and run it.
+- **Archive:** `Parallel-Agents-<version>-linux-x64.tar.gz`; extract the whole directory and run
+  its `parallel-agents` executable. Keep the bundled resources, native libraries, and sandbox helper
+  together. This archive does not install a desktop entry or system dependencies.
 
-RPM is an addition for the next release; the already-published v0.1.16 contains DEB and AppImage,
-not RPM. Use the asset list of the release you download as the authority.
+Use the asset list of the release you download as the authority.
 AppImage may require FUSE; distribution packages are preferable on systems that restrict
 unprivileged user namespaces.
 Do not run the app as root or pass `--no-sandbox` to work around a launch failure.
 Linux ARM and musl-based distributions are outside this initial target.
 
-Mac/Linux updates are manual; Windows automatic updates remain unchanged. Git and the desired
+#### Verified Linux distribution boundary
+
+| Distribution                                     | Actual evidence                                                                                                                                                                                                     | Not established                                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Ubuntu 24.04.5 x64 (GitHub `ubuntu-24.04` image) | [Native CI at commit `86a5292`](https://github.com/jelllove/Parallel-Agents/actions/runs/37736832858): real Electron/PTY and app.asar smoke passed under Xvfb; DEB, AppImage, and RPM generation/hash checks passed | Interactive desktop installation, tar.gz runtime, or every Ubuntu version                                             |
+| Debian, Fedora, RHEL and derivatives             | Package formats are available/configured                                                                                                                                                                            | Distribution-specific dependency resolution, installation, SELinux behavior and native runtime have not been verified |
+
+Linux CI is pinned to `ubuntu-24.04` so its qualification target does not change when
+`ubuntu-latest` moves. Generating RPM on Ubuntu is not a Fedora/RHEL compatibility certification.
+Archive users must still satisfy Electron's system-library and sandbox requirements.
+
+Mac/Linux updates are manual; installed Windows automatic updates remain unchanged.
+For the Windows ZIP, replace the extracted folder for archive updates; choosing the Windows
+in-app installer update installs the NSIS distribution rather than replacing that folder.
+Git and the desired
 agent CLIs must be installed separately. Desktop startup loads PATH from your login shell with
 a five-second timeout; failures warn and retain inherited PATH. Terminal clipboard shortcuts are
 Command+C/V on macOS and Ctrl+Shift+C/V on Linux, preserving Ctrl+C for interruption.
@@ -94,27 +227,39 @@ npm run validate
 npm run dist
 ```
 
-On Linux, `dist` builds AppImage, DEB, and RPM together. RPM packaging additionally needs
+`dist` builds only the current host architecture. On Windows it creates EXE and ZIP; on each
+Mac host it creates that architecture's DMG and ZIP, never both architectures from one native receipt.
+On Linux, `dist` builds AppImage, DEB, RPM, and tar.gz together. RPM packaging additionally needs
 `rpmbuild` (the `rpm` package on Debian/Ubuntu, `rpm-build` on Fedora) and `xz` on PATH.
 These are packaging prerequisites, not requirements for ordinary checks or application startup.
 
-`dist` includes native and packaged-app smoke checks. This does not certify DMG/AppImage/DEB/RPM
+`dist` includes native and packaged-app smoke checks. This does not certify every archive,
+DMG/AppImage/DEB/RPM
 installation, signing, or every desktop environment; review the
 [native smoke procedure](CONTRIBUTING.md#windows-native-smoke-test) and perform installation checks.
 
 Release packages include `SHA256SUMS` for download verification. The
 [release workflow](.github/workflows/release.yml) runs locked installation, repository checks,
-the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, and Linux x64.
+the dependency audit, and `npm run dist` on Windows x64, Apple Silicon macOS, Intel macOS, and
+Ubuntu 24.04 x64, using separate native runners and separate Mac artifact names.
 It preserves native/packaged smoke evidence and fails if required distribution files are missing.
-The Linux release runner installs RPM build tools and retains all three formats. The release
-asset checker requires nonempty DEB and RPM files and records their SHA-256 hashes, so a build
-with only one of these installer formats cannot be reported as release-ready.
-Publication is a separate explicit operation after all three builds succeed. The workflow itself
+The Linux release runner installs RPM build tools and retains all four formats. The release
+asset checker requires the complete platform matrix, including Windows ZIP and Linux tar.gz,
+and records each file's SHA-256 hash; Mac receipts must match the native architecture.
+Publication is a separate explicit operation after all four builds succeed. The workflow itself
 does not create or replace a GitHub release; local `npm run release` also does not publish.
+AI-authored releases must follow the
+[release-authoring skill](.github/skills/release-authoring/SKILL.md). The final
+**Verify complete release set** job rejects missing platforms, mixed versions/commits,
+incorrect native receipts, and changed asset bytes. Its `verified-release-set` artifact includes
+all package formats, `SHA256SUMS`, and `release-set.json` for the explicitly authorized publication.
+The same guard is available locally as `npm run verify:release -- --artifacts <download-directory>
+--commit <source-sha>`. Neither the skill nor the guard grants publication permission or makes
+direct manual GitHub uploads technically impossible.
 
 ### Develop from source
 
-Use **Windows x64**, **macOS arm64**, or **Linux x64**, with **Node.js 24**, **npm 11**, and **Git on PATH**.
+Use **Windows x64**, **macOS arm64/x64**, or **Linux x64**, with **Node.js 24**, **npm 11**, and **Git on PATH**.
 [.node-version](.node-version) pins **24.17.0** for reproducible setup; the compatible engine ranges
 in [package.json](package.json) are Node `^24.17.0` and npm `>=11 <12`.
 The desktop runtime is **Electron 43** (`^43.6.0`), separate from the Node installation used for

@@ -56,7 +56,7 @@ export function Sidebar({ onAbout }: Props) {
                 <span className="section-glyph">▣</span>
                 <span>Projects</span>
               </div>
-              <ProjectList />
+              <ProjectList onNewProject={setNewProjectAgent} />
             </div>
           </Panel>
           <PanelResizeHandle className="resize-handle-h" />

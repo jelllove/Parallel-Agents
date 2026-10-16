@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { Api, UpdateStatus } from '../shared/types';
 
 const api: Api = {
+  workspace: {
+    getRecentFolders: () => ipcRenderer.invoke('workspace:getRecentFolders'),
+    getMode: () => ipcRenderer.invoke('workspace:getMode'),
+    setMode: (mode) => ipcRenderer.invoke('workspace:setMode', mode),
+  },
   platform:
     process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux'
       ? process.platform
@@ -64,10 +69,16 @@ const api: Api = {
     pickDirectory: () => ipcRenderer.invoke('dialog:pickDirectory'),
   },
   agents: {
+    getLaunchSettings: () => ipcRenderer.invoke('agents:getLaunchSettings'),
+    setLaunchOptions: (agent, options, acknowledged) =>
+      ipcRenderer.invoke('agents:setLaunchOptions', agent, options, acknowledged),
     list: () => ipcRenderer.invoke('agents:list'),
     checkAll: () => ipcRenderer.invoke('agents:checkAll'),
   },
   config: {
+    getAgentLayout: () => ipcRenderer.invoke('config:getAgentLayout'),
+    setAgentOrder: (ids) => ipcRenderer.invoke('config:setAgentOrder', ids),
+    setAgentPinned: (agent, pinned) => ipcRenderer.invoke('config:setAgentPinned', agent, pinned),
     getFontSize: () => ipcRenderer.invoke('config:getFontSize'),
     setFontSize: (size) => ipcRenderer.invoke('config:setFontSize', size),
     getFontFamily: () => ipcRenderer.invoke('config:getFontFamily'),

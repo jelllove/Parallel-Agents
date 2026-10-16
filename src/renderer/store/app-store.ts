@@ -18,6 +18,7 @@ import {
   type FontFamilyId,
 } from '../../shared/typography.ts';
 import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/agent-commands.ts';
+import { moveSidebarItem } from '../../shared/sidebar-order.ts';
 import { pickDeletableMissingProjectIds } from './project-cleanup.ts';
 import {
   cleanupShellStateForTabs,
@@ -51,6 +52,10 @@ export interface SessionLinkRequest {
 }
 
 interface AppState {
+  layoutError: string | null;
+  layoutSaving: boolean;
+  launchSettingsAgent: AgentId | null;
+  showAgentLaunchSettings: (agent: AgentId | null) => void;
   projects: Project[];
   adhocProjects: Project[];
   inventoryRefreshing: boolean;
@@ -154,15 +159,24 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
 });
 
 let layoutWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let layoutSaveId = 0;
 function scheduleLayoutWrite(layout: LayoutConfig) {
   if (layoutWriteTimer) clearTimeout(layoutWriteTimer);
   layoutWriteTimer = setTimeout(() => {
-    void window.api.config.setLayout(layout);
+    void window.api.config.setLayout(layout).catch((error: unknown) => {
+      useAppStore.setState({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    });
     layoutWriteTimer = null;
   }, 300);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  layoutError: null,
+  layoutSaving: false,
+  launchSettingsAgent: null,
+  showAgentLaunchSettings: (agent) => set({ launchSettingsAgent: agent }),
   projects: [],
   adhocProjects: [],
   inventoryRefreshing: false,
@@ -557,15 +571,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async reorderProjects(agent, fromId, toId) {
     if (fromId === toId) return;
-    const groupIds = get()
-      .projects.filter((p) => p.agent === agent)
-      .map((p) => p.id);
-    const fromIdx = groupIds.indexOf(fromId);
-    const toIdx = groupIds.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...groupIds];
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromId);
+    const group = get().projects.filter((p) => p.agent === agent);
+    const from = group.find((p) => p.id === fromId);
+    const to = group.find((p) => p.id === toId);
+    if (!from || !to || from.pinned !== to.pinned) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
+    const next = moveSidebarItem(
+      group.map((p) => p.id),
+      fromId,
+      toId,
+    );
     await window.api.projects.setOrder(agent, next);
     await get().loadProjects();
   },
@@ -648,25 +664,45 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async loadLayout() {
-    const layout = await window.api.config.getLayout();
-    set({ layout });
+    try {
+      const layout = await window.api.config.getLayout();
+      set({ layout, layoutError: null });
+    } catch (error) {
+      set({
+        layoutError: `Could not load window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   },
 
   async setLayout(layout) {
-    set({ layout });
+    const saveId = ++layoutSaveId;
+    const previous = get().layout;
+    set({ layout, layoutError: null, layoutSaving: true });
     if (layoutWriteTimer) {
       clearTimeout(layoutWriteTimer);
       layoutWriteTimer = null;
     }
-    await window.api.config.setLayout(layout);
+    try {
+      await window.api.config.setLayout(layout);
+    } catch (error) {
+      if (get().layout === layout) set({ layout: previous });
+      set({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      throw error;
+    } finally {
+      if (saveId === layoutSaveId) set({ layoutSaving: false });
+    }
   },
 
   updateLayoutSizes(sizes) {
     const cur = get().layout;
+    if (get().layoutSaving) return;
     if (!cur) return;
+    if (cur.hiddenPanes?.length) return;
     if (sizes.length !== 3) return;
     const next: LayoutConfig = {
-      order: cur.order,
+      ...cur,
       sizes: [sizes[0], sizes[1], sizes[2]],
     };
     const same = cur.sizes.every((v, i) => Math.abs(v - next.sizes[i]) < 0.01);

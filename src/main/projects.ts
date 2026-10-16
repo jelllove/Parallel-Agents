@@ -19,6 +19,7 @@ import type { NewProjectOptions } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
 import { createProjectWorktree, findProjectRepositoryRoot } from './worktrees.ts';
 import { AGENT_IDS } from './agent-providers.ts';
+import { orderedAgents } from '../shared/sidebar-order.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -385,7 +386,9 @@ export async function listProjects(): Promise<Project[]> {
       lastActivity: null,
     });
   }
+  const agentOrder = orderedAgents(cfg);
   return out.sort((a, b) => {
+    if (a.agent !== b.agent) return agentOrder.indexOf(a.agent) - agentOrder.indexOf(b.agent);
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.agent === b.agent) {
       const order = cfg.projectOrder[a.agent] ?? [];
@@ -428,7 +431,10 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       ? ((await findProjectRepositoryRoot(realPath)) ?? realPath)
       : realPath;
   try {
-    await preferences.registerProject({ id, agent: options.agent, realPath, historyPath });
+    await preferences.registerProject(
+      { id, agent: options.agent, realPath, historyPath },
+      options.mode === 'worktree' ? [options.basePath] : [],
+    );
   } catch (error) {
     throw new Error(
       `Folder is ready at "${realPath}", but saving the project failed: ${error instanceof Error ? error.message : String(error)}`,
