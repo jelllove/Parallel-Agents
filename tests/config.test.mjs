@@ -8,6 +8,8 @@ import { createConfigStore } from '../src/main/config-store.ts';
 
 function defaults() {
   return {
+    agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'aider'],
+    pinnedAgents: [],
     pinned: [],
     hidden: [],
     lastAgentByProject: {},

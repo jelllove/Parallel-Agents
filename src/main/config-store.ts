@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { AgentId, AppConfig, LayoutConfig, ThemeMode } from '../shared/types.ts';
+import type { AgentId, AgentLayout, AppConfig, LayoutConfig, ThemeMode } from '../shared/types.ts';
 import {
   agentId,
+  agentOrderSetting,
   booleanSetting,
   defaultConfig,
   layoutSetting,
@@ -147,6 +148,24 @@ export function createConfigStore(configPath: string) {
   return {
     loadConfig,
     saveConfig,
+    async getAgentLayout(): Promise<AgentLayout> {
+      const { agentOrder, pinnedAgents } = await loadConfig();
+      return { agentOrder, pinnedAgents };
+    },
+    async setAgentOrder(ids: AgentId[]): Promise<void> {
+      const order = agentOrderSetting(ids);
+      await updateConfig((config) => ({ ...config, agentOrder: order }));
+    },
+    async setAgentPinned(agent: AgentId, pinned: boolean): Promise<void> {
+      const key = agentId(agent);
+      const enabled = booleanSetting(pinned, 'pinnedAgents');
+      await updateConfig((config) => {
+        const ids = new Set(config.pinnedAgents);
+        if (enabled) ids.add(key);
+        else ids.delete(key);
+        return { ...config, pinnedAgents: [...ids] };
+      });
+    },
     setProjectPinned: (id: string, pinned: boolean) => setProjectFlag('pinned', id, pinned),
     setProjectHidden: (id: string, hidden: boolean) => setProjectFlag('hidden', id, hidden),
     async setLastAgent(id: string, agent: AgentId): Promise<void> {

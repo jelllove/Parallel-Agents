@@ -13,7 +13,8 @@ async function backend(home) {
   const outputFile = join(outputDirectory, 'backend.cjs');
   const result = await build({
     stdin: {
-      contents: "export * from './src/main/projects.ts'; export * from './src/main/sessions.ts';",
+      contents:
+        "export * from './src/main/projects.ts'; export * from './src/main/sessions.ts'; export { setProjectOrder, setProjectPinned } from './src/main/config.ts';",
       resolveDir: process.cwd(),
     },
     platform: 'node',
@@ -50,6 +51,37 @@ async function backend(home) {
     await rm(outputDirectory, { recursive: true, force: true });
   }
 }
+
+test('manual project ordering remains deterministic when different agents are interleaved', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-interleaved-project-order-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const api = await backend(home);
+  const created = [];
+  for (const [name, agent] of [
+    ['one', 'claude'],
+    ['foreign', 'copilot'],
+    ['two', 'claude'],
+  ]) {
+    const basePath = join(home, name);
+    await mkdir(basePath);
+    created.push(await api.createProject({ agent, mode: 'folder', basePath }));
+  }
+  await api.setProjectOrder('claude', [created[2].id, created[0].id]);
+  assert.deepEqual(
+    (await api.listProjects()).filter((p) => p.agent === 'claude').map((p) => p.id),
+    [created[2].id, created[0].id],
+  );
+  await api.setProjectPinned(created[0].id, true);
+  assert.deepEqual(
+    (await api.listProjects()).filter((p) => p.agent === 'claude').map((p) => p.id),
+    [created[0].id, created[2].id],
+  );
+  const restarted = await backend(home);
+  assert.deepEqual(
+    (await restarted.listProjects()).filter((p) => p.agent === 'claude').map((p) => p.id),
+    [created[0].id, created[2].id],
+  );
+});
 
 test('new project survives restart, discovers history under stable ID, and renames persist', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-project-integration-'));

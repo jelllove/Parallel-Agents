@@ -14,6 +14,9 @@ import {
 } from './fs-explorer.ts';
 import {
   setProjectPinned,
+  getAgentLayout,
+  setAgentOrder,
+  setAgentPinned,
   setProjectHidden,
   setLastAgent,
   getLastAgent,
@@ -38,6 +41,7 @@ import type {
   ThemeMode,
   NewProjectOptions,
   PtySpawnOptions,
+  WorkspaceMode,
 } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
 import { prepareAgentLaunch } from './agent-launcher.ts';
@@ -104,6 +108,10 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle(
     'workspace:getRecentFolders',
     async () => (await preferences.read()).recentFolders,
+  );
+  ipcMain.handle('workspace:getMode', async () => (await preferences.read()).workspaceMode);
+  ipcMain.handle('workspace:setMode', (_e, mode: WorkspaceMode) =>
+    preferences.setWorkspaceMode(mode),
   );
   ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
     const prepareCommand = (command: string | undefined) =>
@@ -177,6 +185,11 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('config:getLastAgent', (_e, projectId: string) => getLastAgent(projectId));
   ipcMain.handle('config:setLastAgent', (_e, projectId: string, agentId: AgentId) =>
     setLastAgent(projectId, agentId),
+  );
+  ipcMain.handle('config:getAgentLayout', () => getAgentLayout());
+  ipcMain.handle('config:setAgentOrder', (_e, ids: AgentId[]) => setAgentOrder(ids));
+  ipcMain.handle('config:setAgentPinned', (_e, agent: AgentId, pinned: boolean) =>
+    setAgentPinned(agent, pinned),
   );
   ipcMain.handle('config:getLayout', () => getLayout());
   ipcMain.handle('config:setLayout', (_e, layout: LayoutConfig) => setLayout(layout));

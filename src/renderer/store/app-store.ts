@@ -18,6 +18,7 @@ import {
   type FontFamilyId,
 } from '../../shared/typography.ts';
 import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/agent-commands.ts';
+import { moveSidebarItem } from '../../shared/sidebar-order.ts';
 import { pickDeletableMissingProjectIds } from './project-cleanup.ts';
 import {
   cleanupShellStateForTabs,
@@ -570,15 +571,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async reorderProjects(agent, fromId, toId) {
     if (fromId === toId) return;
-    const groupIds = get()
-      .projects.filter((p) => p.agent === agent)
-      .map((p) => p.id);
-    const fromIdx = groupIds.indexOf(fromId);
-    const toIdx = groupIds.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...groupIds];
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromId);
+    const group = get().projects.filter((p) => p.agent === agent);
+    const from = group.find((p) => p.id === fromId);
+    const to = group.find((p) => p.id === toId);
+    if (!from || !to || from.pinned !== to.pinned) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
+    const next = moveSidebarItem(
+      group.map((p) => p.id),
+      fromId,
+      toId,
+    );
     await window.api.projects.setOrder(agent, next);
     await get().loadProjects();
   },

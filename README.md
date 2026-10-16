@@ -26,7 +26,7 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 - **Provider-specific launch settings** for approval modes and model IDs, saved independently
   per agent and applied to managed new/resumed launches without restarting running terminals.
 - **New project workflow** for opening folders directly or creating Git worktrees before launch.
-- **Recently opened folders in the same Create/Open dialog**, with searchable full paths and
+- **Recently opened folders in the same Create/Open dialog**, with folder icons, full paths and
   one-click reuse for both folder and worktree modes. Successfully opened folders persist across
   restarts, are deduplicated and sorted by latest use, and are not truncated to a fixed count.
 - **Project cleanup** for deleting missing provider histories after review and acknowledgement.
@@ -42,6 +42,22 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   confirmation and does not require a tray. F11 toggles fullscreen.
 
 ## Quick start
+
+### Quick-create, pin, and arrange projects
+
+The top **New Project** button still opens the agent picker. Each agent heading also has a **+**
+button that opens the same Create/Open dialog directly for that agent, including recent folders
+and its launch settings. The shortcut is disabled when that CLI is not installed.
+
+Use the pin button on an agent heading or a project row to **Pin / Unpin** it. Pinned agents stay
+above other agents; pinned projects stay at the top of their own agent group. Drag an agent heading
+to arrange groups, or drag a project to arrange it within the same agent. Pinned and unpinned items
+are reordered separately: dragging does not change Pin status or move projects between agents.
+Right-click a heading or project for **Move up / Move down** as an alternative to dragging.
+
+Agent order, project order, and both kinds of pins are saved across restarts. These actions do not
+open projects or restart terminals. Configuration failures are shown in the sidebar with a reload
+action; an unsuccessful save is not shown as a persisted change.
 
 ### Hide sidebars and focus on coding
 
@@ -97,7 +113,13 @@ Choose **New Project**, select an agent, then select a path under **Recently ope
 This fills the existing folder field without launching anything until you confirm.
 The same list is available when choosing a base repository for a Git worktree; selecting a
 different base updates generated worktree paths but does not overwrite a manually entered target.
-Use the filter to find a folder by name or full path.
+The scrollable list shows each folder's icon, name, and full path without a separate search box.
+
+**Workspace mode** uses folder/branch icons to distinguish opening a local folder from creating
+a Git worktree. The app remembers the last selected mode globally across agents and restarts,
+even if you cancel the dialog without creating a project. Existing preferences default to opening
+a folder. A loading/saving failure is shown with retry; a failed save retains the previous selection.
+The approval/model configuration button is marked with a settings icon.
 
 History is local to the application preferences and shared across agents. Existing registered
 project paths seed the list when upgrading; older provider-only folders appear after you open
@@ -120,6 +142,20 @@ still use your home directory, not a portable profile stored alongside the execu
 Available artifacts depend on the release.
 Versions before 0.1.10 do not include automatic updates, so install an updater-enabled build
 manually once before relying on in-app checks.
+
+### About and updates
+
+The sidebar keeps its original compact **About** entry. Open it to view update status,
+download progress, the installed version, source commit, author
+website ([www.jelllove.com](http://www.jelllove.com)), and **Check for updates**.
+Supported packaged Windows builds check automatically and download in the background;
+**Restart to update** still asks for confirmation before stopping agents. Simply opening
+About does not start an update check or install.
+
+macOS, Linux, and development builds use manual updates. **View latest release / manual
+download** opens the primary repository's latest release in your system browser so you can
+choose the correct operating-system and architecture package. Link-opening and update-status
+failures are shown in the dialog; a failed initial status read can be retried.
 
 ### macOS and Linux targets
 

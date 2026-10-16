@@ -49,6 +49,8 @@ Main owns platform integration: a bounded login-shell PATH import precedes CLI d
 and Git operations on POSIX, Bourne-style agent terminals use login shells, and platform menus preserve
 quit confirmation. Windows/macOS close hides the window; Linux close requests a confirmed
 quit so desktop environments without a tray cannot strand the application.
+Windows explicitly removes the application menu before creating windows, so Alt cannot reveal
+Electron's default menu bar. macOS/Linux retain their native application menus.
 Preload adds a read-only `platform` identifier alongside the existing typed API for renderer
 shortcuts. Command+C/V on macOS
 and Ctrl+Shift+C/V on Linux leave Ctrl+C available to interrupt POSIX terminals.
@@ -191,7 +193,44 @@ PTY events carry the same terminal key used to spawn the PTY. Git events carry a
 Callers must release subscriptions when effects unmount; quitting the app cleans up main-process
 watchers and PTYs. A channel's TypeScript annotation does not validate an arbitrary runtime payload.
 
+### About and update discovery
+
+[AboutDialog](src/renderer/components/AboutDialog.tsx) uses
+[useUpdateStatus](src/renderer/hooks/use-update-status.ts) to subscribe before reading the
+updater snapshot. Live events take precedence over stale reads; unmount removes listeners
+and ignores pending responses. Status-read failures can be retried without initiating an
+update check, and pending actions reject duplicate clicks.
+
+The sidebar retains its original compact **About** button, without a status badge or an
+update-status subscription. The dialog adds installed
+version/update controls, an author website, and a latest-release link. Links use the existing
+`shell.openExternal` bridge and surface browser-opening failures instead of navigating the
+renderer. This does not change updater policy: automatic checks/downloads remain Windows
+packaged-build only, macOS/Linux/development builds use manual downloads, and installing still
+passes through the existing explicit main-process restart confirmation.
+
 ## Identity and terminal flow
+
+### Agent and project sidebar arrangement
+
+[ProjectList](src/renderer/components/ProjectList.tsx) routes each agent heading's quick-create
+button through [Sidebar](src/renderer/components/Sidebar.tsx) to the existing
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). The global agent picker remains.
+Unavailable CLIs retain the same create restriction as the picker.
+
+The existing config store now persists `agentOrder` and `pinnedAgents`, separately from project
+`pinned` and `projectOrder`. Legacy configs gain the former fixed agent order and no pinned groups.
+The schema rejects missing/duplicate/unknown entries in a supplied order, rather than resetting
+invalid files. Typed config IPC exposes get-agent-layout, set-agent-order, and set-agent-pinned
+operations; independent field mutations use the same serialized atomic store as project settings.
+
+[Sidebar ordering](src/shared/sidebar-order.ts) keeps pinned groups first while preserving saved
+order inside each section. Projects reuse their existing pin/order APIs. Drag/drop and the
+up/down menus are limited to the same pin section, and projects stay within their own agent.
+Project listing sorts by agent first, then project pin/manual order and activity, so interleaved
+provider discovery or registration cannot defeat a saved within-agent order.
+Cancelled drags clear highlights; writes are guarded against duplicate clicks and failures remain
+visible with reload recovery. Reordering never changes project/session IDs, tab identity, or PTYs.
 
 ### Persistent side-pane visibility
 
@@ -252,13 +291,22 @@ Windows path identities ignore case, POSIX identities retain case, and paths mus
 There is no fixed history-count cap; duplicate opens move a path to the front.
 
 The typed `workspace.getRecentFolders` preload/IPC method feeds
-[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its bounded-height searchable
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its bounded-height, icon-labeled
 list lives inside the existing modal for both open-folder and worktree modes; selection fills
 the path but never submits. Async loads are guarded on unmount and errors are visible rather
 than converted to an empty-history success. Missing paths stay in history and normal open
 validation reports the failure. Generated target paths update on selection while explicit targets
 remain untouched. The native fixture verifies real persistence, list rendering, path selection,
 and dialog reopening with generated provider data only.
+
+The same preferences store persists `workspaceMode` (`folder` or `worktree`) through typed
+`workspace.getMode` / `workspace.setMode` IPC. It is global, saved on selection rather than on
+project creation, and defaults to `folder` for legacy files without rewriting them on read.
+Invalid stored modes are reported and preserved. The modal blocks submission until mode loading
+or saving finishes, retains the previous mode on write failure, and provides an explicit retry.
+The native select keeps keyboard behavior and uses folder/branch symbols in both option labels;
+recent folders use existing local icon assets with no search field. Async mode responses are ignored
+after unmount, and duplicate writes are guarded.
 
 The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:
 it exports the `ptyManager` singleton using `node-pty`'s real `spawn`.

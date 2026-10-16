@@ -182,6 +182,15 @@ The fixture checks:
 - A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
+- Windows has no application menu, and pressing Alt does not reveal a menu bar.
+- Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
+  pin buttons persist both agent and project ordering without recreating the running terminal.
+  Extra project folders and configuration writes belong only to the disposable fixture.
+- New Project displays settings/workspace/folder icons without a recent-folder search field.
+  Changing workspace mode persists even after cancelling and opening another agent's dialog.
+- The original compact **About** entry (without a status badge) opening the installed-version/update controls and the exact
+  author website/latest-release links crossing IPC. The fixture replaces Electron's external
+  browser opener with an in-memory recorder; it does not open a browser or contact those sites.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
 

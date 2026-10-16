@@ -10,7 +10,7 @@ import {
   validateFontSize,
   type FontFamilyId,
 } from '../shared/typography.ts';
-import type { AgentId, RegisteredProject } from '../shared/types.ts';
+import type { AgentId, RegisteredProject, WorkspaceMode } from '../shared/types.ts';
 import {
   AGENT_LAUNCH,
   validateLaunchOptions,
@@ -25,10 +25,18 @@ interface Preferences {
   fontBold: boolean;
   projects: RegisteredProject[];
   recentFolders: string[];
+  workspaceMode: WorkspaceMode;
   agentLaunchOptions: AgentLaunchSettings;
 }
 
 const agentIds = new Set<AgentId>(['claude', 'codex', 'gemini', 'aider', 'copilot']);
+
+function validateWorkspaceMode(value: unknown): WorkspaceMode {
+  if (value !== 'folder' && value !== 'worktree') {
+    throw new TypeError('Workspace mode must be folder or worktree.');
+  }
+  return value;
+}
 
 function validateRegisteredProject(value: unknown): RegisteredProject {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -111,6 +119,7 @@ export class PreferencesStore {
         fontBold: false,
         projects: [],
         recentFolders: [],
+        workspaceMode: 'folder',
         agentLaunchOptions: {},
       };
     }
@@ -143,7 +152,10 @@ export class PreferencesStore {
     const agentLaunchOptions = Object.hasOwn(data, 'agentLaunchOptions')
       ? validateLaunchSettings(data.agentLaunchOptions)
       : {};
-    return { ...data, projects, recentFolders, agentLaunchOptions };
+    const workspaceMode = Object.hasOwn(data, 'workspaceMode')
+      ? validateWorkspaceMode(data.workspaceMode)
+      : 'folder';
+    return { ...data, projects, recentFolders, agentLaunchOptions, workspaceMode };
   }
 
   private update(change: (data: Preferences) => Preferences): Promise<void> {
@@ -199,6 +211,11 @@ export class PreferencesStore {
       ...data,
       recentFolders: this.uniqueFolders([path, ...data.recentFolders]),
     }));
+  }
+
+  async setWorkspaceMode(mode: WorkspaceMode): Promise<void> {
+    const workspaceMode = validateWorkspaceMode(mode);
+    await this.update((data) => ({ ...data, workspaceMode }));
   }
 
   async setAgentLaunchOptions(

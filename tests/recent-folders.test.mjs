@@ -12,6 +12,37 @@ async function fixture(t, platform = process.platform) {
   return { root, path, store: new PreferencesStore(path, platform) };
 }
 
+test('workspace mode defaults for legacy preferences and persists independently of project creation', async (t) => {
+  const { path, store } = await fixture(t);
+  const legacy = JSON.stringify({ sessionNames: {}, projects: [], fontSize: 14 });
+  await writeFile(path, legacy);
+  assert.equal((await store.read()).workspaceMode, 'folder');
+  assert.equal(await readFile(path, 'utf8'), legacy);
+  await Promise.all([store.setWorkspaceMode('worktree'), store.setFontSize(18)]);
+  assert.equal((await new PreferencesStore(path).read()).workspaceMode, 'worktree');
+  assert.equal((await store.read()).fontSize, 18);
+  assert.deepEqual((await store.read()).projects, []);
+  await store.setWorkspaceMode('folder');
+  assert.equal((await new PreferencesStore(path).read()).workspaceMode, 'folder');
+});
+
+test('invalid workspace modes are rejected and invalid saved values are not overwritten', async (t) => {
+  const { path, store } = await fixture(t);
+  await store.setWorkspaceMode('folder');
+  const before = await readFile(path, 'utf8');
+  for (const value of [null, undefined, '', 'other', 1, {}, []]) {
+    await assert.rejects(store.setWorkspaceMode(value), /workspace mode/i);
+    assert.equal(await readFile(path, 'utf8'), before);
+  }
+  for (const value of [null, '', 'other', 1, {}, []]) {
+    const malformed = JSON.stringify({ ...JSON.parse(before), workspaceMode: value });
+    await writeFile(path, malformed);
+    await assert.rejects(store.read(), /workspace mode/i);
+    await assert.rejects(store.setWorkspaceMode('folder'), /workspace mode/i);
+    assert.equal(await readFile(path, 'utf8'), malformed);
+  }
+});
+
 test('successful folders persist across restart and reopening moves them to the front without truncation', async (t) => {
   const { root, path, store } = await fixture(t);
   const folders = [];
