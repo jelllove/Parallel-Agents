@@ -40,8 +40,8 @@ Filesystem, process, and Git channels remain privileged operations.
 
 ### Desktop portability contract
 
-The port targets Windows x64, macOS Apple Silicon (`arm64`), and Linux x64
-(glibc desktops with X11 or XWayland). Intel macOS, Linux ARM,
+The packaging contract targets Windows x64, macOS Apple Silicon (`arm64`) and Intel (`x64`),
+and Linux x64 (Ubuntu 24.04 glibc desktops with X11 or XWayland). Linux ARM,
 musl distributions, signed/notarized Mac releases, and automatic updates outside Windows
 are outside this initial scope. Existing Windows installer/update behavior must remain intact.
 
@@ -49,6 +49,8 @@ Main owns platform integration: a bounded login-shell PATH import precedes CLI d
 and Git operations on POSIX, Bourne-style agent terminals use login shells, and platform menus preserve
 quit confirmation. Windows/macOS close hides the window; Linux close requests a confirmed
 quit so desktop environments without a tray cannot strand the application.
+Windows explicitly removes the application menu before creating windows, so Alt cannot reveal
+Electron's default menu bar. macOS/Linux retain their native application menus.
 Preload adds a read-only `platform` identifier alongside the existing typed API for renderer
 shortcuts. Command+C/V on macOS
 and Ctrl+Shift+C/V on Linux leave Ctrl+C available to interrupt POSIX terminals.
@@ -59,10 +61,25 @@ on all three platforms (Xvfb on Linux), rather than counting skipped checks as s
 Static Windows tests cannot establish native Mac/Linux operation; native receipts and
 manual installation checks on those hosts remain necessary before a release claim.
 
-Linux distribution output preserves AppImage and DEB and adds RPM, all for x64, without
+The distribution matrix adds an uninstalled Windows ZIP alongside the existing NSIS installer,
+separate native Intel Mac DMG/ZIP files alongside ARM64, and Linux tar.gz alongside DEB,
+AppImage, and RPM. These changes do not migrate user data or change application runtime code.
+Windows ZIP is an unpack-and-run application, not a profile-isolated portable-data mode.
+Linux archives preserve the full Electron application; they are not system packages.
+
+[package-desktop.mjs](scripts/package-desktop.mjs) reads the manifest's target list and invokes
+the builder with explicit target names and exactly the host architecture, retaining
+`--publish never`, the Node environment proxy, and the fetch timeout adapter. Merely passing
+`--x64` while leaving target names empty causes electron-builder to expand both configured Mac
+architectures; explicit targets prevent cross-architecture builds from borrowing a native receipt.
+Intel smoke resolves `release/mac/Parallel Agents.app`; ARM64 resolves `release/mac-arm64`.
+CI and release jobs use separate Mac labels and artifacts; both pass `macOS` to the existing
+v3 CI receipt platform field, while native smoke records the actual architecture.
+
+Linux distribution output preserves AppImage, DEB, and RPM and adds tar.gz for x64, without
 changing application runtime code. Electron-builder maps x64 to `amd64` for DEB and `x86_64`
 for RPM/AppImage filenames. The release workflow supplies `rpmbuild` on its Linux runner and
-uploads both installer formats. Release readiness requires all three nonempty Linux assets
+uploads both installer formats and the archives. Release readiness requires all four nonempty Linux assets
 and records their hashes alongside native/packaged smoke receipts. RPM generation is not proof
 of Fedora/RHEL installation compatibility; validate the target distribution separately.
 
@@ -106,11 +123,24 @@ not the Electron app. Local proxy/timeout fixtures, actual target-host distribut
 and the full audit are the validation gate.
 
 `pack` and `dist` run build → native smoke → electron-builder with `--publish never` →
-`test:packaged`; `pack` adds `--dir` for unpacked output. `test:packaged` runs the same native/offline
+`test:packaged`; `pack` selects the builder's `dir` target for unpacked output. `test:packaged` runs the same native/offline
 UI fixture against the real `app.asar` bundle with fresh isolated data and emits
 `reports\packaged-smoke.json` / `reports\packaged-smoke.png`.
 `release` runs `pack` and promotes to `release\latest` only after both smoke gates succeed.
 It does not publish over the network, but it can replace existing local artifacts.
+
+Release authoring is governed by the mandatory
+[project skill](.github/skills/release-authoring/SKILL.md), not by local build success alone.
+[release-assets.mjs](scripts/release-assets.mjs) exposes the shared four-target/filename and
+streamed hash contracts used by both the native jobs and
+[verify-release-set.mjs](scripts/verify-release-set.mjs). The latter aggregates one run's
+downloaded receipts/packages, requires the same exact source/version, verifies both native
+smoke identities and byte hashes, rejects links/unexpected or missing inputs, and creates a
+fresh checksum-bound publication set. The release workflow's aggregate job depends on all four
+native jobs and emits `verified-release-set`; publication remains an explicit separate action.
+The release-set v1 manifest records artifact consistency, not independent native execution or
+installer/signing qualification. Runtime, packaging target selection, and provider state do not
+depend on this authoring skill or aggregate verifier.
 
 ## Source map
 
@@ -163,7 +193,120 @@ PTY events carry the same terminal key used to spawn the PTY. Git events carry a
 Callers must release subscriptions when effects unmount; quitting the app cleans up main-process
 watchers and PTYs. A channel's TypeScript annotation does not validate an arbitrary runtime payload.
 
+### About and update discovery
+
+[AboutDialog](src/renderer/components/AboutDialog.tsx) uses
+[useUpdateStatus](src/renderer/hooks/use-update-status.ts) to subscribe before reading the
+updater snapshot. Live events take precedence over stale reads; unmount removes listeners
+and ignores pending responses. Status-read failures can be retried without initiating an
+update check, and pending actions reject duplicate clicks.
+
+The sidebar retains its original compact **About** button, without a status badge or an
+update-status subscription. The dialog adds installed
+version/update controls, an author website, and a latest-release link. Links use the existing
+`shell.openExternal` bridge and surface browser-opening failures instead of navigating the
+renderer. This does not change updater policy: automatic checks/downloads remain Windows
+packaged-build only, macOS/Linux/development builds use manual downloads, and installing still
+passes through the existing explicit main-process restart confirmation.
+
 ## Identity and terminal flow
+
+### Agent and project sidebar arrangement
+
+[ProjectList](src/renderer/components/ProjectList.tsx) routes each agent heading's quick-create
+button through [Sidebar](src/renderer/components/Sidebar.tsx) to the existing
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). The global agent picker remains.
+Unavailable CLIs retain the same create restriction as the picker.
+
+The existing config store now persists `agentOrder` and `pinnedAgents`, separately from project
+`pinned` and `projectOrder`. Legacy configs gain the former fixed agent order and no pinned groups.
+The schema rejects missing/duplicate/unknown entries in a supplied order, rather than resetting
+invalid files. Typed config IPC exposes get-agent-layout, set-agent-order, and set-agent-pinned
+operations; independent field mutations use the same serialized atomic store as project settings.
+
+[Sidebar ordering](src/shared/sidebar-order.ts) keeps pinned groups first while preserving saved
+order inside each section. Projects reuse their existing pin/order APIs. Drag/drop and the
+up/down menus are limited to the same pin section, and projects stay within their own agent.
+Project listing sorts by agent first, then project pin/manual order and activity, so interleaved
+provider discovery or registration cannot defeat a saved within-agent order.
+Cancelled drags clear highlights; writes are guarded against duplicate clicks and failures remain
+visible with reload recovery. Reordering never changes project/session IDs, tab identity, or PTYs.
+
+### Persistent side-pane visibility
+
+`LayoutConfig.hiddenPanes` optionally contains `sidebar` and/or `right`; old layouts keep their
+exact shape and default to visible. The config schema rejects invalid/duplicate names and cannot
+hide `middle`. [pane-visibility.ts](src/shared/pane-visibility.ts) projects hidden widths to zero
+and transfers that space to the terminal for all six column orders without changing stored
+expanded sizes. The status bar exposes independent and focus/restore controls outside the panes.
+
+App keeps the same panel/content nodes and stable horizontal group key while visibility changes,
+updates native panel constraints, hides corresponding resize handles, and applies the projected
+layout through its imperative group handle. Hidden contents remain mounted and receive
+`hidden`/`aria-hidden`, preserving PTYs/session tabs and removing hidden actions from keyboard
+navigation. Layout transitions do not persist intermediate collapsed sizes; focus mode keeps
+original expanded widths for restore. Persistence errors are explicit, with failed visibility
+changes rolled back and surfaced in a status-bar alert. The native fixture checks full-width
+focus, restore accessibility, original dimensions, terminal DOM identity and PTY identities.
+
+### Provider-specific launch configuration
+
+[agent-launch.ts](src/shared/agent-launch.ts) owns the per-provider mode catalog, model guidance,
+strict saved-options validation and fixed managed start/resume command recognition. Only known
+approval flag arrays are generated. Models are one bounded shell-safe token, not arbitrary extra
+arguments; no model list is inferred from another provider or queried from live accounts.
+The unchanged [agent-commands.ts](src/shared/agent-commands.ts) still builds base commands and
+session identity; an empty/default launch setting leaves them byte-for-byte compatible.
+
+[PreferencesStore](src/main/preferences-store.ts) atomically saves `agentLaunchOptions` keyed
+by agent, with empty legacy defaults and explicit rejection/preservation of malformed settings.
+The typed `agents.getLaunchSettings` / `agents.setLaunchOptions` IPC/preload methods connect
+the [launch dialog](src/renderer/components/AgentLaunchDialog.tsx) through agent selection,
+New Project and Settings. Saving reduced-approval choices requires acknowledgement; async form
+loads are guarded, errors are visible and failed reads cannot overwrite unknown saved choices.
+
+`pty:spawn` injects [prepareAgentLaunch](src/main/agent-launcher.ts) into the manager's starting
+token lifecycle, so every managed new/resume/restart path reads current provider settings before
+native spawn. Reduced-approval modes require a native confirmation for each actual launch,
+showing cwd and command with Cancel selected by default. Duplicate pending starts cannot show
+duplicate prompts; killing a pending tab invalidates its token and prevents later native creation.
+Only an actually created PTY records recent-folder history. The external API remains Promise<void>;
+the injected manager returns a boolean for actual creation.
+
+The isolated native fixture uses inert shims that print received argv; it verifies independent
+provider settings, rejected unacknowledged writes, rendered options, exact new/resume arguments,
+and preserved session IDs. This is argument/UX verification, not live-provider compatibility or
+proof that a particular CLI/model/account supports a flag. CLI default permissions, managed
+policies, version differences and provider-specific sandbox semantics remain authoritative.
+
+### Recent workspace folders
+
+[PreferencesStore](src/main/preferences-store.ts) persists a shared `recentFolders` array beside
+registered projects. Legacy preferences seed normalized unique paths from registered projects;
+reads do not write migration data. Successful registration updates project and folder history in
+one serialized atomic write, including the base for a worktree. Successful `pty:spawn` records
+its cwd after native spawn resolves; native failure does not add a history item, and a subsequent
+history-write error is explicitly reported as "Terminal opened, but saving folder history failed".
+Windows path identities ignore case, POSIX identities retain case, and paths must be absolute.
+There is no fixed history-count cap; duplicate opens move a path to the front.
+
+The typed `workspace.getRecentFolders` preload/IPC method feeds
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its bounded-height, icon-labeled
+list lives inside the existing modal for both open-folder and worktree modes; selection fills
+the path but never submits. Async loads are guarded on unmount and errors are visible rather
+than converted to an empty-history success. Missing paths stay in history and normal open
+validation reports the failure. Generated target paths update on selection while explicit targets
+remain untouched. The native fixture verifies real persistence, list rendering, path selection,
+and dialog reopening with generated provider data only.
+
+The same preferences store persists `workspaceMode` (`folder` or `worktree`) through typed
+`workspace.getMode` / `workspace.setMode` IPC. It is global, saved on selection rather than on
+project creation, and defaults to `folder` for legacy files without rewriting them on read.
+Invalid stored modes are reported and preserved. The modal blocks submission until mode loading
+or saving finishes, retains the previous mode on write failure, and provides an explicit retry.
+The native select keeps keyboard behavior and uses folder/branch symbols in both option labels;
+recent folders use existing local icon assets with no search field. Async mode responses are ignored
+after unmount, and duplicate writes are guarded.
 
 The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:
 it exports the `ptyManager` singleton using `node-pty`'s real `spawn`.
@@ -214,15 +357,19 @@ use the original member's ID; resume selects that checkout so Git and terminal p
 Worktree branch badges distinguish child-checkout sessions without another navigation level.
 Project reordering moves the whole group; cleanup mode exposes individual histories for selection.
 
-`AppConfig.sidebarTree` stores Agent section order, collapsed Agent sections, expanded project-tree keys, and the
+`AppConfig.sidebarTree` stores collapsed Agent sections, expanded project-tree keys, and the
 show-hidden filter through the validated, serialized config store and the
 `config.getSidebarTree` / `config.setSidebarTree` bridge. Renderer hydration is gated before
 tree controls can write; load/save failures remain visible with retry. Only a new selection or
 explicit session-selection request automatically expands a project, so inventory refresh cannot
 undo a manual collapse. Restoring tree state does not resume terminals.
-Older tree preferences without `agentOrder` receive the existing default order; supplied orders
-must contain every supported Agent exactly once. Header drag/drop and Alt+Up/Down update the same
-saved order without changing disclosure state. Agent dragging is isolated from project dragging.
+The upstream top-level `AppConfig.agentOrder` and `pinnedAgents` are the single persisted source
+of Agent arrangement. Legacy `sidebarTree.agentOrder` migrates when no top-level order exists;
+the top-level order wins if both exist, and subsequent writes omit the legacy nested order.
+`getSidebarTree` projects that same order for compatibility, while `getAgentLayout` exposes it
+with pins. Supplied orders must contain every supported Agent exactly once. Header drag/drop,
+context-menu moves, and Alt+Up/Down share this order without changing disclosure or pin state;
+movement stays within the same pinned partition. Agent dragging is isolated from project dragging.
 
 [The lifecycle tests](tests/pty-session-manager.test.mjs) use mocked timers and injected PTYs to
 cover stale exit/data/startup-command races, current-session forwarding, minimum dimensions, and
@@ -344,7 +491,7 @@ live-provider coverage, and it is not included in `check` or `validate`.
 
 ### Desktop native smoke
 
-Run `npm run build` before `npm run test:smoke` on Windows x64, macOS arm64, or Linux x64.
+Run `npm run build` before `npm run test:smoke` on Windows x64, macOS arm64/x64, or Linux x64.
 Linux needs a graphical session or Xvfb. This is a separate native
 integration surface, not part of the fast `check` gate or `validate` (which remains check plus build).
 The runner launches real Electron against the built application, with generated temporary
@@ -380,7 +527,8 @@ AI provider was exercised.
 ### CI configuration boundary
 
 [The CI workflow](.github/workflows/ci.yml) configures `Validate (Windows)`, `Validate (macOS)`,
-and `Validate (Linux)` for pull requests, `main` pushes, and manual dispatch. All install locked
+`Validate (macOS-Intel)`, and `Validate (Linux)` for pull requests, `main` pushes, and manual dispatch.
+Linux is pinned to Ubuntu 24.04; Mac runs use native ARM64 and Intel hosts. All install locked
 dependencies, run checks, build, and audit at the high-advisory threshold. All invoke `npm run pack`
 (wrapped in Xvfb on Linux),
 which includes native smoke and local unpacked-bundle packaging/testing with `--publish never`.

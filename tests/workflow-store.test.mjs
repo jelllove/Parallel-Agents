@@ -4,6 +4,16 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 
 async function createStore(api) {
+  api.config ??= {};
+  if (!api.config.getAgentLayout) {
+    const readTree = api.config.getSidebarTree;
+    let reading;
+    api.config.getSidebarTree = () => (reading = readTree());
+    api.config.getAgentLayout = async () => ({
+      agentOrder: (await reading).agentOrder ?? ['copilot', 'codex', 'claude', 'gemini', 'aider'],
+      pinnedAgents: [],
+    });
+  }
   const result = await build({
     entryPoints: ['src/renderer/store/app-store.ts'],
     bundle: true,
@@ -125,6 +135,37 @@ test('failed Agent-order saves retain the requested order and expose a retryable
         saved = structuredClone(tree);
       },
     },
+  });
+
+  test('shared agent arrangement restores pins and rejects keyboard or drag moves across pin partitions', async () => {
+    const order = ['copilot', 'codex', 'claude', 'gemini', 'aider'];
+    let writes = 0;
+    const store = await createStore({
+      config: {
+        getSidebarTree: async () => ({
+          agentOrder: ['aider', 'gemini', 'claude', 'codex', 'copilot'],
+          collapsedAgents: ['codex'],
+          expandedProjects: ['repo'],
+          showHidden: true,
+        }),
+        getAgentLayout: async () => ({ agentOrder: order, pinnedAgents: ['claude', 'gemini'] }),
+        setSidebarTree: async () => {
+          writes++;
+        },
+      },
+    });
+    await store.getState().loadSidebarTree();
+    assert.deepEqual(store.getState().agentOrder, order, 'upstream arrangement is authoritative');
+    assert.deepEqual(store.getState().pinnedAgents, ['claude', 'gemini']);
+    await assert.rejects(
+      store.getState().reorderAgentGroups('claude', 'copilot', 'before'),
+      /pinned section/,
+    );
+    assert.equal(writes, 0);
+    await store.getState().reorderAgentGroups('gemini', 'claude', 'before');
+    assert.equal(writes, 1);
+    assert.deepEqual(store.getState().collapsedAgents, ['codex']);
+    assert.deepEqual(store.getState().expandedProjects, ['repo']);
   });
   assert.equal(typeof store.getState().reorderAgentGroups, 'function');
   await store.getState().loadSidebarTree();

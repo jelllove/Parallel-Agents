@@ -7,6 +7,9 @@ const store = createConfigStore(join(app.getPath('home'), '.claude', 'parallel-a
 export const {
   loadConfig,
   saveConfig,
+  getAgentLayout,
+  setAgentOrder,
+  setAgentPinned,
   setProjectPinned,
   setProjectHidden,
   setLastAgent,

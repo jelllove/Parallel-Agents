@@ -2,7 +2,7 @@ export function ActionIcon({
   name,
   spinning = false,
 }: {
-  name: 'refresh' | 'cleanup' | 'rename' | 'folder' | 'branch' | 'grip';
+  name: 'refresh' | 'cleanup' | 'rename' | 'folder' | 'branch' | 'grip' | 'pin' | 'settings';
   spinning?: boolean;
 }) {
   return (
@@ -39,6 +39,13 @@ export function ActionIcon({
         <>
           <path d="m15 4 5 5M4 20l1-6L16 3l5 5-11 11-6 1Z" />
         </>
+      ) : name === 'settings' ? (
+        <>
+          <path d="M10 3h4l.6 2.5 2 .9L19 5.6l2 3.5-1.9 1.7v2.4l1.9 1.7-2 3.5-2.4-.8-2 .9L14 21h-4l-.6-2.5-2-.9-2.4.8-2-3.5 1.9-1.7v-2.4L3 9.1l2-3.5 2.4.8 2-.9L10 3Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      ) : name === 'pin' ? (
+        <path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4-1-6ZM12 15v6" />
       ) : (
         <>
           <path d="m14 4 6 6M5 20l-2-2 10-10 5 5-7 7H5Z" />

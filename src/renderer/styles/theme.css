@@ -124,6 +124,11 @@ b {
   margin: 0 0 16px;
   font-size: 1.3em;
 }
+.workflow-launch-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .workflow-dialog p {
   color: var(--text-dim);
   line-height: 1.5;
@@ -152,11 +157,102 @@ b {
   min-width: 0;
   flex: 1;
 }
+
+.recent-folders {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.recent-folders-heading {
+  margin: 16px 0 6px;
+  font-size: inherit;
+  font-weight: var(--app-font-weight);
+}
+.recent-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.recent-folder-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.recent-folder-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.recent-folder:hover,
+.recent-folder.selected {
+  background: var(--bg-hover);
+}
+.recent-folder:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.recent-folder-name {
+  font-weight: var(--app-font-weight);
+}
+.recent-folder-path {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .workflow-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 24px;
+}
+
+.agent-launch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.agent-launch-preview code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.agent-launch-warning {
+  padding: 0 10px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-hover);
+}
+.agent-launch-configure {
+  flex-shrink: 0;
+}
+
+.workspace-pane {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.workspace-pane[hidden] {
+  display: none;
+}
+.layout-error {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workflow-actions .btn-primary {
   width: auto;
@@ -828,6 +924,56 @@ button.ctx-menu-item {
 .agent-group-header:is(:hover, :focus-visible) .agent-drag-handle {
   opacity: 1;
 }
+.agent-group-header.drag-over {
+  box-shadow: inset 0 2px var(--accent);
+}
+.agent-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+}
+.sidebar-pin,
+.agent-quick-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+.agent-quick-create {
+  font-size: calc(var(--app-font-size) * 1.384615);
+}
+.sidebar-pin.pinned {
+  color: var(--accent);
+}
+.sidebar-pin:hover:not(:disabled),
+.agent-quick-create:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+.sidebar-pin:focus-visible,
+.agent-quick-create:focus-visible,
+.agent-group-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.sidebar-pin:disabled,
+.agent-quick-create:disabled,
+button.ctx-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .agent-group-header.unavailable {
   opacity: 0.55;
 }
@@ -1245,6 +1391,39 @@ button.ctx-menu-item {
   margin: 0 0 14px;
   color: var(--text);
   font-size: calc(var(--app-font-size) * 1);
+}
+.about-dialog {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.about-updates {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.about-updates h3 {
+  margin: 0 0 6px;
+  font-size: calc(var(--app-font-size) * 1);
+  font-weight: var(--app-font-weight);
+}
+.about-installed-version {
+  margin: 0;
+  color: var(--text-dim);
+}
+.about-update-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.about-release-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.about-updates progress {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
 }
 .about-meta {
   margin: 0;

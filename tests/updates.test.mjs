@@ -3,7 +3,7 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { transform } from 'esbuild';
+import { build, transform } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const source = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -248,7 +248,8 @@ test('release configuration produces GitHub NSIS update artifacts', async () => 
     releaseType: 'release',
   });
   assert.equal(pkg.build.nsis.differentialPackage, true);
-  assert.equal(pkg.build.win.artifactName, 'Parallel-Agents-Setup-${version}.${ext}');
+  assert.equal(pkg.build.nsis.artifactName, 'Parallel-Agents-Setup-${version}.${ext}');
+  assert.equal(pkg.build.win.artifactName, 'Parallel-Agents-${version}-win-${arch}.${ext}');
   assert.ok(pkg.build.win.target.some((target) => target.target === 'nsis'));
 });
 
@@ -387,6 +388,11 @@ test('About dialog shows download progress, install errors and explicit restart 
         effects.push(effect);
       }
     },
+    useRef(initial) {
+      const index = cursor++;
+      slots[index] ??= { current: initial };
+      return slots[index];
+    },
   };
   const api = {
     updates: {
@@ -403,11 +409,16 @@ test('About dialog shows download progress, install errors and explicit restart 
       },
     },
   };
-  const { code } = await transform(await source('src/renderer/components/AboutDialog.tsx'), {
-    loader: 'tsx',
+  const result = await build({
+    entryPoints: ['src/renderer/components/AboutDialog.tsx'],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    packages: 'external',
+    loader: { '.png': 'dataurl' },
     format: 'cjs',
-    jsx: 'automatic',
   });
+  const code = result.outputFiles[0].text;
   const module = { exports: {} };
   new Function('require', 'module', 'exports', 'window', '__APP_BUILD_INFO__', code)(
     (id) => {

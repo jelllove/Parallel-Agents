@@ -1,4 +1,4 @@
-/* global window, document, MouseEvent */
+/* global window, document, MouseEvent, DragEvent, DataTransfer */
 const assert = require('node:assert/strict');
 const {
   mkdirSync,
@@ -9,7 +9,12 @@ const {
   writeFileSync,
 } = require('node:fs');
 const { dirname, join } = require('node:path');
-const { app } = require('electron');
+const { app, shell, Menu } = require('electron');
+
+const externalLinks = [];
+shell.openExternal = async (url) => {
+  externalLinks.push(url);
+};
 
 const [home, project, reports, mainEntry, reportName] = process.argv.slice(2);
 assert.ok(
@@ -81,6 +86,33 @@ async function checkRenderer(projectPath) {
     `provider and worktree data are isolated: ${JSON.stringify(projects.map(({ realPath, worktree }) => ({ realPath, worktree })))}`,
   );
   const projectId = primary.id;
+  await window.api.agents.setLaunchOptions(
+    'claude',
+    { approvalMode: 'plan', model: 'sonnet' },
+    false,
+  );
+  await window.api.agents.setLaunchOptions(
+    'copilot',
+    { approvalMode: 'default', model: 'smoke-copilot-model' },
+    false,
+  );
+  const launchSettings = await window.api.agents.getLaunchSettings();
+  check(
+    launchSettings.claude.model === 'sonnet' &&
+      launchSettings.copilot.model === 'smoke-copilot-model',
+    'launch settings persist models independently for each provider',
+  );
+  let rejectedUnsafeSave = false;
+  try {
+    await window.api.agents.setLaunchOptions(
+      'copilot',
+      { approvalMode: 'auto-tools', model: '' },
+      false,
+    );
+  } catch (error) {
+    rejectedUnsafeSave = /acknowledge/i.test(String(error));
+  }
+  check(rejectedUnsafeSave, 'main rejects unacknowledged reduced-approval settings');
   await Promise.all([
     window.api.projects.pin(projectId, true),
     window.api.projects.hide(projectId, true),
@@ -178,6 +210,104 @@ async function checkRenderer(projectPath) {
     }
   };
   try {
+    const aboutButton = document.querySelector('.sidebar-about');
+    check(aboutButton?.textContent.trim() === 'iAbout', 'original simple About entry is preserved');
+    check(
+      !aboutButton.querySelector('.about-update-badge'),
+      'About entry has no update status badge',
+    );
+    aboutButton.click();
+    await waitFor(
+      () => document.querySelector('[role="dialog"][aria-labelledby="about-title"]'),
+      'About dialog did not open',
+    );
+    const about = document.querySelector('.about-dialog');
+    await waitFor(
+      () => !about.textContent.includes('Loading update status'),
+      'About update status did not load',
+    );
+    check(
+      about.textContent.includes('Installed version:') &&
+        about.querySelector('[aria-label="Application updates"]'),
+      'About displays installed version and application update controls',
+    );
+    for (const url of [
+      'http://www.jelllove.com',
+      'https://github.com/jelllove/Parallel-Agents/releases/latest',
+    ]) {
+      const link = about.querySelector(`a[href="${url}"]`);
+      check(Boolean(link), `About provides external link: ${url}`);
+      link.click();
+    }
+    check(!about.querySelector('[role="alert"]'), 'About external links do not produce UI errors');
+    about.querySelector('button[aria-label="Close About"]').click();
+    await waitFor(() => !document.querySelector('.about-dialog'), 'About did not close');
+    await waitFor(
+      () =>
+        document.querySelector(
+          '[data-agent-id="codex"] button[aria-label="New project with Codex CLI"]',
+        ),
+      'Agent header does not expose a quick New Project button',
+    );
+    const quickCreate = document.querySelector(
+      '[data-agent-id="codex"] button[aria-label="New project with Codex CLI"]',
+    );
+    await waitFor(() => !quickCreate.disabled, 'Codex quick-create remains disabled');
+    quickCreate.click();
+    await waitFor(
+      () => document.querySelector('.workflow-dialog h2')?.textContent.includes('Codex'),
+      'Agent quick-create did not open the Codex project dialog',
+    );
+    const workspaceSelect = () =>
+      document.querySelector('.workflow-dialog select[aria-label="Workspace mode"]');
+    await waitFor(
+      () => workspaceSelect() && !workspaceSelect().disabled,
+      'Workspace mode did not load',
+    );
+    check(
+      document.querySelector('.workflow-launch-settings svg') !== null,
+      'launch configuration button displays a settings icon',
+    );
+    check(
+      !document.querySelector('.recent-folders-section input[type="search"]'),
+      'recent folders no longer show a search box',
+    );
+    check(
+      workspaceSelect().querySelector('option[value="folder"]').textContent.startsWith('📂 ') &&
+        workspaceSelect().querySelector('option[value="worktree"]').textContent.startsWith('🌿 '),
+      'native workspace options display distinct folder and branch icons',
+    );
+    workspaceSelect().value = 'worktree';
+    workspaceSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(
+      () => workspaceSelect().value === 'worktree' && !workspaceSelect().disabled,
+      'Workspace mode did not finish saving',
+    );
+    [...document.querySelectorAll('.workflow-dialog button')]
+      .find((button) => button.textContent === 'Cancel')
+      .click();
+    document.querySelector('[data-agent-id="claude"] .agent-quick-create').click();
+    await waitFor(
+      () =>
+        document.querySelector('.workflow-dialog h2')?.textContent.includes('Claude') &&
+        workspaceSelect()?.value === 'worktree' &&
+        !workspaceSelect().disabled,
+      'Cancelled workspace mode was not restored for a different agent',
+    );
+    check(
+      (await window.api.workspace.getMode()) === 'worktree',
+      'workspace mode is saved before creation and shared across agent dialogs',
+    );
+    workspaceSelect().value = 'folder';
+    workspaceSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(
+      () => workspaceSelect().value === 'folder' && !workspaceSelect().disabled,
+      'Workspace mode could not switch back to opening a folder',
+    );
+    [...document.querySelectorAll('.workflow-dialog button')]
+      .find((button) => button.textContent === 'Cancel')
+      .click();
+    checks.push('agent-specific quick-create opens the existing dialog with the correct provider');
     let refresh;
     await waitFor(() => {
       refresh = [...document.querySelectorAll('button')].find((button) =>
@@ -233,7 +363,314 @@ async function checkRenderer(projectPath) {
     );
     baseSession.click();
     await waitFor(() => uiOutput.includes('SMOKE_AGENT'), 'The initial inert CLI command was lost');
+    await waitFor(
+      () =>
+        uiOutput.includes(
+          'SMOKE_AGENT_ARGS --resume smoke-session --permission-mode plan --model sonnet',
+        ),
+      'The selected provider mode/model did not reach the actual inert CLI argv',
+    );
+    checks.push(
+      'existing project session receives exact provider-specific mode and model arguments',
+    );
     checks.push('the initial CLI command reaches the mounted terminal');
+    const originalTerminal = document.querySelector('.xterm');
+    const originalTabCount = document.querySelectorAll('.terminal-tab').length;
+    const originalPtys = [...uiPtys].sort().join(',');
+    const header = (id) => document.querySelector(`[data-agent-id="${id}"] .agent-group-header`);
+    const groupOrder = () =>
+      [...document.querySelectorAll('[data-agent-id]')].map((group) => group.dataset.agentId);
+    const settleSidebar = async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      await waitFor(
+        () => !header('claude').querySelector('.sidebar-pin').disabled,
+        'Sidebar order did not finish saving',
+      );
+    };
+    const dragSidebar = async (from, to) => {
+      const dataTransfer = new DataTransfer();
+      from.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }));
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      to.dispatchEvent(
+        new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }),
+      );
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      to.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+      from.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }));
+      await settleSidebar();
+    };
+    await settleSidebar();
+    await dragSidebar(header('gemini'), header('copilot'));
+    await waitFor(() => groupOrder()[0] === 'gemini', 'Dragging agent groups did not reorder them');
+    header('claude').querySelector('.sidebar-pin').click();
+    await waitFor(
+      () => groupOrder()[0] === 'claude',
+      'Agent Pin did not move the group to the top',
+    );
+    await settleSidebar();
+    header('copilot').querySelector('.sidebar-pin').click();
+    await settleSidebar();
+    await dragSidebar(header('claude'), header('copilot'));
+    await waitFor(
+      () => groupOrder()[0] === 'claude',
+      'Pinned agent groups cannot be manually reordered',
+    );
+    const pinnedOrder = groupOrder().join(',');
+    await dragSidebar(header('gemini'), header('claude'));
+    check(
+      groupOrder().join(',') === pinnedOrder,
+      'agent dragging cannot cross the pinned boundary',
+    );
+    const savedAgentLayout = await window.api.config.getAgentLayout();
+    check(
+      savedAgentLayout.agentOrder[0] === 'claude' &&
+        savedAgentLayout.pinnedAgents.includes('claude') &&
+        savedAgentLayout.pinnedAgents.includes('copilot'),
+      'agent pins and manual ordering cross IPC and persist',
+    );
+    const separator = projectPath.includes('\\') ? '\\' : '/';
+    for (const name of ['sidebar-order-one', 'sidebar-order-two']) {
+      const path = `${projectPath}${separator}${name}`;
+      await window.api.fs.createDir(path);
+      await window.api.projects.create({ agent: 'claude', mode: 'folder', basePath: path });
+    }
+    document.querySelector('button[aria-label="Refresh projects and agents"]').click();
+    const projectRow = (name) =>
+      [...document.querySelectorAll('[data-agent-id="claude"] .project-item')].find(
+        (item) => item.querySelector('.list-item-title').textContent === name,
+      );
+    await waitFor(() => projectRow('sidebar-order-two'), 'New fixture projects did not appear');
+    check(
+      projectRow('sidebar-order-two').querySelector(':scope > .sidebar-pin') !== null,
+      'project pin stays beside the compact name/path column',
+    );
+    for (const name of ['sidebar-order-one', 'sidebar-order-two']) {
+      projectRow(name).querySelector('.sidebar-pin').click();
+      await waitFor(
+        () =>
+          projectRow(name).querySelector('.sidebar-pin').getAttribute('aria-pressed') === 'true',
+        'Project Pin did not save',
+      );
+      await settleSidebar();
+    }
+    const projectNames = () =>
+      [...document.querySelectorAll('[data-agent-id="claude"] .project-item .list-item-title')].map(
+        (item) => item.textContent,
+      );
+    await dragSidebar(projectRow('sidebar-order-two'), projectRow('sidebar-order-one'));
+    await waitFor(
+      () => projectNames()[0] === 'sidebar-order-two',
+      'Pinned projects did not reorder',
+    );
+    const persistedProjects = (await window.api.projects.list()).filter(
+      (item) => item.agent === 'claude',
+    );
+    check(
+      persistedProjects[0].displayName === 'sidebar-order-two' &&
+        persistedProjects[0].pinned &&
+        persistedProjects[1].pinned,
+      'project pins and manual ordering persist within their agent',
+    );
+    check(
+      document.querySelector('.xterm') === originalTerminal &&
+        document.querySelectorAll('.terminal-tab').length === originalTabCount &&
+        [...uiPtys].sort().join(',') === originalPtys,
+      'sidebar quick actions and ordering do not open projects or recreate running terminals',
+    );
+    for (const item of persistedProjects) {
+      if (['sidebar-order-one', 'sidebar-order-two'].includes(item.displayName)) {
+        await window.api.projects.delete(item.id);
+      }
+    }
+    for (const agent of ['claude', 'copilot']) {
+      header(agent).querySelector('.sidebar-pin').click();
+      await settleSidebar();
+    }
+    for (const agent of ['aider', 'gemini', 'claude', 'codex', 'copilot']) {
+      const first = groupOrder()[0];
+      if (agent !== first) await dragSidebar(header(agent), header(first));
+    }
+    document.querySelector('button[aria-label="Refresh projects and agents"]').click();
+    await waitFor(
+      () => document.querySelectorAll('.project-item').length === 1,
+      'Sidebar arrangement fixtures were not removed',
+    );
+    const beforeLayout = await window.api.config.getLayout();
+    const togglePane = async (label, isHidden) => {
+      const control = document.querySelector(`button[aria-label="${label}"]`);
+      await waitFor(() => !control.disabled, `${label} control is unavailable`);
+      control.click();
+      await waitFor(isHidden, `${label} did not update pane visibility`);
+      await waitFor(() => !control.disabled, `${label} did not persist pane visibility`);
+    };
+    const projectPane = () => document.querySelector('.workspace-pane[data-pane="sidebar"]');
+    const filesPane = () => document.querySelector('.workspace-pane[data-pane="right"]');
+    const codingPane = () => document.querySelector('.workspace-pane[data-pane="middle"]');
+    await togglePane('Toggle project sidebar', () => projectPane().hidden);
+    check(
+      !filesPane().hidden && codingPane().getBoundingClientRect().width > 200,
+      'project sidebar hides independently while coding remains visible',
+    );
+    await togglePane('Toggle project sidebar', () => !projectPane().hidden);
+    await togglePane('Toggle files and Git sidebar', () => filesPane().hidden);
+    check(!projectPane().hidden, 'files and Git sidebar hides independently');
+    await togglePane('Toggle files and Git sidebar', () => !filesPane().hidden);
+    await togglePane('Focus coding', () => filesPane().hidden && projectPane().hidden);
+    await waitFor(
+      () =>
+        codingPane().getBoundingClientRect().width >=
+        document.querySelector('.app-body').getBoundingClientRect().width - 8,
+      'focused terminal did not fill the coding workspace',
+    );
+    check(
+      document.querySelector('.xterm') === originalTerminal,
+      'focus coding preserves the mounted terminal rather than recreating it',
+    );
+    check(
+      document.querySelector('button[aria-label="Focus coding"]') !== null,
+      'restore controls remain accessible with both sidebars hidden',
+    );
+    const focusedLayout = await window.api.config.getLayout();
+    check(
+      focusedLayout.hiddenPanes.includes('sidebar') && focusedLayout.hiddenPanes.includes('right'),
+      'focus mode persists sidebar visibility',
+    );
+    await togglePane('Focus coding', () => !filesPane().hidden && !projectPane().hidden);
+    const afterLayout = await window.api.config.getLayout();
+    check(
+      afterLayout.sizes.every((size, index) => Math.abs(size - beforeLayout.sizes[index]) < 0.1),
+      'restoring sidebars retains the original expanded widths',
+    );
+    check(
+      document.querySelector('.xterm') === originalTerminal &&
+        document.querySelectorAll('.terminal-tab').length === originalTabCount &&
+        [...uiPtys].sort().join(',') === originalPtys,
+      'sidebar toggles keep session tabs and PTY identities unchanged',
+    );
+    check(
+      (await window.api.workspace.getRecentFolders()).includes(projectPath),
+      'opening an existing project persists its folder history',
+    );
+    const openNewDialog = async () => {
+      const newProject = [...document.querySelectorAll('button')].find((button) =>
+        button.textContent.includes('New Project'),
+      );
+      newProject.click();
+      await waitFor(
+        () => document.querySelector('.agent-picker-row[title="Claude Code"]'),
+        'New Project agent picker unavailable',
+      );
+      document.querySelector('.agent-picker-row[title="Claude Code"]').click();
+      await waitFor(
+        () => document.querySelector('dialog[open] .recent-folder'),
+        'Recent folder list did not appear',
+      );
+    };
+    await openNewDialog();
+    [...document.querySelectorAll('dialog[open] button')]
+      .find((button) => button.textContent.includes('Configure Claude Code'))
+      .click();
+    await waitFor(
+      () =>
+        document.querySelector('.agent-launch-dialog[open] input[aria-label="Model ID"]')?.value ===
+        'sonnet',
+      'Agent launch options did not load in the actual dialog',
+    );
+    const launchDialog = document.querySelector('.agent-launch-dialog[open]');
+    check(
+      launchDialog.querySelector('select[aria-label="Approval mode"]').value === 'plan',
+      'launch dialog shows Claude mode and model without mixing Copilot settings',
+    );
+    [...launchDialog.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Cancel')
+      .click();
+    await waitFor(
+      () => !document.querySelector('.agent-launch-dialog[open]'),
+      'Launch options dialog did not close',
+    );
+    const recent = [...document.querySelectorAll('.recent-folder')].find(
+      (button) => button.title === projectPath,
+    );
+    check(Boolean(recent), 'Create/Open dialog displays the previously opened folder');
+    await waitFor(
+      () =>
+        [...document.querySelectorAll('.recent-folder img')].every(
+          (image) => image.complete && image.naturalWidth > 0,
+        ),
+      'Recent folder icons did not load from local assets',
+    );
+    check(
+      document.querySelectorAll('.recent-folder img').length ===
+        document.querySelectorAll('.recent-folder').length,
+      'every recent folder has a local folder icon',
+    );
+    recent.click();
+    await waitFor(
+      () => document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      'recent folder selection did not update the project path',
+    );
+    check(
+      document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      'recent folder selection fills the existing project path',
+    );
+    const cancelNew = () =>
+      [...document.querySelectorAll('dialog[open] button')]
+        .find((button) => button.textContent === 'Cancel')
+        .click();
+    cancelNew();
+    let resumed = '';
+    const offResume = window.api.pty.onData((id, data) => {
+      if (id === 'smoke-resume-options') resumed += data;
+    });
+    try {
+      await window.api.pty.spawn({
+        projectId: 'smoke-resume-options',
+        cwd: projectPath,
+        cols: 100,
+        rows: 24,
+        initialCommand: 'claude --resume smoke-session',
+      });
+      await waitFor(
+        () =>
+          resumed.includes(
+            'SMOKE_AGENT_ARGS --resume smoke-session --permission-mode plan --model sonnet',
+          ),
+        'Resume command lost its session ID or provider launch settings',
+      );
+      checks.push('resumed agent receives the same mode/model while preserving its session ID');
+    } finally {
+      offResume();
+      await window.api.pty.kill('smoke-resume-options');
+    }
+    let started = '';
+    const offStart = window.api.pty.onData((id, data) => {
+      if (id === 'smoke-start-options') started += data;
+    });
+    try {
+      await window.api.pty.spawn({
+        projectId: 'smoke-start-options',
+        cwd: projectPath,
+        cols: 100,
+        rows: 24,
+        initialCommand: 'claude',
+      });
+      await waitFor(
+        () => started.includes('SMOKE_AGENT_ARGS --permission-mode plan --model sonnet'),
+        'New agent command did not receive its configured mode/model',
+      );
+      checks.push('new agent launches receive exact provider-specific mode and model arguments');
+    } finally {
+      offStart();
+      await window.api.pty.kill('smoke-start-options');
+    }
+    await openNewDialog();
+    check(
+      [...document.querySelectorAll('.recent-folder')].some(
+        (button) => button.title === projectPath,
+      ),
+      'folder history survives closing and reopening the Create/Open dialog',
+    );
+    cancelNew();
     await waitFor(
       () => document.querySelectorAll('.git-row[title="notes.txt"]').length === 2,
       'Git panel did not show the fixture changes',
@@ -387,7 +824,6 @@ async function checkRenderer(projectPath) {
       );
     }, 'Expanded project and collapsed Agent sections were not saved');
     checks.push('tree expansion changes persist through the real config bridge');
-    const header = (agent) => document.querySelector(`.agent-group-header[data-agent="${agent}"]`);
     const order = () =>
       [...document.querySelectorAll('.agent-group-header')]
         .map((item) => item.dataset.agent)
@@ -560,6 +996,20 @@ app.on('browser-window-created', (_event, win) => {
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)})`,
       );
+      if (process.platform === 'win32') {
+        assert.equal(Menu.getApplicationMenu(), null, 'Windows must not retain the default menu');
+        assert.equal(win.isMenuBarVisible(), false);
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Alt' });
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Alt' });
+        await win.webContents.executeJavaScript('Promise.resolve()');
+        assert.equal(win.isMenuBarVisible(), false, 'Alt must not reveal a Windows menu bar');
+        checks.push('Windows has no application menu and Alt does not reveal a menu bar');
+      }
+      assert.deepEqual(externalLinks, [
+        'http://www.jelllove.com',
+        'https://github.com/jelllove/Parallel-Agents/releases/latest',
+      ]);
+      checks.push('About website and release links cross IPC without opening a real browser');
       checks.push('all provider executables resolve to inert fixture shims');
       assert.equal(
         await win.webContents.executeJavaScript('window.api.platform'),

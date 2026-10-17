@@ -91,7 +91,7 @@ test('agent sections are keyboard-accessible header blocks with remembered discl
     collapsedAgents: ['codex'],
   });
   const html = renderToStaticMarkup(createElement(Sidebar, { onAbout() {} }));
-  assert.match(html, /<button[^>]*class="agent-group-header/);
+  assert.match(html, /<button[^>]*class="agent-group-toggle/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /class="project-folder-icon"/);
 });
@@ -105,10 +105,7 @@ test('Agent headers render saved order and enable dragging only after hydration'
       [...html.matchAll(/data-agent="([^"]+)"/g)].map((match) => match[1]),
       agentOrder,
     );
-    assert.equal(
-      (html.match(new RegExp(`<button[^>]*draggable="${loaded}"`, 'g')) ?? []).length,
-      5,
-    );
+    assert.equal((html.match(new RegExp(`<div[^>]*draggable="${loaded}"`, 'g')) ?? []).length, 5);
     assert.match(html, /aria-keyshortcuts="Alt\+ArrowUp Alt\+ArrowDown"/);
   }
 });
@@ -168,6 +165,22 @@ test('missing worktree sessions remain visible but cannot be resumed', async () 
   const missing = { ...child, exists: false };
   const { SessionList } = await bundle({
     sessions: { [child.id]: [session(child, 'missing session', 20)] },
+  });
+
+  test('a pinned worktree promotes its whole group while keeping original project identities', async () => {
+    const { groupProjectTrees } = await import('../src/shared/project-tree.ts');
+    const other = { ...root, id: 'codex:other', realPath: 'C:\\Other', displayName: 'Other' };
+    const pinnedChild = { ...child, pinned: true };
+    const trees = groupProjectTrees([other, pinnedChild, root]);
+    assert.equal(trees[0].project, root);
+    assert.equal(trees[0].pinned, true);
+    assert.equal(root.pinned, false);
+    const { Sidebar } = await bundle({
+      projects: [other, pinnedChild, root],
+      sidebarTreeLoaded: true,
+    });
+    const html = renderToStaticMarkup(createElement(Sidebar, { onAbout() {} }));
+    assert.match(html, /aria-label="Unpin project Repo" aria-pressed="true"/);
   });
   const html = renderToStaticMarkup(createElement(SessionList, { projects: [missing] }));
   assert.match(html, /class="session-open" disabled=""/);

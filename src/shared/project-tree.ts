@@ -6,6 +6,7 @@ export interface ProjectTree {
   path: string;
   project: Project;
   projects: Project[];
+  pinned: boolean;
 }
 
 function pathKey(path: string): string {
@@ -22,6 +23,7 @@ export function groupProjectTrees(projects: Project[], showHidden = false): Proj
     const group = groups.get(id);
     if (group) {
       group.projects.push(project);
+      group.pinned ||= project.pinned;
       if (!project.worktree) {
         group.project = project;
         group.name = project.displayName;
@@ -36,10 +38,11 @@ export function groupProjectTrees(projects: Project[], showHidden = false): Proj
         path,
         project,
         projects: [project],
+        pinned: project.pinned,
       });
     }
   }
-  return [...groups.values()];
+  return [...groups.values()].sort((a, b) => Number(b.pinned) - Number(a.pinned));
 }
 
 export interface ProjectSession {

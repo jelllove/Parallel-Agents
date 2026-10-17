@@ -35,7 +35,7 @@ export function Sidebar({ onAbout }: Props) {
         <div className="sidebar-title section-projects">
           <span>Projects</span>
         </div>
-        <ProjectList />
+        <ProjectList onNewProject={setNewProjectAgent} />
       </div>
       <button className="sidebar-about" onClick={onAbout} title="About">
         <span className="section-glyph about-glyph">i</span>

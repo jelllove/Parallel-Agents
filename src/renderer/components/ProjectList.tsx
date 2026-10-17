@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import type { Project, AgentId } from '../../shared/types';
+import { orderedAgents } from '../../shared/sidebar-order';
 import { AgentIcon } from './AgentIcon';
 import { ProjectDeleteDialog } from './ProjectDeleteDialog';
 import { canDeleteProject } from '../../shared/project-delete';
@@ -9,7 +10,7 @@ import { SessionList } from './SessionList';
 import { groupProjectTrees } from '../../shared/project-tree';
 import type { ProjectTree } from '../../shared/project-tree';
 
-export function ProjectList() {
+export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) => void }) {
   const projects = useAppStore((s) => s.projects);
   const refresh = useAppStore((s) => s.refreshProjectsAndAgents);
   const refreshing = useAppStore((s) => s.inventoryRefreshing);
@@ -31,6 +32,8 @@ export function ProjectList() {
   const collapsedAgents = useAppStore((s) => s.collapsedAgents);
   const toggleAgentGroup = useAppStore((s) => s.toggleAgentGroup);
   const agentOrder = useAppStore((s) => s.agentOrder);
+  const pinnedAgents = useAppStore((s) => s.pinnedAgents);
+  const pinAgent = useAppStore((s) => s.pinAgent);
   const reorderAgentGroups = useAppStore((s) => s.reorderAgentGroups);
   const expandedProjects = useAppStore((s) => s.expandedProjects);
   const setProjectExpanded = useAppStore((s) => s.setProjectExpanded);
@@ -68,10 +71,71 @@ export function ProjectList() {
               path: p.realPath,
               project: p,
               projects: [p],
+              pinned: p.pinned,
             }))
         : groupProjectTrees(projects, showHidden),
     [projects, showHidden, cleanupMode],
   );
+  const [agentMenu, setAgentMenu] = useState<{ x: number; y: number; agent: AgentId } | null>(null);
+  const [sidebarError, setSidebarError] = useState('');
+  const [sidebarBusy, setSidebarBusy] = useState(false);
+  const actionBusy = useRef(false);
+  const agentIds = orderedAgents({ agentOrder, pinnedAgents });
+  const orderDisabled = sidebarBusy || !sidebarTreeLoaded || cleanupMode || bulkDeleteBusy;
+
+  async function runSidebarAction(action: () => Promise<void>) {
+    if (actionBusy.current) return;
+    actionBusy.current = true;
+    setSidebarBusy(true);
+    setSidebarError('');
+    try {
+      await action();
+    } catch (error) {
+      setSidebarError(
+        `Could not update sidebar: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      actionBusy.current = false;
+      setSidebarBusy(false);
+    }
+  }
+
+  function sameAgentSection(from: AgentId, to: AgentId) {
+    return pinnedAgents.includes(from) === pinnedAgents.includes(to);
+  }
+
+  async function moveAgent(from: AgentId, to: AgentId) {
+    if (!sameAgentSection(from, to))
+      throw new Error('Reorder agents within the same pinned section.');
+    await reorderAgentGroups(
+      from,
+      to,
+      agentIds.indexOf(from) < agentIds.indexOf(to) ? 'after' : 'before',
+    );
+  }
+
+  function adjacentAgent(agent: AgentId, direction: number) {
+    const group = agentIds.filter((id) => sameAgentSection(id, agent));
+    return group[group.indexOf(agent) + direction];
+  }
+
+  function adjacentProject(project: Project, direction: number) {
+    const group = trees
+      .filter(
+        (tree) =>
+          tree.project.agent === project.agent &&
+          tree.pinned ===
+            trees.find((item) => item.projects.some((p) => p.id === project.id))?.pinned,
+      )
+      .map((tree) => tree.project);
+    return group[group.findIndex((p) => p.id === project.id) + direction];
+  }
+
+  function clearDrag() {
+    setDragId(null);
+    setDragOverId(null);
+    endAgentDrag();
+  }
 
   const grouped = useMemo(() => {
     const out: Record<AgentId, ProjectTree[]> = {
@@ -140,10 +204,12 @@ export function ProjectList() {
 
   function handleContext(e: React.MouseEvent, p: Project) {
     e.preventDefault();
+    setAgentMenu(null);
     setCtxMenu({ x: e.clientX, y: e.clientY, project: p });
   }
 
   function onDragStart(e: React.DragEvent, p: Project) {
+    e.stopPropagation();
     draggedAgent.current = null;
     setAgentDropTarget(null);
     setDragId(p.id);
@@ -151,7 +217,7 @@ export function ProjectList() {
     e.dataTransfer.effectAllowed = 'move';
   }
 
-  function agentDropPlacement(event: React.DragEvent<HTMLButtonElement>): 'before' | 'after' {
+  function agentDropPlacement(event: React.DragEvent<HTMLElement>): 'before' | 'after' {
     const rect = event.currentTarget.getBoundingClientRect();
     return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
   }
@@ -163,7 +229,16 @@ export function ProjectList() {
 
   function onDragOver(e: React.DragEvent, target: Project) {
     const src = projects.find((x) => x.id === dragId);
-    if (!src || src.agent !== target.agent || src.id === target.id) return;
+    const sourceTree = trees.find((tree) => tree.projects.some((p) => p.id === src?.id));
+    const targetTree = trees.find((tree) => tree.projects.some((p) => p.id === target.id));
+    if (
+      orderDisabled ||
+      !src ||
+      src.agent !== target.agent ||
+      sourceTree?.pinned !== targetTree?.pinned ||
+      src.id === target.id
+    )
+      return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDragOverId(target.id);
@@ -171,20 +246,29 @@ export function ProjectList() {
 
   async function onDrop(e: React.DragEvent, target: Project) {
     e.preventDefault();
+    e.stopPropagation();
     const src = projects.find((x) => x.id === dragId);
-    setDragId(null);
-    setDragOverId(null);
-    if (!src || src.agent !== target.agent || src.id === target.id) return;
-    setOpenError('');
-    try {
-      await reorderProjects(target.agent, src.id, target.id);
-    } catch (error) {
-      setOpenError(error instanceof Error ? error.message : String(error));
-    }
+    const sourceTree = trees.find((tree) => tree.projects.some((p) => p.id === src?.id));
+    const targetTree = trees.find((tree) => tree.projects.some((p) => p.id === target.id));
+    clearDrag();
+    if (
+      orderDisabled ||
+      !src ||
+      src.agent !== target.agent ||
+      sourceTree?.pinned !== targetTree?.pinned ||
+      src.id === target.id
+    )
+      return;
+    await runSidebarAction(() => reorderProjects(target.agent, src.id, target.id));
   }
 
   return (
-    <div onClick={() => setCtxMenu(null)}>
+    <div
+      onClick={() => {
+        setCtxMenu(null);
+        setAgentMenu(null);
+      }}
+    >
       <div className="project-toolbar">
         <button
           className="project-action"
@@ -235,6 +319,23 @@ export function ProjectList() {
           </button>
         </div>
       )}
+      {sidebarError && (
+        <div className="inventory-error" role="alert">
+          {sidebarError}
+          <button
+            type="button"
+            disabled={sidebarBusy}
+            onClick={() =>
+              void runSidebarAction(async () => {
+                await loadSidebarTree();
+                await useAppStore.getState().loadProjects();
+              })
+            }
+          >
+            Reload sidebar
+          </button>
+        </div>
+      )}
       {missingProjects.length > 0 && cleanupMode && (
         <div className="project-cleanup-bar">
           <>
@@ -267,77 +368,140 @@ export function ProjectList() {
           </>
         </div>
       )}
-      {agentOrder.map((agent) => {
+      {agentIds.map((agent) => {
         const group = grouped[agent];
         const collapsed = collapsedAgents.includes(agent);
         const available = status[agent]?.available;
+        const pinned = pinnedAgents.includes(agent);
         return (
-          <div key={agent} className="agent-group">
-            <button
+          <div key={agent} className="agent-group" data-agent-id={agent}>
+            <div
               className={`agent-group-header ${available ? '' : 'unavailable'}${agentDropTarget?.agent === agent ? ` agent-drop-${agentDropTarget.placement}` : ''}`}
               data-agent={agent}
-              disabled={!sidebarTreeLoaded}
-              draggable={sidebarTreeLoaded}
-              onDragStart={(event) => {
-                draggedAgent.current = agent;
-                setDragId(null);
-                setDragOverId(null);
-                event.dataTransfer.setData('application/x-parallel-agents-agent', agent);
-                event.dataTransfer.effectAllowed = 'move';
+              aria-expanded={!collapsed}
+              draggable={!orderDisabled}
+              onClick={() => {
+                if (sidebarTreeLoaded) void toggleAgentGroup(agent);
               }}
-              onDragOver={(event) => {
-                if (!draggedAgent.current || draggedAgent.current === agent) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                setAgentDropTarget({ agent, placement: agentDropPlacement(event) });
-              }}
-              onDragLeave={(event) => {
-                if (
-                  event.relatedTarget instanceof Node &&
-                  event.currentTarget.contains(event.relatedTarget)
-                )
-                  return;
-                setAgentDropTarget((target) => (target?.agent === agent ? null : target));
-              }}
-              onDrop={(event) => {
-                const source = draggedAgent.current;
-                if (!source) return;
-                event.preventDefault();
-                const placement = agentDropPlacement(event);
-                endAgentDrag();
-                void reorderAgentGroups(source, agent, placement);
-              }}
-              onDragEnd={endAgentDrag}
-              aria-description="Drag to reorder. Or press Alt+ArrowUp or Alt+ArrowDown."
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
               onKeyDown={(event) => {
                 if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
                 event.preventDefault();
                 const up = event.key === 'ArrowUp';
-                const target = agentOrder[agentOrder.indexOf(agent) + (up ? -1 : 1)];
-                if (target) void reorderAgentGroups(agent, target, up ? 'before' : 'after');
+                const target = adjacentAgent(agent, up ? -1 : 1);
+                if (target && !orderDisabled)
+                  void runSidebarAction(() =>
+                    reorderAgentGroups(agent, target, up ? 'before' : 'after'),
+                  );
               }}
-              aria-expanded={!collapsed}
-              onClick={() => void toggleAgentGroup(agent)}
+              onDragStart={(event) => {
+                setDragId(null);
+                draggedAgent.current = agent;
+                event.dataTransfer.setData('text/plain', agent);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragEnd={clearDrag}
+              onDragOver={(event) => {
+                if (
+                  orderDisabled ||
+                  !draggedAgent.current ||
+                  draggedAgent.current === agent ||
+                  !sameAgentSection(draggedAgent.current, agent)
+                )
+                  return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setAgentDropTarget({ agent, placement: agentDropPlacement(event) });
+              }}
+              onDragLeave={() =>
+                setAgentDropTarget((current) => (current?.agent === agent ? null : current))
+              }
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const from = draggedAgent.current;
+                const placement = agentDropPlacement(event);
+                clearDrag();
+                if (!orderDisabled && from && from !== agent && sameAgentSection(from, agent)) {
+                  void runSidebarAction(() => reorderAgentGroups(from, agent, placement));
+                }
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setCtxMenu(null);
+                setAgentMenu({ x: event.clientX, y: event.clientY, agent });
+              }}
               title={available ? agentName(agent) : `${agentName(agent)} (not installed)`}
             >
-              <AgentIcon
-                agent={agent}
-                size={14}
-                className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
-              />
-              <span className="agent-group-name">{agentName(agent)}</span>
-              <span className="agent-group-count">{group.length}</span>
-              <span className="agent-drag-handle" title="Drag to reorder; Alt+Up/Down when focused">
-                <ActionIcon name="grip" />
-              </span>
-              <span
-                className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}
-                aria-hidden="true"
+              <button
+                type="button"
+                className="agent-group-toggle"
+                disabled={!sidebarTreeLoaded}
+                aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${agentName(agent)}`}
+                aria-expanded={!collapsed}
+                aria-description="Drag to reorder within the pinned section. Or press Alt+ArrowUp or Alt+ArrowDown."
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void toggleAgentGroup(agent);
+                }}
               >
-                ▾
-              </span>
-            </button>
+                <span className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
+                <AgentIcon
+                  agent={agent}
+                  size={14}
+                  className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
+                />
+                <span className="agent-group-name">{agentName(agent)}</span>
+                <span className="agent-group-count">{group.length}</span>
+                <span
+                  className="agent-drag-handle"
+                  title="Drag to reorder; Alt+Up/Down when focused"
+                >
+                  <ActionIcon name="grip" />
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`sidebar-pin${pinned ? ' pinned' : ''}`}
+                aria-label={`${pinned ? 'Unpin' : 'Pin'} ${agentName(agent)}`}
+                aria-pressed={pinned}
+                title={`${pinned ? 'Unpin' : 'Pin'} ${agentName(agent)}`}
+                disabled={orderDisabled}
+                draggable={false}
+                onDragStart={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void runSidebarAction(() => pinAgent(agent));
+                }}
+              >
+                <ActionIcon name="pin" />
+              </button>
+              <button
+                type="button"
+                className="agent-quick-create"
+                aria-label={`New project with ${agentName(agent)}`}
+                title={
+                  available
+                    ? `New project with ${agentName(agent)}`
+                    : `${agentName(agent)} is not installed`
+                }
+                disabled={!available || bulkDeleteBusy}
+                draggable={false}
+                onDragStart={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onNewProject(agent);
+                }}
+              >
+                +
+              </button>
+            </div>
             {!collapsed && (
               <div className="agent-group-body">
                 {agent === 'codex' && group.length === 0 && (
@@ -355,10 +519,12 @@ export function ProjectList() {
                   return (
                     <div
                       key={tree.id}
+                      data-project-id={p.id}
                       className={`project-tree-node${selected ? ' selected' : ''}`}
                     >
                       <div
-                        draggable={!cleanupMode}
+                        draggable={!orderDisabled}
+                        data-project-row={p.id}
                         onDragStart={(e) => onDragStart(e, p)}
                         onDragEnd={() => {
                           setDragId(null);
@@ -416,11 +582,30 @@ export function ProjectList() {
                           onClick={() => void handleClick(tree)}
                         >
                           <span className="project-text">
-                            <span className="list-item-title">
-                              {p.pinned ? '📌 ' : ''}
-                              {tree.name}
-                            </span>
+                            <span className="list-item-title">{tree.name}</span>
                           </span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`sidebar-pin${tree.pinned ? ' pinned' : ''}`}
+                          aria-label={`${tree.pinned ? 'Unpin' : 'Pin'} project ${tree.name}`}
+                          aria-pressed={tree.pinned}
+                          title={`${tree.pinned ? 'Unpin' : 'Pin'} project`}
+                          disabled={orderDisabled}
+                          draggable={false}
+                          onDragStart={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void runSidebarAction(async () => {
+                              for (const member of tree.projects)
+                                await pinProject(member.id, !tree.pinned);
+                            });
+                          }}
+                        >
+                          <ActionIcon name="pin" />
                         </button>
                       </div>
                       {expanded && (
@@ -458,19 +643,44 @@ export function ProjectList() {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div
+          <button
+            type="button"
             className="ctx-menu-item"
+            disabled={orderDisabled}
             onClick={() => {
-              pinProject(ctxMenu.project.id, !ctxMenu.project.pinned);
+              const project = ctxMenu.project;
+              void runSidebarAction(() => pinProject(project.id, !project.pinned));
               setCtxMenu(null);
             }}
           >
             {ctxMenu.project.pinned ? 'Unpin' : 'Pin to top'}
-          </div>
+          </button>
+          {([-1, 1] as const).map((direction) => {
+            const project = ctxMenu.project;
+            const target = adjacentProject(project, direction);
+            return (
+              <button
+                type="button"
+                key={direction}
+                className="ctx-menu-item"
+                disabled={orderDisabled || !target}
+                onClick={() => {
+                  setCtxMenu(null);
+                  if (target)
+                    void runSidebarAction(() =>
+                      reorderProjects(project.agent, project.id, target.id),
+                    );
+                }}
+              >
+                {direction < 0 ? 'Move up' : 'Move down'}
+              </button>
+            );
+          })}
           <div
             className="ctx-menu-item"
             onClick={() => {
-              hideProject(ctxMenu.project.id, !ctxMenu.project.hidden);
+              const project = ctxMenu.project;
+              void runSidebarAction(() => hideProject(project.id, !project.hidden));
               setCtxMenu(null);
             }}
           >
@@ -496,6 +706,44 @@ export function ProjectList() {
               Delete (not supported)
             </div>
           )}
+        </div>
+      )}
+      {agentMenu && (
+        <div
+          className="ctx-menu"
+          style={{ left: agentMenu.x, top: agentMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="ctx-menu-item"
+            disabled={orderDisabled}
+            onClick={() => {
+              const agent = agentMenu.agent;
+              setAgentMenu(null);
+              void runSidebarAction(() => pinAgent(agent));
+            }}
+          >
+            {pinnedAgents.includes(agentMenu.agent) ? 'Unpin' : 'Pin to top'}
+          </button>
+          {([-1, 1] as const).map((direction) => {
+            const agent = agentMenu.agent;
+            const target = adjacentAgent(agent, direction);
+            return (
+              <button
+                type="button"
+                key={direction}
+                className="ctx-menu-item"
+                disabled={orderDisabled || !target}
+                onClick={() => {
+                  setAgentMenu(null);
+                  if (target) void runSidebarAction(() => moveAgent(agent, target));
+                }}
+              >
+                {direction < 0 ? 'Move up' : 'Move down'}
+              </button>
+            );
+          })}
         </div>
       )}
       {confirmDelete && (

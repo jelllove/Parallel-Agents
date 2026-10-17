@@ -19,6 +19,7 @@ import {
   type FontFamilyId,
 } from '../../shared/typography.ts';
 import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/agent-commands.ts';
+import { orderedAgents } from '../../shared/sidebar-order.ts';
 import { pickDeletableMissingProjectIds } from './project-cleanup.ts';
 import { groupProjectTrees } from '../../shared/project-tree.ts';
 import {
@@ -53,6 +54,10 @@ export interface SessionLinkRequest {
 }
 
 interface AppState {
+  layoutError: string | null;
+  layoutSaving: boolean;
+  launchSettingsAgent: AgentId | null;
+  showAgentLaunchSettings: (agent: AgentId | null) => void;
   projects: Project[];
   adhocProjects: Project[];
   inventoryRefreshing: boolean;
@@ -78,6 +83,7 @@ interface AppState {
   agentStatus: Record<AgentId, AgentStatus>;
   collapsedAgents: AgentId[];
   agentOrder: AgentId[];
+  pinnedAgents: AgentId[];
   expandedProjects: string[];
   sidebarTreeLoaded: boolean;
   sidebarTreeLoading: boolean;
@@ -118,6 +124,7 @@ interface AppState {
   setShowHidden: (v: boolean) => Promise<void>;
   toggleAgentGroup: (id: AgentId) => Promise<void>;
   reorderAgentGroups: (from: AgentId, to: AgentId, placement: 'before' | 'after') => Promise<void>;
+  pinAgent: (agent: AgentId) => Promise<void>;
   setProjectExpanded: (id: string, expanded: boolean) => Promise<void>;
   loadSidebarTree: () => Promise<void>;
   saveSidebarTree: () => Promise<void>;
@@ -166,15 +173,24 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
 });
 
 let layoutWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let layoutSaveId = 0;
 function scheduleLayoutWrite(layout: LayoutConfig) {
   if (layoutWriteTimer) clearTimeout(layoutWriteTimer);
   layoutWriteTimer = setTimeout(() => {
-    void window.api.config.setLayout(layout);
+    void window.api.config.setLayout(layout).catch((error: unknown) => {
+      useAppStore.setState({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    });
     layoutWriteTimer = null;
   }, 300);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  layoutError: null,
+  layoutSaving: false,
+  launchSettingsAgent: null,
+  showAgentLaunchSettings: (agent) => set({ launchSettingsAgent: agent }),
   projects: [],
   adhocProjects: [],
   inventoryRefreshing: false,
@@ -200,6 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   agentStatus: emptyStatus(),
   collapsedAgents: [],
   agentOrder: [...DEFAULT_AGENT_ORDER],
+  pinnedAgents: [],
   expandedProjects: [],
   sidebarTreeLoaded: false,
   sidebarTreeLoading: false,
@@ -514,7 +531,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   async reorderAgentGroups(from, to, placement) {
     if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
     if (from === to) return;
-    const current = get().agentOrder;
+    const pinned = get().pinnedAgents;
+    if (pinned.includes(from) !== pinned.includes(to)) {
+      throw new Error('Reorder agents within the same pinned section.');
+    }
+    const current = orderedAgents(get());
     if (!current.includes(from) || !current.includes(to)) {
       set({
         sidebarTreeError: 'Cannot reorder unknown Agent sections. Reload the sidebar and retry.',
@@ -526,6 +547,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (next.every((id, index) => id === current[index])) return;
     set({ agentOrder: next });
     await get().saveSidebarTree();
+  },
+
+  async pinAgent(agent) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
+    await window.api.config.setAgentPinned(agent, !get().pinnedAgents.includes(agent));
+    const layout = await window.api.config.getAgentLayout();
+    set(layout);
   },
 
   async setProjectExpanded(id, expanded) {
@@ -540,8 +568,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().sidebarTreeLoaded || get().sidebarTreeLoading) return;
     set({ sidebarTreeLoading: true, sidebarTreeError: null });
     try {
-      const tree = await window.api.config.getSidebarTree();
-      set({ ...tree, sidebarTreeLoaded: true, sidebarTreeError: null });
+      const [tree, layout] = await Promise.all([
+        window.api.config.getSidebarTree(),
+        window.api.config.getAgentLayout(),
+      ]);
+      set({ ...tree, ...layout, sidebarTreeLoaded: true, sidebarTreeError: null });
     } catch (error) {
       set({
         sidebarTreeError: `Cannot load sidebar layout: ${error instanceof Error ? error.message : String(error)}`,
@@ -651,7 +682,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
     const fromIdx = groups.findIndex((group) => group.projects.some((p) => p.id === fromId));
     const toIdx = groups.findIndex((group) => group.projects.some((p) => p.id === toId));
-    if (fromIdx < 0 || toIdx < 0) return;
+    if (fromIdx < 0 || toIdx < 0) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
+    if (groups[fromIdx].pinned !== groups[toIdx].pinned) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
     const [moved] = groups.splice(fromIdx, 1);
     groups.splice(toIdx, 0, moved);
     await window.api.projects.setOrder(
@@ -739,25 +775,45 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async loadLayout() {
-    const layout = await window.api.config.getLayout();
-    set({ layout });
+    try {
+      const layout = await window.api.config.getLayout();
+      set({ layout, layoutError: null });
+    } catch (error) {
+      set({
+        layoutError: `Could not load window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   },
 
   async setLayout(layout) {
-    set({ layout });
+    const saveId = ++layoutSaveId;
+    const previous = get().layout;
+    set({ layout, layoutError: null, layoutSaving: true });
     if (layoutWriteTimer) {
       clearTimeout(layoutWriteTimer);
       layoutWriteTimer = null;
     }
-    await window.api.config.setLayout(layout);
+    try {
+      await window.api.config.setLayout(layout);
+    } catch (error) {
+      if (get().layout === layout) set({ layout: previous });
+      set({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      throw error;
+    } finally {
+      if (saveId === layoutSaveId) set({ layoutSaving: false });
+    }
   },
 
   updateLayoutSizes(sizes) {
     const cur = get().layout;
+    if (get().layoutSaving) return;
     if (!cur) return;
+    if (cur.hiddenPanes?.length) return;
     if (sizes.length !== 3) return;
     const next: LayoutConfig = {
-      order: cur.order,
+      ...cur,
       sizes: [sizes[0], sizes[1], sizes[2]],
     };
     const same = cur.sizes.every((v, i) => Math.abs(v - next.sizes[i]) < 0.01);

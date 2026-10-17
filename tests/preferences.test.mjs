@@ -83,13 +83,23 @@ test('legacy preferences default typography options and preserve existing settin
   const legacy = { sessionNames: { 'codex:session': 'Existing name' }, fontSize: 20, projects: [] };
   await writeFile(path, JSON.stringify(legacy));
   const store = new PreferencesStore(path);
-  assert.deepEqual(await store.read(), { ...legacy, fontFamily: 'default', fontBold: false });
+  assert.deepEqual(await store.read(), {
+    ...legacy,
+    fontFamily: 'default',
+    fontBold: false,
+    recentFolders: [],
+    agentLaunchOptions: {},
+    workspaceMode: 'folder',
+  });
   await store.setFontSize(21);
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
     ...legacy,
     fontSize: 21,
     fontFamily: 'default',
     fontBold: false,
+    recentFolders: [],
+    agentLaunchOptions: {},
+    workspaceMode: 'folder',
   });
 });
 

@@ -8,9 +8,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 ## Desktop setup
 
-- Desktop packaging targets are **Windows x64**, **macOS arm64**, and **Linux x64**.
+- Desktop packaging targets are **Windows x64**, **macOS arm64/x64**, and **Linux x64**.
   Linux targets glibc desktops with X11 or XWayland, with DEB packages for Debian/Ubuntu,
-  RPM packages for Fedora/RHEL-style packaging, and portable AppImage output. Native receipts and
+  RPM packages for Fedora/RHEL-style packaging, and portable AppImage/tar.gz output. Native receipts and
   installation checks on each host are required before claiming a release is qualified.
 - [.node-version](.node-version) pins **Node.js 24.17.0** for reproducible setup.
   [package.json](package.json) permits Node `^24.17.0` and npm `>=11 <12` (**npm 11**).
@@ -78,28 +78,29 @@ For optional agent-driven tooling, see [bounded local MCP tools](docs/agent-tool
 They expose diagnostics, read-only maintenance inspection, fixed validation commands and source-bound
 evidence verification; they cannot install, publish, run arbitrary commands, or apply maintenance.
 
-| Command                     | Contract                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| `npm ci`                    | Install the locked dependency graph                                                         |
-| `npm run doctor`            | Inspect required and optional prerequisites without installation or provider access         |
-| `npm run setup`             | Explicit locked dependency installation followed by non-GUI repository checks               |
-| `npm run dev`               | Start electron-vite's development application; this can read real user data                 |
-| `npm run typecheck`         | Run TypeScript checking without emitting bundles                                            |
-| `npm run lint`              | Check the active JavaScript/TypeScript code with ESLint                                     |
-| `npm run format:check`      | Verify formatting without rewriting files                                                   |
-| `npm run format`            | Apply formatting; inspect the diff and avoid unrelated rewrites                             |
-| `npm test`                  | Run the Node test suite with TypeScript stripping                                           |
-| `npm run test:ci`           | Run unit/regression tests with JUnit and tested-module LCOV output                          |
-| `npm run test:e2e`          | Run the current desktop target's native smoke after a build                                 |
-| `npm run check:docs`        | Run the offline, bounded Markdown-to-repository contract check described below              |
-| `npm run check:secrets`     | Scan Git-visible source with pinned, fully redacted local Gitleaks tooling                  |
-| `npm run test:security`     | Verify real scanner detection/redaction using generated disposable data                     |
-| `npm run hooks:install`     | Preview opt-in local hook setup; mutation requires explicit `--apply`                       |
-| `npm run maintenance:check` | Inspect bounded non-runtime formatting drift without repair                                 |
-| `npm run maintenance:apply` | Explicit clean-tree formatting repair with validation, rollback, and optional new artifacts |
-| `npm run check`             | Run lint, format checking, type checking, tests, documentation, and agent-corpus checks     |
-| `npm run build`             | Run type checking, then electron-vite build into `out`                                      |
-| `npm run validate`          | Run `check` followed by `build`                                                             |
+| Command                                                            | Contract                                                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `npm ci`                                                           | Install the locked dependency graph                                                         |
+| `npm run doctor`                                                   | Inspect required and optional prerequisites without installation or provider access         |
+| `npm run setup`                                                    | Explicit locked dependency installation followed by non-GUI repository checks               |
+| `npm run dev`                                                      | Start electron-vite's development application; this can read real user data                 |
+| `npm run typecheck`                                                | Run TypeScript checking without emitting bundles                                            |
+| `npm run lint`                                                     | Check the active JavaScript/TypeScript code with ESLint                                     |
+| `npm run format:check`                                             | Verify formatting without rewriting files                                                   |
+| `npm run format`                                                   | Apply formatting; inspect the diff and avoid unrelated rewrites                             |
+| `npm test`                                                         | Run the Node test suite with TypeScript stripping                                           |
+| `npm run test:ci`                                                  | Run unit/regression tests with JUnit and tested-module LCOV output                          |
+| `npm run test:e2e`                                                 | Run the current desktop target's native smoke after a build                                 |
+| `npm run check:docs`                                               | Run the offline, bounded Markdown-to-repository contract check described below              |
+| `npm run check:secrets`                                            | Scan Git-visible source with pinned, fully redacted local Gitleaks tooling                  |
+| `npm run test:security`                                            | Verify real scanner detection/redaction using generated disposable data                     |
+| `npm run hooks:install`                                            | Preview opt-in local hook setup; mutation requires explicit `--apply`                       |
+| `npm run maintenance:check`                                        | Inspect bounded non-runtime formatting drift without repair                                 |
+| `npm run maintenance:apply`                                        | Explicit clean-tree formatting repair with validation, rollback, and optional new artifacts |
+| `npm run check`                                                    | Run lint, format checking, type checking, tests, documentation, and agent-corpus checks     |
+| `npm run build`                                                    | Run type checking, then electron-vite build into `out`                                      |
+| `npm run validate`                                                 | Run `check` followed by `build`                                                             |
+| `npm run verify:release -- --artifacts <directory> --commit <sha>` | Verify and stage one complete four-target release from downloaded native receipts/packages  |
 
 Start with the smallest relevant test command. Use `npm run check` for the complete local
 static/type/test/docs/agent-corpus gate, and `npm run validate` when bundle validation is also needed.
@@ -146,7 +147,7 @@ install hooks, mutate remote settings, or contact real AI-provider CLIs.
 
 ### Windows native smoke test
 
-This existing anchor now covers **Windows x64, macOS arm64, and Linux x64** native smoke.
+This existing anchor now covers **Windows x64, macOS arm64/x64, and Linux x64** native smoke.
 The native smoke test is separate from the fast `npm run check` workflow.
 `npm run validate` remains **check plus build**; it does not include native smoke testing.
 Use an installed dependency tree, Git on PATH, and the target's bundled node-pty N-API prebuilds.
@@ -181,6 +182,15 @@ The fixture checks:
 - A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
+- Windows has no application menu, and pressing Alt does not reveal a menu bar.
+- Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
+  pin buttons persist both agent and project ordering without recreating the running terminal.
+  Extra project folders and configuration writes belong only to the disposable fixture.
+- New Project displays settings/workspace/folder icons without a recent-folder search field.
+  Changing workspace mode persists even after cancelling and opening another agent's dialog.
+- The original compact **About** entry (without a status badge) opening the installed-version/update controls and the exact
+  author website/latest-release links crossing IPC. The fixture replaces Electron's external
+  browser opener with an in-memory recorder; it does not open a browser or contact those sites.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
 
@@ -192,17 +202,29 @@ Electron `chrome-sandbox` helper. This is not a local setup step or a system-wid
 
 `npm run pack` builds, runs native smoke, creates unpacked output with `--publish never`, and runs
 the same fixture against the actual app.asar. Layouts are `release/win-unpacked`,
-`release/mac-arm64/Parallel Agents.app`, and `release/linux-unpacked`. `npm run dist` adds the
+`release/mac-arm64/Parallel Agents.app`, `release/mac/Parallel Agents.app` (Intel),
+and `release/linux-unpacked`. `npm run dist` adds the
 platform's distributable formats, preserving both smoke gates. Build on the target host;
 cross-compilation does not substitute for loading that host's native PTY.
 
-Linux `dist` builds DEB, RPM, and AppImage in one invocation. Local RPM packaging needs
+Both commands use [package-desktop.mjs](scripts/package-desktop.mjs) to select explicit target
+names from the manifest and the current host architecture, with `--publish never`.
+Windows `dist` adds an unpack-and-run ZIP alongside the unchanged NSIS installer.
+Each Mac architecture builds its own DMG/ZIP on its native host; it cannot reuse another
+architecture's native smoke as evidence.
+
+Linux `dist` builds DEB, RPM, AppImage, and tar.gz in one invocation. Local RPM packaging needs
 `rpmbuild` and `xz` on PATH; install the distribution's build prerequisites explicitly
 (`rpm` on Debian/Ubuntu, `rpm-build` on Fedora). Ordinary `check`, `build`, and unpacked `pack`
 do not require RPM tools. The [release workflow](.github/workflows/release.yml) installs them
-only on its disposable Linux runner, collects `.deb` and `.rpm`, and requires both in the
+only on its disposable Linux runner, collects all four formats, and requires them in the
 [release asset check](scripts/release-assets.mjs). RPM artifacts use `x86_64`; DEB uses `amd64`.
 An Ubuntu native smoke receipt does not qualify installation or startup on Fedora/RHEL.
+The named qualification baseline is Ubuntu 24.04.5 x64; see the
+[distribution evidence table](README.md#verified-linux-distribution-boundary) for the actual
+prior run and its limits. Pin Linux workflow runners to Ubuntu 24.04, not a moving `latest` label.
+Extract archives fully and retain their native resources and sandbox helper; archives do not
+install system dependencies or create a self-contained provider/settings profile.
 
 A successful run writes `reports\smoke.json` and a window capture at `reports\smoke.png`.
 Use the command's exit status and the JSON `success`/`checks`/`error` fields as evidence for that
@@ -228,7 +250,22 @@ with `--publish never` → packaged smoke**. A failed gate stops the command.
   `release\latest`, **removing any previous directory at that destination**.
 
 Despite its name, `release` performs local packaging/promotion, not GitHub or npm publishing.
-Keep the explicit `--publish never` arguments in `pack` and `dist`.
+Keep the explicit `--publish never` arguments in their packaging runner.
+
+For release authoring, follow the required
+[release-authoring skill](.github/skills/release-authoring/SKILL.md). The
+[complete-set verifier](scripts/verify-release-set.mjs) reuses the per-target filename contract,
+requires all four native identities at one version/commit, and checks actual sizes/digests before
+staging a fresh publication directory under `reports/release-sets`. Missing files/platforms,
+ambiguous or failed native receipts, extra files and symlink escapes fail explicitly.
+Only matching archive blockmaps are accepted beyond required files. Copies are rehashed before
+writing `SHA256SUMS` and `release-set.json`; prior outputs are retained.
+
+The final release workflow job depends on every native package job succeeding, downloads only
+that run's artifacts, and uploads a `verified-release-set`. This consistency check trusts actual
+native workflow receipts; it is not independent execution proof or an automatic publisher.
+Publishing still needs explicit authorization, correct accounts, draft-upload digest checks and
+any repository approvals. Never fabricate success receipts or silently omit an OS to get green.
 
 Do not upload artifacts, invoke publishing, or replace a user's existing release directory without
 an explicit request. Packaging may need downloads even though publishing is disabled.
@@ -293,9 +330,10 @@ not a guarantee of vulnerability-free code or evidence that native/packaging ver
 
 ## CI definitions and owner settings
 
-[.github/workflows/ci.yml](.github/workflows/ci.yml) defines three jobs:
-**`Validate (Windows)`** on `windows-latest`, **`Validate (Linux)`** on `ubuntu-latest`,
-and **`Validate (macOS)`** on the Apple Silicon `macos-15` runner.
+[.github/workflows/ci.yml](.github/workflows/ci.yml) defines four jobs:
+**`Validate (Windows)`** on `windows-latest`, **`Validate (Linux)`** on `ubuntu-24.04`,
+**`Validate (macOS)`** on Apple Silicon `macos-15`, and **`Validate (macOS-Intel)`**
+on native x64 `macos-15-intel`. Existing required check names remain intact.
 Configured triggers are pull requests, pushes to `main`, and manual dispatch.
 These are repository definitions, not evidence that a remote workflow has run.
 
@@ -306,7 +344,7 @@ The native workflow calls **`pack`**, not just the standalone smoke command: thi
 native smoke, local unpacked packaging with `--publish never`, and the unpacked-bundle smoke check.
 It does not publish a release. Native and packaged checks are required on all three platforms;
 skipped native execution is incomplete, not success. This configuration is not evidence that
-Mac/Linux native runs or installer qualification have actually passed.
+every new archive/Intel native run or installer qualification has actually passed.
 
 The audit threshold fails on high/critical advisories; passing it is not a zero-vulnerability
 guarantee. Dependency installation and audit can access the package registry, while the fixture
@@ -317,7 +355,8 @@ The workflow configures:
 - Actions pinned to immutable commit SHAs, `contents: read`, and checkout credentials not persisted.
 - Cancellation of older runs for the same workflow/ref and a **20-minute per-job timeout**.
 - Per-step GitHub logs, JUnit/LCOV artifacts, versioned JSON receipts under `reports/validation`,
-  an outcome summary, and `validation-Windows`, `validation-Linux`, and `validation-macOS`
+  an outcome summary, and `validation-Windows`, `validation-Linux`, `validation-macOS`,
+  and `validation-macOS-Intel`
   artifacts retained for seven days.
   Summary/artifact steps are configured with `always()`; missing, failed, or required skipped
   steps are not reported as success. Definitions do not mean hosted reports already exist.

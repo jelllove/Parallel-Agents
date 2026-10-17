@@ -8,6 +8,8 @@ import { createConfigStore } from '../src/main/config-store.ts';
 
 function defaults() {
   return {
+    agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'aider'],
+    pinnedAgents: [],
     pinned: [],
     hidden: [],
     lastAgentByProject: {},
@@ -21,7 +23,6 @@ function defaults() {
       collapsedAgents: [],
       expandedProjects: [],
       showHidden: false,
-      agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'aider'],
     },
   };
 }
@@ -57,7 +58,10 @@ test('missing config uses fresh defaults without creating a file', async (t) => 
 test('sidebar tree survives a new store instance and concurrent unrelated preferences', async (t) => {
   const { config, path } = await setup(t, { theme: 'dark' });
   assert.equal(typeof config.setSidebarTree, 'function');
-  assert.deepEqual(await config.getSidebarTree(), defaults().sidebarTree);
+  assert.deepEqual(await config.getSidebarTree(), {
+    ...defaults().sidebarTree,
+    agentOrder: defaults().agentOrder,
+  });
   const tree = {
     agentOrder: ['gemini', 'codex', 'claude', 'copilot', 'aider'],
     collapsedAgents: ['copilot', 'gemini'],
@@ -73,6 +77,32 @@ test('sidebar tree survives a new store instance and concurrent unrelated prefer
   snapshot.collapsedAgents.length = 0;
   assert.deepEqual((await restarted.getSidebarTree()).collapsedAgents, ['copilot', 'gemini']);
   assert.equal((await restarted.getSidebarTree()).expandedProjects.length, 2);
+  const persisted = JSON.parse(await fs.readFile(path, 'utf8'));
+  assert.deepEqual(persisted.agentOrder, tree.agentOrder);
+  assert.equal(Object.hasOwn(persisted.sidebarTree, 'agentOrder'), false);
+});
+
+test('legacy sidebar order migrates to the shared arrangement and never overrides upstream order', async (t) => {
+  const legacy = ['gemini', 'copilot', 'codex', 'claude', 'aider'];
+  const upstream = ['claude', 'aider', 'copilot', 'codex', 'gemini'];
+  const tree = { ...defaults().sidebarTree, agentOrder: legacy };
+  const first = await setup(t, { sidebarTree: tree });
+  assert.deepEqual((await first.config.getAgentLayout()).agentOrder, legacy);
+  await first.config.setAgentPinned('codex', true);
+  const persisted = JSON.parse(await fs.readFile(first.path, 'utf8'));
+  assert.deepEqual(persisted.agentOrder, legacy);
+  assert.equal(Object.hasOwn(persisted.sidebarTree, 'agentOrder'), false);
+  assert.deepEqual((await createConfigStore(first.path).getSidebarTree()).agentOrder, legacy);
+  const second = await setup(t, {
+    sidebarTree: tree,
+    agentOrder: upstream,
+    pinnedAgents: ['claude'],
+  });
+  assert.deepEqual(await second.config.getAgentLayout(), {
+    agentOrder: upstream,
+    pinnedAgents: ['claude'],
+  });
+  assert.deepEqual((await second.config.getSidebarTree()).agentOrder, upstream);
 });
 
 test('older sidebar preferences gain the default Agent order without losing tree state', async (t) => {
@@ -84,12 +114,12 @@ test('older sidebar preferences gain the default Agent order without losing tree
   const { config, path } = await setup(t, { sidebarTree: oldTree });
   assert.deepEqual(await config.getSidebarTree(), {
     ...oldTree,
-    agentOrder: defaults().sidebarTree.agentOrder,
+    agentOrder: defaults().agentOrder,
   });
   await config.setTheme('light');
   assert.deepEqual(
     (await createConfigStore(path).getSidebarTree()).agentOrder,
-    defaults().sidebarTree.agentOrder,
+    defaults().agentOrder,
   );
 });
 

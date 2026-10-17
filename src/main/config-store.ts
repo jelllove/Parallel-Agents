@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type {
   AgentId,
+  AgentLayout,
   AppConfig,
   LayoutConfig,
   ThemeMode,
@@ -10,6 +11,7 @@ import type {
 } from '../shared/types.ts';
 import {
   agentId,
+  agentOrderSetting,
   booleanSetting,
   defaultConfig,
   layoutSetting,
@@ -154,6 +156,24 @@ export function createConfigStore(configPath: string) {
   return {
     loadConfig,
     saveConfig,
+    async getAgentLayout(): Promise<AgentLayout> {
+      const { agentOrder, pinnedAgents } = await loadConfig();
+      return { agentOrder, pinnedAgents };
+    },
+    async setAgentOrder(ids: AgentId[]): Promise<void> {
+      const order = agentOrderSetting(ids);
+      await updateConfig((config) => ({ ...config, agentOrder: order }));
+    },
+    async setAgentPinned(agent: AgentId, pinned: boolean): Promise<void> {
+      const key = agentId(agent);
+      const enabled = booleanSetting(pinned, 'pinnedAgents');
+      await updateConfig((config) => {
+        const ids = new Set(config.pinnedAgents);
+        if (enabled) ids.add(key);
+        else ids.delete(key);
+        return { ...config, pinnedAgents: [...ids] };
+      });
+    },
     setProjectPinned: (id: string, pinned: boolean) => setProjectFlag('pinned', id, pinned),
     setProjectHidden: (id: string, hidden: boolean) => setProjectFlag('hidden', id, hidden),
     async setLastAgent(id: string, agent: AgentId): Promise<void> {
@@ -200,11 +220,13 @@ export function createConfigStore(configPath: string) {
       return (await loadConfig()).layout;
     },
     async getSidebarTree(): Promise<SidebarTreeState> {
-      return (await loadConfig()).sidebarTree;
+      const config = await loadConfig();
+      return { ...config.sidebarTree, agentOrder: config.agentOrder };
     },
     async setSidebarTree(tree: SidebarTreeState): Promise<void> {
       const validated = sidebarTreeSetting(tree);
-      await updateConfig((config) => ({ ...config, sidebarTree: validated }));
+      const agentOrder = agentOrderSetting(tree.agentOrder);
+      await updateConfig((config) => ({ ...config, agentOrder, sidebarTree: validated }));
     },
     async setLayout(layout: LayoutConfig): Promise<void> {
       const validated = layoutSetting(layout);
