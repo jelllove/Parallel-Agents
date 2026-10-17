@@ -51,6 +51,57 @@ async function backend(home) {
   }
 }
 
+test('created worktree metadata survives discovery without merging its session identity', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-worktree-integration-'));
+  t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5 }));
+  const root = join(home, 'repo');
+  await mkdir(root);
+  const git = (...args) =>
+    promisify(execFile)('git', [
+      '-C',
+      root,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      '-c',
+      'commit.gpgSign=false',
+      '-c',
+      `core.hooksPath=${join(home, 'no-hooks')}`,
+      ...args,
+    ]);
+  await git('init', '-b', 'main');
+  await writeFile(join(root, 'file.txt'), 'fixture\n');
+  await git('add', '.');
+  await git('commit', '-m', 'Fixture');
+  const api = await backend(home);
+  const parent = await api.createProject({ agent: 'codex', mode: 'folder', basePath: root });
+  const child = await api.createProject({
+    agent: 'codex',
+    mode: 'worktree',
+    basePath: root,
+    targetPath: join(home, 'elsewhere'),
+    branch: 'feature/inline',
+  });
+  assert.equal(child.worktree.branch, 'feature/inline');
+  assert.notEqual(child.id, parent.id);
+  const history = join(home, '.codex', 'sessions');
+  await mkdir(history, { recursive: true });
+  await writeFile(
+    join(history, 'rollout-child.jsonl'),
+    JSON.stringify({
+      type: 'session_meta',
+      payload: { id: 'child-session', cwd: child.realPath, timestamp: '2026-10-16T08:00:00Z' },
+    }) + '\n',
+  );
+  const restarted = await backend(home);
+  const projects = await restarted.listProjects();
+  assert.equal(projects.length, 2);
+  assert.deepEqual(projects.find((p) => p.id === child.id).worktree, child.worktree);
+  assert.equal((await restarted.listSessionsForProject(child.id))[0].projectId, child.id);
+  assert.deepEqual(await restarted.listSessionsForProject(parent.id), []);
+});
+
 test('new project survives restart, discovers history under stable ID, and renames persist', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-project-integration-'));
   t.after(() => rm(home, { recursive: true, force: true }));

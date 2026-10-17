@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { AgentId, AppConfig, LayoutConfig, ThemeMode } from '../shared/types.ts';
+import type {
+  AgentId,
+  AppConfig,
+  LayoutConfig,
+  ThemeMode,
+  SidebarTreeState,
+} from '../shared/types.ts';
 import {
   agentId,
   booleanSetting,
@@ -11,6 +17,7 @@ import {
   projectId,
   projectIds,
   themeSetting,
+  sidebarTreeSetting,
   validateConfig,
 } from './config-schema.ts';
 
@@ -191,6 +198,13 @@ export function createConfigStore(configPath: string) {
     },
     async getLayout(): Promise<LayoutConfig> {
       return (await loadConfig()).layout;
+    },
+    async getSidebarTree(): Promise<SidebarTreeState> {
+      return (await loadConfig()).sidebarTree;
+    },
+    async setSidebarTree(tree: SidebarTreeState): Promise<void> {
+      const validated = sidebarTreeSetting(tree);
+      await updateConfig((config) => ({ ...config, sidebarTree: validated }));
     },
     async setLayout(layout: LayoutConfig): Promise<void> {
       const validated = layoutSetting(layout);

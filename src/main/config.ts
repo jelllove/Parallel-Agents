@@ -15,6 +15,8 @@ export const {
   forgetProject,
   getLayout,
   setLayout,
+  getSidebarTree,
+  setSidebarTree,
   getTheme,
   setTheme,
   getConfirmOnCloseTab,

@@ -20,6 +20,8 @@ import {
   setProjectOrder,
   getLayout,
   setLayout,
+  getSidebarTree,
+  setSidebarTree,
   getTheme,
   setTheme,
   getConfirmOnCloseTab,
@@ -38,6 +40,7 @@ import type {
   ThemeMode,
   NewProjectOptions,
   PtySpawnOptions,
+  SidebarTreeState,
 } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
 import { discoverShells } from './shell-profiles.ts';
@@ -62,6 +65,8 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   });
 
   ipcMain.handle('projects:list', () => listProjects());
+  ipcMain.handle('config:getSidebarTree', () => getSidebarTree());
+  ipcMain.handle('config:setSidebarTree', (_e, tree: SidebarTreeState) => setSidebarTree(tree));
   ipcMain.handle('projects:create', (_e, options: NewProjectOptions) => createProject(options));
 
   ipcMain.handle('projects:pin', (_e, id: string, pinned: boolean) => setProjectPinned(id, pinned));

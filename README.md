@@ -20,7 +20,9 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 ## Features
 
 - **Project and session discovery** for supported Claude Code, Codex, Copilot CLI, and Gemini CLI
-  history formats, including Copilot repository/session metadata.
+  history formats, including Copilot repository/session metadata. Expand a project to see its
+  sessions inline; there is no separate Recent Sessions panel. Git worktree sessions appear under
+  their parent project with branch labels, while resuming in their own checkout.
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
   choices, session rename/link flows, and optional attached shell panes.
 - **New project workflow** for opening folders directly or creating Git worktrees before launch.
@@ -33,6 +35,39 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 - **Automatic updates** for installed Windows builds, with explicit restart confirmation.
 - **Platform lifecycle**: Windows/macOS close hides the window; Linux close quits after session
   confirmation and does not require a tray. F11 toggles fullscreen.
+
+### Project sidebar
+
+Projects remain grouped by agent. Use the folder icon beside a project (an arrow on hover/focus)
+to expand or collapse its sessions without launching a terminal. Sessions are ordered newest
+first; multiple projects can stay expanded. Opening a project with multiple worktree entries
+selects it and lets you choose the desired session. Empty checkouts offer **Start session**.
+
+Project rows show just the name; hover for the full path. Sessions use indented, two-line rows
+with muted branch/time metadata and a neutral selected background in both themes. Rename/delete
+controls appear on hover or keyboard focus and retain their own space, so long names truncate
+with an ellipsis rather than overlap the buttons. Widening the sidebar reveals more of each name.
+Agent headings are separate background blocks with consistently sized icons rather than another
+indented tree level. Project and two-line session rows use compact spacing.
+
+Drag an Agent heading up or down to reorder the sections; the insertion line marks whether it
+will land before or after the target heading. You can also focus a heading and use **Alt+Up/Down**.
+Clicking a heading still expands or collapses it.
+
+Agent order, Agent/project expansion and the **show hidden** switch are saved with the existing layout
+preferences and restored on the next launch, without automatically opening terminals. Inventory
+refresh preserves manual collapse. Layout read/write failures appear in the sidebar with a
+**Retry** action; controls wait for the saved tree state to load before accepting changes.
+
+Existing Git worktrees, including worktrees created from another worktree, are grouped using
+Git metadata rather than directory naming. If only a worktree is known, its parent repository
+still supplies the group name. Unavailable directories without usable Git metadata remain
+standalone so their histories can still be reviewed and cleaned.
+
+Session rename/delete actions target the original history, not the parent project. Right-click a
+worktree session (or its empty-checkout row) for that checkout's project actions. Cleanup mode
+shows individual project histories so deletion selection stays explicit. Hidden histories stay
+hidden unless **show hidden** is enabled; dragging a project moves its worktree group together.
 
 ## Quick start
 

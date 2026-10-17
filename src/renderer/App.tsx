@@ -54,6 +54,7 @@ export default function App() {
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes);
   const loadTheme = useAppStore((s) => s.loadTheme);
   const loadSettings = useAppStore((s) => s.loadSettings);
+  const loadSidebarTree = useAppStore((s) => s.loadSidebarTree);
   const openTabs = useAppStore((s) => s.openTabs);
   const tabProjectId = useAppStore((s) => s.tabProjectId);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
@@ -86,9 +87,17 @@ export default function App() {
     loadLayout();
     loadTheme();
     loadSettings();
+    void loadSidebarTree();
     const off = subscribeGitChanges();
     return off;
-  }, [refreshProjectsAndAgents, loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
+  }, [
+    refreshProjectsAndAgents,
+    loadLayout,
+    loadTheme,
+    loadSettings,
+    loadSidebarTree,
+    subscribeGitChanges,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

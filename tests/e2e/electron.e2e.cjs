@@ -74,8 +74,13 @@ async function checkRenderer(projectPath) {
   );
   check(typeof window.require === 'undefined', 'renderer has no Node require');
   const projects = await window.api.projects.list();
-  check(projects.length === 1 && projects[0].realPath === projectPath, 'provider data is isolated');
-  const projectId = projects[0].id;
+  const primary = projects.find((item) => item.realPath === projectPath);
+  const worktree = projects.find((item) => item.worktree?.parentPath === projectPath);
+  check(
+    projects.length === 2 && primary && worktree,
+    `provider and worktree data are isolated: ${JSON.stringify(projects.map(({ realPath, worktree }) => ({ realPath, worktree })))}`,
+  );
+  const projectId = primary.id;
   await Promise.all([
     window.api.projects.pin(projectId, true),
     window.api.projects.hide(projectId, true),
@@ -167,7 +172,7 @@ async function checkRenderer(projectPath) {
   });
   const waitFor = async (predicate, message, timeoutMs = 12_000) => {
     const until = Date.now() + timeoutMs;
-    while (!predicate()) {
+    while (!(await predicate())) {
       if (Date.now() > until) throw new Error(typeof message === 'function' ? message() : message);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -189,7 +194,44 @@ async function checkRenderer(projectPath) {
         document.querySelector('.agent-group-header[title="Claude Code"]:not(.unavailable)'),
       'The isolated project and CLI did not appear',
     );
-    document.querySelector('.project-item').click();
+    check(!document.querySelector('.section-sessions'), 'there is no separate sessions panel');
+    check(
+      document.querySelectorAll('.project-item').length === 1,
+      'worktree is grouped under its project',
+    );
+    document.querySelector('.project-caret').click();
+    await waitFor(
+      () => document.querySelectorAll('.project-sessions .session-open').length === 2,
+      'Both main and worktree sessions did not appear inline',
+    );
+    check(
+      document.querySelector('.session-branch')?.textContent === 'feature/sidebar',
+      'worktree session displays its branch',
+    );
+    check(
+      [...document.querySelectorAll('.agent-group-icon')].every((icon) => {
+        const rect = icon.getBoundingClientRect();
+        return rect.width === 14 && rect.height === 14;
+      }),
+      'all sidebar Agent icons including Codex use the same 14px box',
+    );
+    check(
+      document.querySelector('.project-item').getBoundingClientRect().height === 30 &&
+        parseFloat(
+          window.getComputedStyle(document.querySelector('.project-sessions')).marginBottom,
+        ) === 4,
+      'project rows and spacing between project groups are compact',
+    );
+    check(
+      [...document.querySelectorAll('.project-sessions .session-item')].every(
+        (row) => row.getBoundingClientRect().height <= 52,
+      ),
+      'two-line session rows retain compact spacing',
+    );
+    const baseSession = [...document.querySelectorAll('.session-open')].find((button) =>
+      button.textContent.includes('Isolated smoke fixture'),
+    );
+    baseSession.click();
     await waitFor(() => uiOutput.includes('SMOKE_AGENT'), 'The initial inert CLI command was lost');
     checks.push('the initial CLI command reaches the mounted terminal');
     await waitFor(
@@ -212,11 +254,274 @@ async function checkRenderer(projectPath) {
       'offline diff opens with a fixture revision rendered',
     );
     document.querySelector('.diff-close').click();
+    const worktreeSession = [...document.querySelectorAll('.session-open')].find((button) =>
+      button.textContent.includes('Isolated worktree session'),
+    );
+    worktreeSession.click();
+    await waitFor(
+      () => [...uiPtys].some((id) => id.includes('worktree-session')),
+      'Worktree session did not start its own terminal',
+    );
+    const worktreePty = [...uiPtys].find(
+      (id) => id.includes('worktree-session') && id.endsWith('::agent'),
+    );
+    check(
+      Boolean(worktreePty),
+      'worktree session retains its original project and session identity',
+    );
+    uiOutput = '';
+    await window.api.pty.write(worktreePty, window.api.platform === 'win32' ? 'cd\r' : 'pwd\r');
+    await waitFor(
+      () => uiOutput.replaceAll('\\', '/').includes(worktree.realPath.replaceAll('\\', '/')),
+      'Resumed worktree terminal did not use the worktree directory',
+    );
+    checks.push('inline worktree session resumes in its own working directory');
+    check(
+      !document.querySelector('.project-text .list-item-sub') &&
+        document.querySelector('.project-caret svg'),
+      'project row uses a line folder icon and a single-line name',
+    );
+    const activeSession = document.querySelector('.project-sessions .session-item.active');
+    const originalTheme = document.documentElement.dataset.theme;
+    try {
+      for (const [theme, background] of [
+        ['dark', 'rgb(55, 55, 61)'],
+        ['light', 'rgb(227, 227, 232)'],
+      ]) {
+        document.documentElement.dataset.theme = theme;
+        await waitFor(
+          () => window.getComputedStyle(activeSession).backgroundColor === background,
+          `${theme} neutral selection did not settle`,
+        );
+        const style = window.getComputedStyle(activeSession);
+        check(
+          style.backgroundColor === background && style.borderLeftWidth === '0px',
+          `${theme} sidebar uses neutral selection without a blue border`,
+        );
+        check(
+          window.getComputedStyle(document.querySelector('.project-sessions')).borderLeftWidth ===
+            '0px',
+          `${theme} sidebar has no vertical tree rule`,
+        );
+        const headerStyle = window.getComputedStyle(document.querySelector('.agent-group-header'));
+        check(
+          headerStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+            headerStyle.backgroundColor !==
+              window.getComputedStyle(document.querySelector('.project-tree')).backgroundColor &&
+            parseFloat(headerStyle.borderRadius) >= 4,
+          `${theme} Agent header is a distinct background block`,
+        );
+      }
+    } finally {
+      document.documentElement.dataset.theme = originalTheme;
+    }
+    const sidebar = document.querySelector('.sidebar');
+    const projectTitle = document.querySelector('.project-open .list-item-title');
+    const sessionTitle = activeSession.querySelector('.list-item-title');
+    const originalWidth = sidebar.style.width;
+    const originalProjectTitle = projectTitle.textContent;
+    const originalSessionTitle = sessionTitle.textContent;
+    const longTitle =
+      'A long project and session title that needs responsive truncation without overlapping actions';
+    try {
+      projectTitle.textContent = longTitle;
+      sessionTitle.textContent = longTitle;
+      let narrowTitleWidth;
+      for (const width of [240, 480]) {
+        sidebar.style.width = `${width}px`;
+        const titleRect = sessionTitle.getBoundingClientRect();
+        const rename = activeSession.querySelector('.session-rename');
+        const remove = activeSession.querySelector('.session-delete');
+        const renameRect = rename.getBoundingClientRect();
+        check(
+          titleRect.right <= renameRect.left &&
+            renameRect.right <= remove.getBoundingClientRect().left &&
+            remove.getBoundingClientRect().right <= sidebar.getBoundingClientRect().right,
+          `session title and action buttons do not overlap at ${width}px`,
+        );
+        check(
+          window.getComputedStyle(sessionTitle).textOverflow === 'ellipsis' &&
+            window.getComputedStyle(projectTitle).textOverflow === 'ellipsis' &&
+            projectTitle.scrollWidth > projectTitle.clientWidth,
+          `long project and session names use ellipsis at ${width}px`,
+        );
+        rename.focus();
+        check(
+          window.getComputedStyle(rename).opacity === '1',
+          'rename action remains visible on keyboard focus',
+        );
+        rename.blur();
+        if (width === 240) narrowTitleWidth = titleRect.width;
+        else
+          check(
+            titleRect.width > narrowTitleWidth + 150,
+            'widening the sidebar gives titles more space',
+          );
+      }
+    } finally {
+      sidebar.style.width = originalWidth;
+      projectTitle.textContent = originalProjectTitle;
+      sessionTitle.textContent = originalSessionTitle;
+    }
+    document.querySelector('.project-caret').click();
+    await waitFor(
+      async () => (await window.api.config.getSidebarTree()).expandedProjects.length === 0,
+      'Project collapse was not saved',
+    );
+    refresh.click();
+    await waitFor(() => refresh.disabled, 'Inventory refresh did not start');
+    await waitFor(() => !refresh.disabled, 'Inventory refresh did not finish');
+    check(
+      document.querySelector('.project-caret').getAttribute('aria-expanded') === 'false',
+      'inventory refresh preserves a manually collapsed selected project',
+    );
+    document.querySelector('.project-caret').click();
+    document.querySelector('.agent-group-header[title="GitHub Copilot"]').click();
+    document.querySelector('.agent-group-header[title="Gemini CLI"]').click();
+    await waitFor(async () => {
+      const tree = await window.api.config.getSidebarTree();
+      return (
+        tree.expandedProjects.length === 1 &&
+        tree.collapsedAgents.includes('copilot') &&
+        tree.collapsedAgents.includes('gemini')
+      );
+    }, 'Expanded project and collapsed Agent sections were not saved');
+    checks.push('tree expansion changes persist through the real config bridge');
+    const header = (agent) => document.querySelector(`.agent-group-header[data-agent="${agent}"]`);
+    const order = () =>
+      [...document.querySelectorAll('.agent-group-header')]
+        .map((item) => item.dataset.agent)
+        .join(',');
+    const initialOrder = 'copilot,codex,claude,gemini,aider';
+    check(order() === initialOrder, 'Agent headers expose their default ordering');
+    const drag = (source, target, after = false, cancel = false) => {
+      const dataTransfer = new window.DataTransfer();
+      const bounds = target.getBoundingClientRect();
+      const options = {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+        clientY: after ? bounds.bottom - 2 : bounds.top + 2,
+      };
+      source.dispatchEvent(new window.DragEvent('dragstart', options));
+      target.dispatchEvent(new window.DragEvent('dragover', options));
+      if (!cancel) target.dispatchEvent(new window.DragEvent('drop', options));
+      source.dispatchEvent(new window.DragEvent('dragend', options));
+    };
+    check(header('copilot')?.draggable, 'Agent header blocks are draggable');
+    drag(header('copilot'), header('aider'), true, true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    check(order() === initialOrder, 'cancelling an Agent drag leaves the order unchanged');
+    drag(document.querySelector('.project-item'), header('aider'), true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    check(order() === initialOrder, 'project drags cannot reorder Agent sections');
+    drag(header('copilot'), header('aider'), true);
+    await waitFor(
+      () => order() === 'codex,claude,gemini,aider,copilot',
+      'Downward Agent drag failed',
+    );
+    drag(header('gemini'), header('codex'));
+    await waitFor(
+      () => order() === 'gemini,codex,claude,aider,copilot',
+      'Upward Agent drag failed',
+    );
+    header('gemini').focus();
+    header('gemini').dispatchEvent(
+      new window.KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(
+      () => order() === 'codex,gemini,claude,aider,copilot',
+      'Keyboard Agent reorder failed',
+    );
+    header('gemini').dispatchEvent(
+      new window.KeyboardEvent('keydown', {
+        key: 'ArrowUp',
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(() => order() === 'gemini,codex,claude,aider,copilot', 'Keyboard move-up failed');
+    await waitFor(
+      async () => (await window.api.config.getSidebarTree()).agentOrder.join(',') === order(),
+      'Final Agent order was not persisted',
+    );
+    check(
+      header('gemini').getAttribute('aria-expanded') === 'false' &&
+        header('copilot').getAttribute('aria-expanded') === 'false' &&
+        document.querySelector('.project-caret').getAttribute('aria-expanded') === 'true',
+      'Agent reordering preserves Agent and project disclosure state',
+    );
+    refresh.click();
+    await waitFor(() => refresh.disabled, 'Reorder refresh did not start');
+    await waitFor(() => !refresh.disabled, 'Reorder refresh did not finish');
+    check(
+      order() === 'gemini,codex,claude,aider,copilot',
+      'Agent order survives inventory refresh',
+    );
+    checks.push(
+      'Agent sections support up/down drag and keyboard reorder with durable final order',
+    );
   } finally {
     unsubscribeUi();
     await Promise.all([...uiPtys].map((id) => window.api.pty.kill(id)));
   }
   return checks;
+}
+
+async function checkRestoredSidebar(expanded) {
+  const waitFor = async (predicate, message) => {
+    const deadline = Date.now() + 12_000;
+    while (!(await predicate())) {
+      if (Date.now() > deadline) throw new Error(message);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  await waitFor(
+    () =>
+      document.querySelector('.project-caret')?.getAttribute('aria-expanded') ===
+        String(expanded) &&
+      document
+        .querySelector('.agent-group-header[title="GitHub Copilot"]')
+        ?.getAttribute('aria-expanded') === 'false' &&
+      document
+        .querySelector('.agent-group-header[title="Gemini CLI"]')
+        ?.getAttribute('aria-expanded') === 'false',
+    'Saved Agent/project expansion was not restored after reload',
+  );
+  const restoredOrder = [...document.querySelectorAll('.agent-group-header')].map(
+    (item) => item.dataset.agent,
+  );
+  if (restoredOrder.join(',') !== 'gemini,codex,claude,aider,copilot') {
+    throw new Error(`Saved Agent order was not restored: ${restoredOrder.join(',')}`);
+  }
+  if (document.querySelector('.tab-bar .tab')) {
+    throw new Error('Restoring the sidebar must not launch a terminal');
+  }
+  if (expanded) {
+    await waitFor(
+      () => document.querySelectorAll('.project-sessions .session-open').length === 2,
+      'Restored project did not load its inline sessions',
+    );
+  }
+  document.querySelector('.project-caret').click();
+  await waitFor(
+    async () =>
+      (await window.api.config.getSidebarTree()).expandedProjects.length === (expanded ? 0 : 1),
+    'Toggling a restored project did not persist',
+  );
+  if (!expanded) {
+    await waitFor(
+      () => document.querySelectorAll('.project-sessions .session-open').length === 2,
+      'Reopened project did not load its inline sessions',
+    );
+  }
+  return `renderer reload restores Agent order, ${expanded ? 'expanded' : 'collapsed'} projects and collapsed Agent sections without launching terminals`;
 }
 
 app.on('browser-window-created', (_event, win) => {
@@ -277,6 +582,16 @@ app.on('browser-window-created', (_event, win) => {
       await win.webContents.executeJavaScript(deleteCopilotProject);
       assert.equal(readFileSync(controlFile, 'utf8'), '{}');
       checks.push('project deletion surfaces storage errors and preserves non-session files');
+      for (const expanded of [true, false]) {
+        const loaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+        win.webContents.reload();
+        await loaded;
+        checks.push(
+          await win.webContents.executeJavaScript(
+            `(${checkRestoredSidebar.toString()})(${expanded})`,
+          ),
+        );
+      }
       checks.unshift('initial entry and preload JavaScript stay below 800 KB');
       checks.unshift('sandboxed preload and context isolation are enabled');
       assert.doesNotThrow(() => app.emit('window-all-closed'));

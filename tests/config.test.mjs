@@ -17,6 +17,12 @@ function defaults() {
     confirmOnCloseTab: true,
     terminalMultilineEnter: true,
     terminalCopyPaste: true,
+    sidebarTree: {
+      collapsedAgents: [],
+      expandedProjects: [],
+      showHidden: false,
+      agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'aider'],
+    },
   };
 }
 
@@ -46,6 +52,64 @@ test('missing config uses fresh defaults without creating a file', async (t) => 
   const { config, path } = await setup(t);
   assert.deepEqual(await config.loadConfig(), defaults());
   await assert.rejects(fs.readFile(path), { code: 'ENOENT' });
+});
+
+test('sidebar tree survives a new store instance and concurrent unrelated preferences', async (t) => {
+  const { config, path } = await setup(t, { theme: 'dark' });
+  assert.equal(typeof config.setSidebarTree, 'function');
+  assert.deepEqual(await config.getSidebarTree(), defaults().sidebarTree);
+  const tree = {
+    agentOrder: ['gemini', 'codex', 'claude', 'copilot', 'aider'],
+    collapsedAgents: ['copilot', 'gemini'],
+    expandedProjects: ['codex:c:/repo', 'claude:c:/other'],
+    showHidden: true,
+  };
+  await Promise.all([config.setSidebarTree(tree), config.setTheme('light')]);
+  const restarted = createConfigStore(path);
+  assert.deepEqual(await restarted.getSidebarTree(), tree);
+  assert.equal(await restarted.getTheme(), 'light');
+  tree.expandedProjects.push('unsaved');
+  const snapshot = await restarted.getSidebarTree();
+  snapshot.collapsedAgents.length = 0;
+  assert.deepEqual((await restarted.getSidebarTree()).collapsedAgents, ['copilot', 'gemini']);
+  assert.equal((await restarted.getSidebarTree()).expandedProjects.length, 2);
+});
+
+test('older sidebar preferences gain the default Agent order without losing tree state', async (t) => {
+  const oldTree = {
+    collapsedAgents: ['claude'],
+    expandedProjects: ['codex:c:/repo'],
+    showHidden: true,
+  };
+  const { config, path } = await setup(t, { sidebarTree: oldTree });
+  assert.deepEqual(await config.getSidebarTree(), {
+    ...oldTree,
+    agentOrder: defaults().sidebarTree.agentOrder,
+  });
+  await config.setTheme('light');
+  assert.deepEqual(
+    (await createConfigStore(path).getSidebarTree()).agentOrder,
+    defaults().sidebarTree.agentOrder,
+  );
+});
+
+test('invalid sidebar trees cannot overwrite a config file', async (t) => {
+  const { config, path } = await setup(t, defaults());
+  assert.equal(typeof config.setSidebarTree, 'function');
+  const original = await fs.readFile(path, 'utf8');
+  for (const value of [
+    null,
+    { ...defaults().sidebarTree, collapsedAgents: ['unknown'] },
+    { ...defaults().sidebarTree, expandedProjects: [''] },
+    { ...defaults().sidebarTree, showHidden: 'yes' },
+    { ...defaults().sidebarTree, agentOrder: null },
+    { ...defaults().sidebarTree, agentOrder: ['copilot'] },
+    { ...defaults().sidebarTree, agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'codex'] },
+    { ...defaults().sidebarTree, agentOrder: ['copilot', 'codex', 'claude', 'gemini', 'unknown'] },
+  ]) {
+    await assert.rejects(config.setSidebarTree(value), /configuration/i);
+    assert.equal(await fs.readFile(path, 'utf8'), original);
+  }
 });
 
 test('loaded configs and nested layouts do not expose the cache', async (t) => {

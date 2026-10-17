@@ -1,4 +1,12 @@
-import type { AgentId, AppConfig, LayoutConfig, PaneId, ThemeMode } from '../shared/types.ts';
+import type {
+  AgentId,
+  AppConfig,
+  LayoutConfig,
+  PaneId,
+  ThemeMode,
+  SidebarTreeState,
+} from '../shared/types.ts';
+import { DEFAULT_AGENT_ORDER } from '../shared/types.ts';
 
 const AGENTS: readonly AgentId[] = ['claude', 'codex', 'gemini', 'aider', 'copilot'];
 const PANES: readonly PaneId[] = ['sidebar', 'middle', 'right'];
@@ -14,6 +22,12 @@ export function defaultConfig(): AppConfig {
     confirmOnCloseTab: true,
     terminalMultilineEnter: true,
     terminalCopyPaste: true,
+    sidebarTree: {
+      agentOrder: [...DEFAULT_AGENT_ORDER],
+      collapsedAgents: [],
+      expandedProjects: [],
+      showHidden: false,
+    },
   };
 }
 
@@ -63,6 +77,26 @@ export function booleanSetting(value: unknown, field: string): boolean {
 export function themeSetting(value: unknown): ThemeMode {
   if (value !== 'dark' && value !== 'light') invalid('theme must be dark or light');
   return value;
+}
+
+export function sidebarTreeSetting(value: unknown): SidebarTreeState {
+  const tree = object(value, 'sidebarTree');
+  const agentOrder = Object.hasOwn(tree, 'agentOrder')
+    ? array(tree.agentOrder, 'sidebarTree.agentOrder').map(agentId)
+    : [...DEFAULT_AGENT_ORDER];
+  if (agentOrder.length !== AGENTS.length || new Set(agentOrder).size !== AGENTS.length) {
+    invalid('sidebarTree.agentOrder must contain each agent exactly once');
+  }
+  return {
+    agentOrder,
+    collapsedAgents: [
+      ...new Set(array(tree.collapsedAgents, 'sidebarTree.collapsedAgents').map(agentId)),
+    ],
+    expandedProjects: [
+      ...new Set(projectIds(tree.expandedProjects, 'sidebarTree.expandedProjects')),
+    ],
+    showHidden: booleanSetting(tree.showHidden, 'sidebarTree.showHidden'),
+  };
 }
 
 export function layoutSetting(value: unknown): LayoutConfig {
@@ -121,6 +155,7 @@ export function validateConfig(value: unknown): AppConfig {
       'terminalMultilineEnter',
     ),
     terminalCopyPaste: booleanSetting(field('terminalCopyPaste'), 'terminalCopyPaste'),
+    sidebarTree: sidebarTreeSetting(field('sidebarTree')),
   };
 }
 

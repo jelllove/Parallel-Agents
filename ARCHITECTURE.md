@@ -145,19 +145,19 @@ It does not publish over the network, but it can replace existing local artifact
 For any API change, keep the shared `Api`, main handler, preload wrapper, and renderer caller aligned.
 The table lists suffixes under each namespace; main-to-renderer event names are shown in full.
 
-| Namespace  | Requests (renderer → main)                                                                                                                                                                                                                                                                             | Events (main → renderer) |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
-| `updates`  | `getStatus`, `check`, `install`                                                                                                                                                                                                                                                                        | `updates:status`         |
-| `projects` | `list`, `create`, `pin`, `hide`, `delete`, `deleteMissing`, `setOrder`                                                                                                                                                                                                                                 | —                        |
-| `sessions` | `listForProject`, `delete`, `rename`                                                                                                                                                                                                                                                                   | —                        |
-| `pty`      | `spawn`, `write`, `resize`, `kill`                                                                                                                                                                                                                                                                     | `pty:data`, `pty:exit`   |
-| `fs`       | `readDir`, `createFile`, `createDir`, `rename`, `copy`, `move`, `trash`, `reveal`, `openDefault`                                                                                                                                                                                                       | —                        |
-| `git`      | `status`, `diff`, `stage`, `unstage`, `discard`, `commit`, `watch`                                                                                                                                                                                                                                     | `git:changed`            |
-| `dialog`   | `pickDirectory`                                                                                                                                                                                                                                                                                        | —                        |
-| `agents`   | `list`, `checkAll`                                                                                                                                                                                                                                                                                     | —                        |
-| `config`   | `getLastAgent`, `setLastAgent`, `getLayout`, `setLayout`, `getTheme`, `setTheme`, `getConfirmOnCloseTab`, `setConfirmOnCloseTab`, `getTerminalMultilineEnter`, `setTerminalMultilineEnter`, `getTerminalCopyPaste`, `setTerminalCopyPaste`, `getFontSize`, `setFontSize`, `getFontBold`, `setFontBold` | —                        |
-| `shell`    | `list`, `openExternal`                                                                                                                                                                                                                                                                                 | —                        |
-| `window`   | —                                                                                                                                                                                                                                                                                                      | `window:fullscreen`      |
+| Namespace  | Requests (renderer → main)                                                                                                                                                                                                                                                                                                                 | Events (main → renderer) |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| `updates`  | `getStatus`, `check`, `install`                                                                                                                                                                                                                                                                                                            | `updates:status`         |
+| `projects` | `list`, `create`, `pin`, `hide`, `delete`, `deleteMissing`, `setOrder`                                                                                                                                                                                                                                                                     | —                        |
+| `sessions` | `listForProject`, `delete`, `rename`                                                                                                                                                                                                                                                                                                       | —                        |
+| `pty`      | `spawn`, `write`, `resize`, `kill`                                                                                                                                                                                                                                                                                                         | `pty:data`, `pty:exit`   |
+| `fs`       | `readDir`, `createFile`, `createDir`, `rename`, `copy`, `move`, `trash`, `reveal`, `openDefault`                                                                                                                                                                                                                                           | —                        |
+| `git`      | `status`, `diff`, `stage`, `unstage`, `discard`, `commit`, `watch`                                                                                                                                                                                                                                                                         | `git:changed`            |
+| `dialog`   | `pickDirectory`                                                                                                                                                                                                                                                                                                                            | —                        |
+| `agents`   | `list`, `checkAll`                                                                                                                                                                                                                                                                                                                         | —                        |
+| `config`   | `getLastAgent`, `setLastAgent`, `getLayout`, `setLayout`, `getSidebarTree`, `setSidebarTree`, `getTheme`, `setTheme`, `getConfirmOnCloseTab`, `setConfirmOnCloseTab`, `getTerminalMultilineEnter`, `setTerminalMultilineEnter`, `getTerminalCopyPaste`, `setTerminalCopyPaste`, `getFontSize`, `setFontSize`, `getFontBold`, `setFontBold` | —                        |
+| `shell`    | `list`, `openExternal`                                                                                                                                                                                                                                                                                                                     | —                        |
+| `window`   | —                                                                                                                                                                                                                                                                                                                                          | `window:fullscreen`      |
 
 PTY events carry the same terminal key used to spawn the PTY. Git events carry a repository path.
 Callers must release subscriptions when effects unmount; quitting the app cleans up main-process
@@ -185,8 +185,10 @@ attached shell can share one tab without colliding. Reopening an already-open na
 its tab; a newly launched tab can be linked to the native session it creates before renaming.
 
 1. Selecting a project loads its sessions and requests Git status/watch for an existing directory.
-2. Opening it from the project list resumes a single known session, requests explicit selection
-   when there are multiple sessions, or starts the project's agent when there is no resumable session.
+2. The sidebar is one expandable project/session list. For a standalone project, opening it
+   resumes a single known session, expands inline selection when there are multiple sessions,
+   or starts the project's agent when there is no resumable session. A group containing multiple
+   checkouts selects the project and expands the combined session list instead of choosing a checkout.
 3. The store remembers the selected agent, records the tab/project/session mapping, and holds a
    pending command plus PATH hints.
    [TerminalPane](src/renderer/components/TerminalPane.tsx) consumes this pending launch and requests a PTY.
@@ -195,6 +197,32 @@ its tab; a newly launched tab can be linked to the native session it creates bef
    The initial command is sent after a short timer.
 5. PTY data and exit events return through preload to xterm. Close/restart/quit paths must cancel
    obsolete timers and prevent late events from a previous PTY affecting a replacement.
+
+[Worktree discovery](src/main/worktrees.ts) decorates existing project records with optional
+`worktree.parentPath` and `worktree.branch` metadata using Git's NUL-delimited worktree listing.
+It does not merge project IDs or rewrite provider histories. Metadata is resolved on inventory
+refresh and project creation, including existing external worktrees and detached checkouts.
+Missing directories remain independent entries when their Git relationship cannot be resolved;
+Git discovery errors are surfaced through the inventory error flow.
+
+[Project tree helpers](src/shared/project-tree.ts) group visible records within each agent,
+preserve source project/session identities, and sort the combined sessions newest first.
+[SessionList](src/renderer/components/SessionList.tsx) receives explicit group members rather than
+reading the globally selected project. Expanded groups load their members' histories, report
+loading/errors with retry, and refresh when the inventory changes. Resume, rename, and deletion
+use the original member's ID; resume selects that checkout so Git and terminal paths stay aligned.
+Worktree branch badges distinguish child-checkout sessions without another navigation level.
+Project reordering moves the whole group; cleanup mode exposes individual histories for selection.
+
+`AppConfig.sidebarTree` stores Agent section order, collapsed Agent sections, expanded project-tree keys, and the
+show-hidden filter through the validated, serialized config store and the
+`config.getSidebarTree` / `config.setSidebarTree` bridge. Renderer hydration is gated before
+tree controls can write; load/save failures remain visible with retry. Only a new selection or
+explicit session-selection request automatically expands a project, so inventory refresh cannot
+undo a manual collapse. Restoring tree state does not resume terminals.
+Older tree preferences without `agentOrder` receive the existing default order; supplied orders
+must contain every supported Agent exactly once. Header drag/drop and Alt+Up/Down update the same
+saved order without changing disclosure state. Agent dragging is isolated from project dragging.
 
 [The lifecycle tests](tests/pty-session-manager.test.mjs) use mocked timers and injected PTYs to
 cover stale exit/data/startup-command races, current-session forwarding, minimum dimensions, and

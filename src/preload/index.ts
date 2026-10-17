@@ -79,6 +79,8 @@ const api: Api = {
       ipcRenderer.invoke('config:setLastAgent', projectId, agentId),
     getLayout: () => ipcRenderer.invoke('config:getLayout'),
     setLayout: (layout) => ipcRenderer.invoke('config:setLayout', layout),
+    getSidebarTree: () => ipcRenderer.invoke('config:getSidebarTree'),
+    setSidebarTree: (tree) => ipcRenderer.invoke('config:setSidebarTree', tree),
     getTheme: () => ipcRenderer.invoke('config:getTheme'),
     setTheme: (theme) => ipcRenderer.invoke('config:setTheme', theme),
     getConfirmOnCloseTab: () => ipcRenderer.invoke('config:getConfirmOnCloseTab'),

@@ -1,6 +1,13 @@
 import type { SessionShellProfile } from './session-terminals';
 
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'aider' | 'copilot';
+export const DEFAULT_AGENT_ORDER: readonly AgentId[] = [
+  'copilot',
+  'codex',
+  'claude',
+  'gemini',
+  'aider',
+];
 
 export interface AgentInfo {
   id: AgentId;
@@ -28,6 +35,10 @@ export interface Project {
   sessionCount: number;
   lastActivity: number | null;
   historyProjectId?: string;
+  worktree?: {
+    parentPath: string;
+    branch: string | null;
+  };
 }
 
 export interface RegisteredProject {
@@ -90,6 +101,13 @@ export interface LayoutConfig {
 
 export type ThemeMode = 'dark' | 'light';
 
+export interface SidebarTreeState {
+  agentOrder: AgentId[];
+  collapsedAgents: AgentId[];
+  expandedProjects: string[];
+  showHidden: boolean;
+}
+
 export interface AppConfig {
   pinned: string[];
   hidden: string[];
@@ -100,6 +118,7 @@ export interface AppConfig {
   confirmOnCloseTab: boolean;
   terminalMultilineEnter: boolean;
   terminalCopyPaste: boolean;
+  sidebarTree: SidebarTreeState;
 }
 
 export type GitFileState = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict';
@@ -201,6 +220,8 @@ export interface Api {
     setLastAgent(projectId: string, agentId: AgentId): Promise<void>;
     getLayout(): Promise<LayoutConfig>;
     setLayout(layout: LayoutConfig): Promise<void>;
+    getSidebarTree(): Promise<SidebarTreeState>;
+    setSidebarTree(tree: SidebarTreeState): Promise<void>;
     getTheme(): Promise<ThemeMode>;
     setTheme(theme: ThemeMode): Promise<void>;
     getConfirmOnCloseTab(): Promise<boolean>;
