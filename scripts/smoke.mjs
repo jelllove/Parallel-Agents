@@ -86,6 +86,23 @@ try {
       message: { content: 'Isolated worktree session' },
     }) + '\n',
   );
+  const invalidRepository = join(home, 'old-project');
+  await mkdir(join(invalidRepository, '.git'), { recursive: true });
+  const invalidProvider = join(home, '.claude', 'projects', 'C--smoke-invalid-repository');
+  await mkdir(invalidProvider);
+  await writeFile(
+    join(invalidProvider, 'legacy-session.jsonl'),
+    JSON.stringify({
+      type: 'user',
+      cwd: invalidRepository,
+      timestamp: '2025-01-01T00:00:00Z',
+      message: { content: 'Isolated legacy session with invalid Git metadata' },
+    }) + '\n',
+  );
+  await writeFile(
+    join(home, '.claude', 'parallel-agents.json'),
+    JSON.stringify({ hidden: ['C--smoke-invalid-repository'] }) + '\n',
+  );
   await writeFile(join(project, 'notes.txt'), 'staged\n');
   await git('add', '--', 'notes.txt');
   await writeFile(join(project, 'notes.txt'), 'working\n');

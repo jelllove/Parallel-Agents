@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -51,6 +51,60 @@ async function backend(home) {
     await rm(outputDirectory, { recursive: true, force: true });
   }
 }
+
+test('legacy histories remain usable when one project has invalid Git metadata', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-legacy-repository-'));
+  t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5 }));
+  const invalid = join(home, 'old-workspace');
+  const healthy = join(home, 'working-workspace');
+  await mkdir(join(invalid, '.git'), { recursive: true });
+  await mkdir(healthy);
+  const histories = [
+    ['old-history', invalid, 'Old project session'],
+    ['healthy-history', healthy, 'Working project session'],
+  ];
+  for (const [id, cwd, title] of histories) {
+    const directory = join(home, '.claude', 'projects', id);
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, 'session.jsonl'),
+      JSON.stringify({
+        type: 'user',
+        cwd,
+        timestamp: '2026-01-01T00:00:00Z',
+        message: { content: title },
+      }) + '\n',
+    );
+  }
+  await writeFile(
+    join(home, '.claude', 'parallel-agents.json'),
+    JSON.stringify({ pinned: ['old-history'], hidden: [], lastAgentByProject: {} }),
+  );
+  const warning = t.mock.method(console, 'warn', () => {});
+  const api = await backend(home);
+
+  for (const instance of [api, await backend(home)]) {
+    const projects = await instance.listProjects();
+    assert.equal(projects.length, 2);
+    assert.equal(projects.find((item) => item.id === 'claude:old-history').pinned, true);
+    for (const [id, cwd, title] of histories) {
+      const found = projects.find((item) => item.id === `claude:${id}`);
+      assert.equal(found.realPath, cwd);
+      assert.equal(found.exists, true);
+      assert.equal(found.sessionCount, 1);
+      assert.equal(found.worktree, undefined);
+      const sessions = await instance.listSessionsForProject(found.id);
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0].title, title);
+      assert.equal(sessions[0].cwd, cwd);
+    }
+  }
+  assert.equal(warning.mock.callCount(), 2);
+  assert.deepEqual(await readdir(join(invalid, '.git')), []);
+  await assert.rejects(readFile(join(home, '.claude', 'parallel-agents-preferences.json')), {
+    code: 'ENOENT',
+  });
+});
 
 test('created worktree metadata survives discovery without merging its session identity', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-worktree-integration-'));

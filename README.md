@@ -6,7 +6,7 @@
     <a href="https://github.com/jelllove/Parallel-Agents/releases"><img src="https://img.shields.io/github/v/release/jelllove/Parallel-Agents?color=0e639c&label=release" alt="release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/jelllove/Parallel-Agents?color=73c991" alt="license" /></a>
     <img src="https://img.shields.io/badge/targets-Windows%20%7C%20macOS%20%7C%20Linux-0078D4" alt="desktop targets" />
-    <img src="https://img.shields.io/badge/Electron-43.6.0-47848F?logo=electron" alt="Electron 43.6.0" />
+    <img src="https://img.shields.io/badge/Electron-43.8.1-47848F?logo=electron" alt="Electron 43.8.1" />
   </p>
 </div>
 
@@ -71,6 +71,9 @@ Existing Git worktrees, including worktrees created from another worktree, are g
 Git metadata rather than directory naming. If only a worktree is known, its parent repository
 still supplies the group name. Unavailable directories without usable Git metadata remain
 standalone so their histories can still be reviewed and cleaned.
+Invalid or stale Git metadata also leaves the affected project standalone, with a warning in the
+main-process log, rather than preventing all projects and sessions from loading after an upgrade.
+Project files, Git metadata, and provider histories are not reset or repaired automatically.
 
 Session rename/delete actions target the original history, not the parent project. Right-click a
 worktree session (or its empty-checkout row) for that checkout's project actions. Cleanup mode

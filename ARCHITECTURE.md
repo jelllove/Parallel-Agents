@@ -96,6 +96,9 @@ The confirmed stable refresh uses these declared ranges in [package.json](packag
 | `sharp`             | `^0.35.5`      | Image processing for icon generation      |
 
 Node **24.17.0** remains the pinned host-tooling baseline; Electron supplies its own runtime.
+The v0.1.22 security lockfile refresh resolves Electron **43.8.1**, Vite **7.3.7**,
+DOMPurify **3.4.17**, Undici **6.29.1 / 7.30.1**, and Zod **4.6.7** within the existing
+compatible ranges. The scoped overrides and pinned packaging toolchain remain unchanged.
 The installed `node-pty` 1.2.0-beta.13 uses `node-addon-api` and ships official N-API prebuilds,
 including `win32-x64`. Standard Windows installation/packaging retains these upstream binaries,
 which have passed the Electron 43.6 native PTY fixture, instead of recompiling them for a
@@ -346,7 +349,12 @@ its tab; a newly launched tab can be linked to the native session it creates bef
 It does not merge project IDs or rewrite provider histories. Metadata is resolved on inventory
 refresh and project creation, including existing external worktrees and detached checkouts.
 Missing directories remain independent entries when their Git relationship cannot be resolved;
-Git discovery errors are surfaced through the inventory error flow.
+failed Git/metadata lookups log a main-process warning with the affected project path and original
+error, and leave that project standalone without failing the inventory. Duplicate provider paths
+share one lookup and warning per refresh. Canonical paths captured during inspection are reused for
+parent matching so a stale directory cannot fail a second resolution pass. This best-effort policy
+applies only to optional grouping metadata; explicit Git actions and worktree creation still reject
+their errors.
 
 [Project tree helpers](src/shared/project-tree.ts) group visible records within each agent,
 preserve source project/session identities, and sort the combined sessions newest first.

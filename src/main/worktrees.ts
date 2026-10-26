@@ -111,11 +111,14 @@ export async function findProjectRepositoryRoot(basePath: string): Promise<strin
 
 export async function addProjectWorktreeMetadata(projects: Project[]): Promise<Project[]> {
   const metadata = new Map<string, Promise<Project['worktree']>>();
+  const canonicalPaths = new Map<string, string>();
   const pathKey = (path: string) =>
     process.platform === 'win32' ? normalize(path).toLowerCase() : normalize(path);
 
   async function inspect(path: string): Promise<Project['worktree']> {
-    const root = await findProjectRepositoryRoot(path);
+    const canonicalPath = await realpath(path);
+    canonicalPaths.set(pathKey(path), canonicalPath);
+    const root = await findProjectRepositoryRoot(canonicalPath);
     if (!root || !(await lstat(join(root, '.git'))).isFile()) return undefined;
     const records = (
       await git(root, ['worktree', 'list', '--porcelain', '-z'], 'Cannot resolve project worktrees')
@@ -147,7 +150,10 @@ export async function addProjectWorktreeMetadata(projects: Project[]): Promise<P
     const key = pathKey(project.realPath);
     let lookup = metadata.get(key);
     if (!lookup) {
-      lookup = inspect(project.realPath);
+      lookup = inspect(project.realPath).catch((error: unknown) => {
+        console.warn(`Skipping worktree metadata for "${project.realPath}":`, error);
+        return undefined;
+      });
       metadata.set(key, lookup);
     }
     const worktree = await lookup;
@@ -156,11 +162,9 @@ export async function addProjectWorktreeMetadata(projects: Project[]): Promise<P
   if (!result.some((project) => project.worktree)) return result;
   const parents = new Map<string, string>();
   for (const project of result) {
-    if (project.exists && !project.worktree) {
-      parents.set(
-        `${project.agent}:${pathKey(await realpath(project.realPath))}`,
-        project.realPath,
-      );
+    const canonicalPath = canonicalPaths.get(pathKey(project.realPath));
+    if (project.exists && !project.worktree && canonicalPath) {
+      parents.set(`${project.agent}:${pathKey(canonicalPath)}`, project.realPath);
     }
   }
   return result.map((project) => {

@@ -56,13 +56,22 @@ function finish(error, checks = []) {
 
 process.on('uncaughtException', (error) => finish(error));
 process.on('unhandledRejection', (error) => finish(error));
-setTimeout(
-  () => finish(new Error(`Electron smoke test exceeded ${smokeTimeoutMs / 1000} seconds`)),
-  smokeTimeoutMs,
-).unref();
+setTimeout(async () => {
+  const error = new Error(`Electron smoke test exceeded ${smokeTimeoutMs / 1000} seconds`);
+  if (!windowUnderTest || windowUnderTest.isDestroyed()) return finish(error);
+  try {
+    const checks = await windowUnderTest.webContents.executeJavaScript(
+      'window.__smokeChecks ?? []',
+    );
+    finish(error, checks);
+  } catch (diagnosticError) {
+    finish(new AggregateError([error, diagnosticError], error.message));
+  }
+}, smokeTimeoutMs).unref();
 
 async function checkRenderer(projectPath) {
   const checks = [];
+  window.__smokeChecks = checks;
   const check = (condition, message) => {
     if (!condition) throw new Error(message);
     checks.push(message);
@@ -81,9 +90,23 @@ async function checkRenderer(projectPath) {
   const projects = await window.api.projects.list();
   const primary = projects.find((item) => item.realPath === projectPath);
   const worktree = projects.find((item) => item.worktree?.parentPath === projectPath);
+  const invalidRepository = projects.find((item) => item.dirName === 'C--smoke-invalid-repository');
   check(
-    projects.length === 2 && primary && worktree,
+    projects.length === 3 && primary && worktree && invalidRepository,
     `provider and worktree data are isolated: ${JSON.stringify(projects.map(({ realPath, worktree }) => ({ realPath, worktree })))}`,
+  );
+  check(
+    invalidRepository.exists &&
+      invalidRepository.hidden &&
+      invalidRepository.sessionCount === 1 &&
+      !invalidRepository.worktree,
+    'legacy invalid Git metadata does not block project inventory or reset hidden preferences',
+  );
+  const legacySessions = await window.api.sessions.listForProject(invalidRepository.id);
+  check(
+    legacySessions.length === 1 &&
+      legacySessions[0].title === 'Isolated legacy session with invalid Git metadata',
+    'history from a project with invalid Git metadata remains readable',
   );
   const projectId = primary.id;
   await window.api.agents.setLaunchOptions(

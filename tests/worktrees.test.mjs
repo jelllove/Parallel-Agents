@@ -11,10 +11,11 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join, normalize } from 'node:path';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { createProjectWorktree } from '../src/main/worktrees.ts';
+import { addProjectWorktreeMetadata, createProjectWorktree } from '../src/main/worktrees.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -56,6 +57,72 @@ async function assertUnchangedAfterFailure(options, pattern) {
     before,
   );
 }
+
+test('optional worktree discovery isolates invalid repositories and stale paths', async (t) => {
+  const options = await fixture(t);
+  const staleRoot = await mkdtemp(join(tmpdir(), 'pa-invalid-repositories-'));
+  t.after(() => rm(staleRoot, { recursive: true, force: true, maxRetries: 5 }));
+  const checkout = await createProjectWorktree(options);
+  const parentAlias = join(options.root, 'parent alias');
+  await symlink(options.basePath, parentAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  const invalid = join(staleRoot, 'invalid');
+  await mkdir(join(invalid, '.git'), { recursive: true });
+  const dangling = join(staleRoot, 'dangling');
+  await mkdir(dangling);
+  const pointer = 'gitdir: missing-worktree-metadata\n';
+  await writeFile(join(dangling, '.git'), pointer);
+  const vanished = join(staleRoot, 'vanished');
+  const project = (id, realPath, agent = 'claude') => ({
+    id,
+    agent,
+    dirName: id,
+    realPath,
+    displayName: id,
+    exists: true,
+    pinned: false,
+    hidden: false,
+    sessionCount: 1,
+    lastActivity: null,
+  });
+  const projects = [
+    project('invalid', invalid),
+    project('duplicate', invalid, 'copilot'),
+    project('dangling', dangling),
+    project('vanished', vanished),
+    project('parent', parentAlias),
+    project('checkout', checkout),
+    { ...project('missing', join(staleRoot, 'missing')), exists: false },
+  ];
+  const before = structuredClone(projects);
+  const warning = t.mock.method(console, 'warn', () => {});
+
+  const result = await addProjectWorktreeMetadata(projects);
+
+  assert.deepEqual(projects, before);
+  assert.deepEqual(
+    result.map((item) => item.id),
+    projects.map((item) => item.id),
+  );
+  for (const item of result.filter((item) => item.id !== 'checkout')) {
+    assert.equal(item.worktree, undefined);
+  }
+  assert.deepEqual(result.find((item) => item.id === 'checkout').worktree, {
+    parentPath: parentAlias,
+    branch: options.branch,
+  });
+  assert.equal(warning.mock.callCount(), 3);
+  const messages = warning.mock.calls.map((call) => call.arguments.map(String).join(' '));
+  for (const path of [invalid, dangling, vanished]) {
+    assert.equal(messages.filter((message) => message.includes(path)).length, 1);
+  }
+  assert.ok(messages.some((message) => message.includes('Cannot resolve project repository')));
+  assert.ok(messages.some((message) => message.includes('ENOENT')));
+  assert.equal(await readFile(join(dangling, '.git'), 'utf8'), pointer);
+  await assert.rejects(
+    createProjectWorktree({ ...options, basePath: invalid }),
+    /Git working tree.*not a git repository/i,
+  );
+});
 
 test('creates a sibling worktree with spaces, defaults to HEAD, and leaves dirty base unchanged', async (t) => {
   const options = await fixture(t);
