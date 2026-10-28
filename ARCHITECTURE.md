@@ -163,6 +163,30 @@ PTY events carry the same terminal key used to spawn the PTY. Git events carry a
 Callers must release subscriptions when effects unmount; quitting the app cleans up main-process
 watchers and PTYs. A channel's TypeScript annotation does not validate an arbitrary runtime payload.
 
+## Update and CLI availability UI
+
+[AppHeader](src/renderer/components/AppHeader.tsx) subscribes to update status before loading its
+initial snapshot, so a stale snapshot cannot hide a newer event. Available Windows updates show
+a persistent title-bar action beside Windows' native minimize/maximize/close buttons:
+download progress while the existing updater downloads automatically,
+then **Restart to update**. The action uses the existing install IPC and main-process restart
+confirmation; cancelling leaves it available. Download and installation failures remain visible
+with a retry action. The About dialog retains its check/install controls, and macOS/Linux updates
+remain manual. Windows uses a hidden native title bar with Electron's native window-controls
+overlay, not replacement HTML caption buttons. Its application header remains visible as the
+draggable title row, uses the overlay's CSS safe area to avoid the native controls, and excludes
+interactive update controls from dragging. Native caption colors track the loaded/saved app theme.
+Fullscreen removes caption spacing while retaining the update action. macOS/Linux retain their
+existing native title bars; without an update or a status-load error, their application header is
+only shown in fullscreen mode.
+
+[ProjectList](src/renderer/components/ProjectList.tsx) shows a warning emoji and an **Install**
+button next to each missing CLI's group, including collapsed and empty groups. Installation links
+and command hints come from the provider catalogue. Opening a guide does not toggle the group or
+install software; failures appear inline. The store marks availability checked only after detection
+succeeds, avoiding false missing indicators during startup. The existing inventory refresh and
+periodic scan update these indicators. There is no global CLI availability banner.
+
 ## Identity and terminal flow
 
 The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:

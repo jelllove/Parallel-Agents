@@ -181,6 +181,11 @@ The fixture checks:
 - A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
+- Keyboard-accessible project agent groups without the global CLI banner, and controlled update
+  events showing download progress and a persistent top-right restart action. On Windows, the
+  action occupies the native caption row without overlapping window controls at minimum size,
+  maximum app font size, or when maximized. Minimize/restore and fullscreen preserve the action
+  and correct caption spacing. No update is downloaded or installed by this fixture.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
 

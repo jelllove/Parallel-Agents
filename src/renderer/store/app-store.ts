@@ -74,6 +74,7 @@ interface AppState {
   showHidden: boolean;
   agents: AgentInfo[];
   agentStatus: Record<AgentId, AgentStatus>;
+  agentsChecked: boolean;
   collapsedAgents: AgentId[];
   clipboard: Clipboard | null;
   gitStatusByPath: Record<string, GitStatus | null>;
@@ -186,6 +187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   showHidden: false,
   agents: [],
   agentStatus: emptyStatus(),
+  agentsChecked: false,
   collapsedAgents: [],
   clipboard: null,
   gitStatusByPath: {},
@@ -210,7 +212,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async checkAgents() {
     const status = await window.api.agents.checkAll();
-    set({ agentStatus: status });
+    set({ agentStatus: status, agentsChecked: true });
   },
 
   async refreshProjectsAndAgents() {

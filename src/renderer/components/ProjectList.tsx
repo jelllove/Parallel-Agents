@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
-import type { Project, AgentId } from '../../shared/types';
+import type { Project, AgentId, AgentInfo } from '../../shared/types';
 import { folderIconUrl } from '../icons/iconResolver';
 import { AgentIcon } from './AgentIcon';
 import { ProjectDeleteDialog } from './ProjectDeleteDialog';
@@ -25,6 +25,7 @@ export function ProjectList() {
   const setShowHidden = useAppStore((s) => s.setShowHidden);
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
+  const agentsChecked = useAppStore((s) => s.agentsChecked);
   const collapsedAgents = useAppStore((s) => s.collapsedAgents);
   const toggleAgentGroup = useAppStore((s) => s.toggleAgentGroup);
 
@@ -36,6 +37,7 @@ export function ProjectList() {
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
     const out: Record<AgentId, Project[]> = {
@@ -61,8 +63,15 @@ export function ProjectList() {
     if (missingProjects.length === 0) setCleanupMode(false);
   }, [missingProjects]);
 
-  function agentName(id: AgentId): string {
-    return agents.find((a) => a.id === id)?.displayName ?? id;
+  async function openInstallGuide(agent: AgentInfo) {
+    setInstallError(null);
+    try {
+      await window.api.shell.openExternal(agent.installUrl);
+    } catch (error) {
+      setInstallError(
+        `Could not open ${agent.displayName} installation guide: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async function handleClick(p: Project) {
@@ -128,6 +137,11 @@ export function ProjectList() {
           {inventoryError}
         </div>
       )}
+      {installError && (
+        <div className="inventory-error" role="alert">
+          {installError}
+        </div>
+      )}
       {missingProjects.length > 0 && cleanupMode && (
         <div className="project-cleanup-bar">
           <>
@@ -164,22 +178,47 @@ export function ProjectList() {
         const group = grouped[agent];
         const visible = group.filter((p) => showHidden || !p.hidden);
         const collapsed = collapsedAgents.includes(agent);
-        const available = status[agent]?.available;
+        const info = agents.find((item) => item.id === agent);
+        const name = info?.displayName ?? agent;
+        const missing = agentsChecked && status[agent]?.available === false;
         return (
           <div key={agent} className="agent-group">
             <div
-              className={`agent-group-header ${available ? '' : 'unavailable'}`}
-              onClick={() => toggleAgentGroup(agent)}
-              title={available ? agentName(agent) : `${agentName(agent)} (not installed)`}
+              className={`agent-group-header${missing ? ' unavailable' : ''}`}
+              title={missing ? `${name} (not installed)` : name}
             >
-              <span className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
-              <AgentIcon
-                agent={agent}
-                size={18}
-                className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
-              />
-              <span className="agent-group-name">{agentName(agent)}</span>
-              <span className="agent-group-count">{group.length}</span>
+              <button
+                type="button"
+                className="agent-group-toggle"
+                onClick={() => toggleAgentGroup(agent)}
+                aria-label={missing ? `${name} (not installed)` : name}
+                aria-expanded={!collapsed}
+              >
+                <span className={`agent-group-caret ${collapsed ? 'collapsed' : ''}`}>▾</span>
+                <AgentIcon
+                  agent={agent}
+                  size={18}
+                  className={`agent-group-icon${agent === 'copilot' ? ' agent-group-icon-copilot' : ''}`}
+                />
+                <span className="agent-group-name">{name}</span>
+                {missing && (
+                  <span className="agent-missing" role="img" aria-label="Not installed">
+                    ⚠️
+                  </span>
+                )}
+                <span className="agent-group-count">{group.length}</span>
+              </button>
+              {missing && info && (
+                <button
+                  type="button"
+                  className="agent-install"
+                  aria-label={`Install ${name}`}
+                  title={`Install ${name}: ${info.installHint}`}
+                  onClick={() => void openInstallGuide(info)}
+                >
+                  Install
+                </button>
+              )}
             </div>
             {!collapsed && (
               <div className="agent-group-body">

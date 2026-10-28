@@ -2,8 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useAppStore } from './store/app-store';
 import { StatusBar } from './components/StatusBar';
-import { AgentsBanner } from './components/AgentsBanner';
-import { ClaudeIcon } from './components/ClaudeIcon';
+import { AppHeader } from './components/AppHeader';
 import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 import { sessionTabLabelSuffix } from '../shared/session-terminals';
@@ -24,10 +23,6 @@ const GitPanel = lazy(async () => ({
 const AboutDialog = lazy(async () => ({
   default: (await import('./components/AboutDialog')).AboutDialog,
 }));
-const UpdateReadyNotice = lazy(async () => ({
-  default: (await import('./components/UpdateReadyNotice')).UpdateReadyNotice,
-}));
-
 function PaneFallback() {
   return <div className="pane-loading">Loading…</div>;
 }
@@ -166,13 +161,7 @@ export default function App() {
 
   return (
     <div className="app">
-      {fullscreen && (
-        <div className="app-header">
-          <ClaudeIcon size={16} />
-          <span>Parallel Agents</span>
-        </div>
-      )}
-      <AgentsBanner />
+      <AppHeader fullscreen={fullscreen} />
       <div className="app-body">
         <PanelGroup key={groupKey} direction="horizontal" onLayout={(s) => updateLayoutSizes(s)}>
           {order.map((paneId, i) => {
@@ -190,7 +179,6 @@ export default function App() {
       </div>
       <StatusBar />
       <Suspense fallback={null}>
-        <UpdateReadyNotice />
         {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       </Suspense>
     </div>

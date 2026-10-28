@@ -1,4 +1,4 @@
-/* global window, document, MouseEvent */
+/* global window, document, MouseEvent, getComputedStyle */
 const assert = require('node:assert/strict');
 const {
   mkdirSync,
@@ -9,6 +9,7 @@ const {
   writeFileSync,
 } = require('node:fs');
 const { dirname, join } = require('node:path');
+const { once } = require('node:events');
 const { app } = require('electron');
 
 const [home, project, reports, mainEntry, reportName] = process.argv.slice(2);
@@ -189,6 +190,14 @@ async function checkRenderer(projectPath) {
         document.querySelector('.agent-group-header[title="Claude Code"]:not(.unavailable)'),
       'The isolated project and CLI did not appear',
     );
+    check(
+      !document.querySelector('.agents-banner-region, .agents-banner'),
+      'the global CLI availability banner is absent',
+    );
+    check(
+      document.querySelector('.agent-group-toggle[aria-expanded]'),
+      'project agent groups have keyboard-accessible controls',
+    );
     document.querySelector('.project-item').click();
     await waitFor(() => uiOutput.includes('SMOKE_AGENT'), 'The initial inert CLI command was lost');
     checks.push('the initial CLI command reaches the mounted terminal');
@@ -217,6 +226,46 @@ async function checkRenderer(projectPath) {
     await Promise.all([...uiPtys].map((id) => window.api.pty.kill(id)));
   }
   return checks;
+}
+
+async function inspectUpdateHeader(expectedLabel, nativeTitleBar) {
+  const deadline = Date.now() + 5000;
+  let observed;
+  while (true) {
+    const button = document.querySelector('.app-update-button');
+    const nativeReady = nativeTitleBar
+      ? navigator.windowControlsOverlay?.visible && document.querySelector('.app-titlebar')
+      : !document.querySelector('.app-titlebar');
+    if (button?.textContent.includes(expectedLabel) && nativeReady) {
+      const headerElement = document.querySelector('.app-header');
+      const header = headerElement.getBoundingClientRect();
+      const panels = document.querySelector('.app-body').getBoundingClientRect();
+      const action = button.getBoundingClientRect();
+      const safe = nativeTitleBar
+        ? navigator.windowControlsOverlay.getTitlebarAreaRect()
+        : { x: 0, width: window.innerWidth };
+      observed = {
+        disabled: button.disabled,
+        atTop: header.top === 0 && action.bottom <= panels.top,
+        atRight: action.right <= safe.x + safe.width && action.right >= safe.x + safe.width - 16,
+        ...(nativeTitleBar
+          ? {
+              sameCaptionRow: action.top >= safe.y && action.bottom <= safe.y + safe.height,
+              nativeControlsReserved: safe.width > 0 && safe.x + safe.width < window.innerWidth,
+              draggable: getComputedStyle(headerElement).webkitAppRegion === 'drag',
+              buttonClickable: getComputedStyle(button).webkitAppRegion === 'no-drag',
+            }
+          : {}),
+      };
+      if (Object.entries(observed).every(([key, value]) => key === 'disabled' || value))
+        return observed;
+    }
+    if (Date.now() > deadline)
+      throw new Error(
+        `Update titlebar ${expectedLabel} was incorrect: ${JSON.stringify(observed)}`,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 app.on('browser-window-created', (_event, win) => {
@@ -255,6 +304,74 @@ app.on('browser-window-created', (_event, win) => {
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)})`,
       );
+      const nativeTitleBar = process.platform === 'win32';
+      const verifyUpdateHeader = async (label, disabled, native = nativeTitleBar) => {
+        console.log(`Checking update titlebar: ${label}, native caption=${native}`);
+        const action = await win.webContents.executeJavaScript(
+          `(${inspectUpdateHeader.toString()})(${JSON.stringify(label)}, ${native})`,
+        );
+        assert.deepEqual(action, {
+          disabled,
+          atTop: true,
+          atRight: true,
+          ...(native
+            ? {
+                sameCaptionRow: true,
+                nativeControlsReserved: true,
+                draggable: true,
+                buttonClickable: true,
+              }
+            : {}),
+        });
+      };
+      for (const [state, expectedLabel, disabled] of [
+        ['downloading', '42%', true],
+        ['downloaded', 'Restart to update', false],
+      ]) {
+        win.webContents.send('updates:status', {
+          state,
+          currentVersion: app.getVersion(),
+          version: '99.0.0-smoke',
+          percent: 42,
+          canInstall: state === 'downloaded',
+        });
+        await verifyUpdateHeader(expectedLabel, disabled);
+      }
+      checks.push(
+        'fixture update events render progress and a persistent top-right restart action',
+      );
+      if (nativeTitleBar) {
+        const transition = async (event, action) => {
+          console.log(`Checking native window transition: ${event}`);
+          const completed = once(win, event, { signal: AbortSignal.timeout(5000) });
+          action();
+          await completed;
+        };
+        const originalBounds = win.getBounds();
+        win.setSize(1000, 600);
+        await win.webContents.executeJavaScript(
+          "document.documentElement.style.setProperty('--app-font-size', '24px')",
+        );
+        await verifyUpdateHeader('Restart to update', false);
+        await win.webContents.executeJavaScript(
+          "document.documentElement.style.removeProperty('--app-font-size')",
+        );
+        await transition('maximize', () => win.maximize());
+        await verifyUpdateHeader('Restart to update', false);
+        await transition('unmaximize', () => win.unmaximize());
+        await transition('minimize', () => win.minimize());
+        assert.equal(win.isMinimized(), true);
+        await transition('restore', () => win.restore());
+        await transition('enter-full-screen', () => win.setFullScreen(true));
+        await verifyUpdateHeader('Restart to update', false, false);
+        await transition('leave-full-screen', () => win.setFullScreen(false));
+        win.setBounds(originalBounds);
+        await verifyUpdateHeader('Restart to update', false);
+        checks.push(
+          'Windows update shares the native caption row without overlap at minimum size, maximum font, maximized and restored sizes',
+          'native minimize/restore and fullscreen preserve the update action and correct caption spacing',
+        );
+      }
       checks.push('all provider executables resolve to inert fixture shims');
       assert.equal(
         await win.webContents.executeJavaScript('window.api.platform'),

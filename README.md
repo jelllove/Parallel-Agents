@@ -30,7 +30,9 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   using locally bundled editor assets loaded on demand.
 - **Configurable layout and typography**, including six column orders, saved pane sizes,
   dark/light themes, and persisted font size, family, and bold settings.
-- **Automatic updates** for installed Windows builds, with explicit restart confirmation.
+- **Automatic updates** for installed Windows builds, with a persistent update button beside
+  the native minimize/maximize/close controls, background download progress, and explicit
+  restart confirmation.
 - **Platform lifecycle**: Windows/macOS close hides the window; Linux close quits after session
   confirmation and does not require a tray. F11 toggles fullscreen.
 
@@ -188,7 +190,10 @@ scope, and the generated `reports\smoke.json` and `reports\smoke.png` artifacts.
 The Copilot executable is standalone **`copilot`**, not a GitHub CLI subcommand.
 [Provider definitions](src/main/agent-providers.ts) describe binary detection and installation links;
 [shared command builders](src/shared/agent-commands.ts) define launch/resume syntax.
-The missing-CLI banner opens installation guidance rather than installing tools for you.
+Missing CLIs show a warning emoji and a small **Install** button in their project-list group.
+The button opens the provider's installation guidance rather than installing tools for you.
+After installing a CLI, use **Refresh** in the project list to recheck detection. There is no
+auto-hiding CLI availability banner.
 Provider log formats may change; detection is limited to the formats the current readers support.
 
 ## Architecture

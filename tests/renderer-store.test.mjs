@@ -72,3 +72,28 @@ test('a pending launch is consumed exactly once when the terminal mounts', (t) =
   assert.deepEqual(useAppStore.getState().consumePendingCommand('tab'), pending);
   assert.equal(useAppStore.getState().consumePendingCommand('tab'), undefined);
 });
+
+test('agent availability is marked checked only after detection succeeds', async (t) => {
+  setup(t);
+  const detection = Promise.withResolvers();
+  globalThis.window.api.agents = { checkAll: () => detection.promise };
+  assert.equal(useAppStore.getState().agentsChecked, false);
+  const checking = useAppStore.getState().checkAgents();
+  assert.equal(useAppStore.getState().agentsChecked, false);
+  const status = { claude: { available: false, path: null } };
+  detection.resolve(status);
+  await checking;
+  assert.equal(useAppStore.getState().agentsChecked, true);
+  assert.deepEqual(useAppStore.getState().agentStatus, status);
+});
+
+test('failed agent detection does not claim that unchecked tools are missing', async (t) => {
+  setup(t);
+  globalThis.window.api.agents = {
+    checkAll: async () => {
+      throw new Error('Detection failed');
+    },
+  };
+  await assert.rejects(useAppStore.getState().checkAgents(), /Detection failed/);
+  assert.equal(useAppStore.getState().agentsChecked, false);
+});

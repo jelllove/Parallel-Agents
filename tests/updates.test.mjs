@@ -453,13 +453,14 @@ test('About dialog shows download progress, install errors and explicit restart 
   assert.equal(unsubscribed, true);
 });
 
-test('ready notice is visible without About, never auto-installs, supports Later and reports explicit install errors', async () => {
+async function headerHarness(t, options = {}) {
   const slots = [];
   let cursor = 0;
   const effects = [];
   let onStatus;
   let unsubscribed = false;
   let installs = 0;
+  let checks = 0;
   const ready = { state: 'downloaded', version: '0.1.10', canInstall: true };
   const react = {
     useState(initial) {
@@ -481,13 +482,20 @@ test('ready notice is visible without About, never auto-installs, supports Later
     },
   };
   const api = {
+    platform: options.platform ?? 'linux',
     updates: {
-      getStatus: async () => ({ state: 'error', message: 'GitHub offline', canInstall: false }),
+      getStatus:
+        options.getStatus ??
+        (async () => ({ state: 'idle', currentVersion: '0.1.9', canInstall: false })),
       onStatus: (listener) => {
         onStatus = listener;
         return () => {
           unsubscribed = true;
         };
+      },
+      check: async () => {
+        checks++;
+        return ready;
       },
       install: async () => {
         installs++;
@@ -495,50 +503,188 @@ test('ready notice is visible without About, never auto-installs, supports Later
       },
     },
   };
-  const { code } = await transform(await source('src/renderer/components/UpdateReadyNotice.tsx'), {
+  const { code } = await transform(await source('src/renderer/components/AppHeader.tsx'), {
     loader: 'tsx',
     format: 'cjs',
     jsx: 'automatic',
   });
   const module = { exports: {} };
   new Function('require', 'module', 'exports', 'window', code)(
-    (id) => (id === 'react' ? react : require(id)),
+    (id) => {
+      if (id === 'react') return react;
+      if (id === './ClaudeIcon') return { ClaudeIcon: 'icon' };
+      return require(id);
+    },
     module,
     module.exports,
     { api },
   );
-  const render = () => {
+  const render = (fullscreen = false) => {
     cursor = 0;
-    return module.exports.UpdateReadyNotice();
+    return module.exports.AppHeader({ fullscreen });
   };
-  assert.equal(render(), null);
+  render();
   const cleanups = effects.map((effect) => effect());
+  const dispose = () => cleanups.forEach((cleanup) => cleanup?.());
+  t.after(dispose);
   await Promise.resolve();
-  assert.equal(render(), null, 'background errors must not produce notifications');
-  onStatus(ready);
-  assert.equal(render().props['aria-label'], 'Update ready');
-  assert.equal(installs, 0, 'download-ready notification must never trigger installation');
-  find(render(), (node) => node.props?.children === 'Restart to update').props.onClick();
+  return {
+    api,
+    ready,
+    render,
+    dispose,
+    status: (status) => onStatus(status),
+    installs: () => installs,
+    checks: () => checks,
+    unsubscribed: () => unsubscribed,
+  };
+}
+
+function updateButton(tree) {
+  return find(
+    tree,
+    (node) => node.type === 'button' && node.props.className === 'app-update-button',
+  );
+}
+
+function text(tree) {
+  if (typeof tree === 'string' || typeof tree === 'number') return String(tree);
+  if (!tree || typeof tree !== 'object') return '';
+  return [tree?.props?.children].flat(Infinity).map(text).join('');
+}
+
+test('header preserves the fullscreen title without showing updates for idle or unavailable builds', async (t) => {
+  const h = await headerHarness(t);
+  for (const state of ['idle', 'unavailable', 'checking', 'error']) {
+    h.status({ state, canInstall: false });
+    assert.equal(h.render(), null);
+    assert.equal(h.render(true).props.className, 'app-header');
+    assert.match(text(h.render(true)), /Parallel Agents/);
+    assert.equal(updateButton(h.render(true)), undefined);
+  }
+});
+
+test('Windows always renders its draggable native title row and releases caption spacing in fullscreen', async (t) => {
+  const h = await headerHarness(t, { platform: 'win32' });
+  for (const state of ['idle', 'unavailable', 'checking', 'error']) {
+    h.status({ state, canInstall: false });
+    assert.match(h.render().props.className, /\bapp-titlebar\b/);
+    assert.equal(updateButton(h.render()), undefined);
+    assert.match(text(h.render()), /Parallel Agents/);
+    assert.doesNotMatch(h.render(true).props.className, /\bapp-titlebar\b/);
+  }
+  h.status(h.ready);
+  assert.ok(updateButton(h.render()));
+  assert.ok(updateButton(h.render(true)));
+});
+
+test('available updates stay at the top and show background download progress without installing', async (t) => {
+  const h = await headerHarness(t);
+  h.status({ state: 'available', version: '0.2.0', canInstall: false });
+  assert.equal(h.render().props.className, 'app-header');
+  assert.equal(updateButton(h.render()).props.disabled, true);
+  assert.match(text(updateButton(h.render())), /Downloading update/);
+  h.status({ state: 'downloading', version: '0.2.0', percent: 42.4, canInstall: false });
+  assert.match(text(updateButton(h.render())), /42%/);
+  assert.equal(updateButton(h.render()).props.disabled, true);
+  assert.match(updateButton(h.render()).props.title, /0\.2\.0/);
+  assert.equal(h.installs(), 0);
+});
+
+test('the persistent header action installs explicitly and remains available after cancellation or failure', async (t) => {
+  const h = await headerHarness(t);
+  h.status(h.ready);
+  assert.match(text(updateButton(h.render())), /Restart to update/);
+  assert.equal(updateButton(h.render()).props.disabled, false);
+  assert.equal(h.installs(), 0);
+  assert.doesNotMatch(text(h.render()), /Later/);
+  updateButton(h.render()).props.onClick();
+  assert.equal(updateButton(h.render()).props.disabled, true);
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(installs, 1);
-  assert.ok(render(), 'cancelled confirmation leaves the notice and ready update available');
-  find(render(), (node) => node.props?.children === 'Later').props.onClick();
-  assert.equal(render(), null);
-  onStatus(ready);
-  assert.equal(render(), null, 'same update remains dismissed');
-  onStatus({ ...ready, version: '0.1.11' });
-  assert.ok(render(), 'a newer downloaded version is announced');
-  api.updates.install = async () => {
+  assert.equal(h.installs(), 1);
+  assert.equal(updateButton(h.render()).props.disabled, false, 'cancellation keeps the action');
+  h.status(h.ready);
+  assert.ok(updateButton(h.render()), 'the same update cannot be dismissed');
+  h.api.updates.install = async () => {
     throw new Error('Confirmation unavailable');
   };
-  find(render(), (node) => node.props?.children === 'Restart to update').props.onClick();
+  updateButton(h.render()).props.onClick();
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(
-    find(render(), (node) => node.props?.role === 'alert').props.children,
+    find(h.render(), (node) => node.props?.role === 'alert').props.children,
     'Confirmation unavailable',
   );
-  cleanups.forEach((cleanup) => cleanup?.());
-  assert.equal(unsubscribed, true);
+  assert.ok(updateButton(h.render()));
+  h.status({ ...h.ready, state: 'installing' });
+  assert.equal(updateButton(h.render()).props.disabled, true);
+  assert.match(text(updateButton(h.render())), /Updating/);
+});
+
+test('failed downloads retain an explicit retry action and clear stale errors when status recovers', async (t) => {
+  const h = await headerHarness(t);
+  h.status({
+    state: 'error',
+    version: '0.2.0',
+    message: 'Download failed',
+    canInstall: false,
+  });
+  assert.equal(
+    find(h.render(), (node) => node.props?.role === 'alert').props.children,
+    'Download failed',
+  );
+  assert.match(text(updateButton(h.render())), /Retry update/);
+  updateButton(h.render()).props.onClick();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(h.checks(), 1);
+  assert.equal(
+    find(h.render(), (node) => node.props?.role === 'alert'),
+    undefined,
+  );
+  assert.match(text(updateButton(h.render())), /Restart to update/);
+});
+
+test('header subscribes before loading status and ignores stale loads and events after unmount', async (t) => {
+  const loading = Promise.withResolvers();
+  const h = await headerHarness(t, { getStatus: () => loading.promise });
+  h.status(h.ready);
+  loading.resolve({ state: 'idle', canInstall: false });
+  await Promise.resolve();
+  assert.ok(updateButton(h.render()), 'a stale snapshot must not hide a newer update event');
+  h.dispose();
+  assert.equal(h.unsubscribed(), true);
+  h.status({ state: 'idle', canInstall: false });
+  assert.ok(updateButton(h.render()), 'unmounted listeners must not change state');
+});
+
+test('a failed status load is visible and retryable from the header', async (t) => {
+  const h = await headerHarness(t, {
+    getStatus: async () => {
+      throw new Error('Update status unavailable');
+    },
+  });
+  await Promise.resolve();
+  assert.equal(
+    find(h.render(), (node) => node.props?.role === 'alert').props.children,
+    'Update status unavailable',
+  );
+  updateButton(h.render()).props.onClick();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(h.checks(), 1);
+  assert.equal(
+    find(h.render(), (node) => node.props?.role === 'alert'),
+    undefined,
+  );
+});
+
+test('the app mounts the persistent update header before its panels and never mounts the CLI banner', async () => {
+  const app = await source('src/renderer/App.tsx');
+  assert.doesNotMatch(app, /AgentsBanner|UpdateReadyNotice/);
+  assert.match(app, /<AppHeader fullscreen=\{fullscreen\}\s*\/>/);
+  assert.ok(app.indexOf('<AppHeader ') < app.indexOf('className="app-body"'));
+  const css = await source('src/renderer/styles/theme.css');
+  assert.doesNotMatch(css, /\.agents-banner|\.ab-(?:chip|recheck|label)/);
 });

@@ -42,6 +42,7 @@ import type {
 import { preferences } from './preferences-store.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
+import { titleBarOverlayFor } from './window-titlebar.ts';
 
 export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ptyManager.attachWindow(win);
@@ -137,8 +138,15 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   );
   ipcMain.handle('config:getLayout', () => getLayout());
   ipcMain.handle('config:setLayout', (_e, layout: LayoutConfig) => setLayout(layout));
-  ipcMain.handle('config:getTheme', () => getTheme());
-  ipcMain.handle('config:setTheme', (_e, theme: ThemeMode) => setTheme(theme));
+  ipcMain.handle('config:getTheme', async () => {
+    const theme = await getTheme();
+    if (process.platform === 'win32') win.setTitleBarOverlay(titleBarOverlayFor(theme));
+    return theme;
+  });
+  ipcMain.handle('config:setTheme', async (_e, theme: ThemeMode) => {
+    await setTheme(theme);
+    if (process.platform === 'win32') win.setTitleBarOverlay(titleBarOverlayFor(theme));
+  });
   ipcMain.handle('config:getConfirmOnCloseTab', () => getConfirmOnCloseTab());
   ipcMain.handle('config:setConfirmOnCloseTab', (_e, v: boolean) => setConfirmOnCloseTab(v));
   ipcMain.handle('config:getTerminalMultilineEnter', () => getTerminalMultilineEnter());
