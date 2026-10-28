@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { transform } from 'esbuild';
 import { canDeleteProject } from '../src/shared/project-delete.ts';
+import * as sidebarOrder from '../src/shared/sidebar-order.ts';
+import * as projectTree from '../src/shared/project-tree.ts';
 
 const require = createRequire(import.meta.url);
 const agents = ['copilot', 'codex', 'claude', 'gemini', 'aider'].map((id) => ({
@@ -26,6 +28,10 @@ function harness(overrides = {}, openExternal = async () => {}) {
     agents,
     agentStatus: Object.fromEntries(agents.map(({ id }) => [id, { available: true, path: id }])),
     agentsChecked: true,
+    agentOrder: [...sidebarOrder.DEFAULT_AGENT_ORDER],
+    pinnedAgents: [],
+    expandedProjects: [],
+    sidebarTreeLoaded: true,
     collapsedAgents: [],
     toggleAgentGroup: (id) => toggles.push(id),
     ...overrides,
@@ -43,6 +49,11 @@ function harness(overrides = {}, openExternal = async () => {}) {
     },
     useMemo: (calculate) => calculate(),
     useEffect() {},
+    useRef(initial) {
+      const index = cursor++;
+      slots[index] ??= { current: initial };
+      return slots[index];
+    },
   };
   const module = { exports: {} };
   new Function('require', 'module', 'exports', 'window', code)(
@@ -51,9 +62,12 @@ function harness(overrides = {}, openExternal = async () => {}) {
       if (id === '../store/app-store') return { useAppStore: (select) => select(state) };
       if (id === '../icons/iconResolver') return { folderIconUrl: () => 'folder.svg' };
       if (id === '../../shared/project-delete') return { canDeleteProject };
+      if (id === '../../shared/sidebar-order') return sidebarOrder;
+      if (id === '../../shared/project-tree') return projectTree;
       if (id === './AgentIcon') return { AgentIcon: 'agent-icon' };
       if (id === './ActionIcon') return { ActionIcon: 'action-icon' };
       if (id === './ProjectDeleteDialog') return { ProjectDeleteDialog: 'delete-dialog' };
+      if (id === './SessionList') return { SessionList: 'session-list' };
       return require(id);
     },
     module,
@@ -65,7 +79,7 @@ function harness(overrides = {}, openExternal = async () => {}) {
     toggles,
     render() {
       cursor = 0;
-      return module.exports.ProjectList();
+      return module.exports.ProjectList({ onNewProject() {} });
     },
   };
 }
@@ -96,7 +110,8 @@ test('only detected missing agents show an emoji and a compact installation acti
   assert.match(installButton(tree, 'claude').props.title, /install claude/);
   const toggle = find(
     tree,
-    (node) => node.type === 'button' && node.props['aria-label'] === 'claude (not installed)',
+    (node) =>
+      node.type === 'button' && node.props['aria-label'] === 'Collapse claude (not installed)',
   );
   assert.equal(toggle.props['aria-expanded'], true);
 });
@@ -116,16 +131,17 @@ test('installation guidance remains accessible for collapsed and empty agent gro
   const h = harness({ collapsedAgents: ['claude'] }, async (url) => opened.push(url));
   h.state.agentStatus.claude = { available: false, path: null };
   const tree = h.render();
-  installButton(tree, 'claude').props.onClick();
+  installButton(tree, 'claude').props.onClick({ stopPropagation() {} });
   await Promise.resolve();
   assert.deepEqual(opened, ['https://example.com/claude/install']);
   assert.deepEqual(h.toggles, []);
   const toggle = find(
     tree,
-    (node) => node.type === 'button' && node.props['aria-label'] === 'claude (not installed)',
+    (node) =>
+      node.type === 'button' && node.props['aria-label'] === 'Expand claude (not installed)',
   );
   assert.equal(toggle.props['aria-expanded'], false);
-  toggle.props.onClick();
+  toggle.props.onClick({ stopPropagation() {} });
   assert.deepEqual(h.toggles, ['claude']);
 });
 
@@ -134,7 +150,7 @@ test('installation-guide failures are shown and a refreshed installation removes
     throw new Error('Browser unavailable');
   });
   h.state.agentStatus.claude = { available: false, path: null };
-  installButton(h.render(), 'claude').props.onClick();
+  installButton(h.render(), 'claude').props.onClick({ stopPropagation() {} });
   await Promise.resolve();
   await Promise.resolve();
   const alert = find(h.render(), (node) => node.props?.role === 'alert');

@@ -17,8 +17,13 @@ import {
 import type { Project, AgentId } from '../shared/types.ts';
 import type { NewProjectOptions } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
-import { createProjectWorktree, findProjectRepositoryRoot } from './worktrees.ts';
+import {
+  addProjectWorktreeMetadata,
+  createProjectWorktree,
+  findProjectRepositoryRoot,
+} from './worktrees.ts';
 import { AGENT_IDS } from './agent-providers.ts';
+import { orderedAgents } from '../shared/sidebar-order.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -385,16 +390,20 @@ export async function listProjects(): Promise<Project[]> {
       lastActivity: null,
     });
   }
-  return out.sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    if (a.agent === b.agent) {
-      const order = cfg.projectOrder[a.agent] ?? [];
-      const ai = order.indexOf(a.id);
-      const bi = order.indexOf(b.id);
-      if (ai !== bi) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
-    }
-    return (b.lastActivity ?? 0) - (a.lastActivity ?? 0);
-  });
+  const agentOrder = orderedAgents(cfg);
+  return addProjectWorktreeMetadata(
+    out.sort((a, b) => {
+      if (a.agent !== b.agent) return agentOrder.indexOf(a.agent) - agentOrder.indexOf(b.agent);
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      if (a.agent === b.agent) {
+        const order = cfg.projectOrder[a.agent] ?? [];
+        const ai = order.indexOf(a.id);
+        const bi = order.indexOf(b.id);
+        if (ai !== bi) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
+      }
+      return (b.lastActivity ?? 0) - (a.lastActivity ?? 0);
+    }),
+  );
 }
 
 export async function createProject(options: NewProjectOptions): Promise<Project> {
@@ -417,7 +426,8 @@ export async function createProject(options: NewProjectOptions): Promise<Project
           targetPath: options.targetPath ?? '',
         })
       : normalize(options.basePath);
-  const existing = (await listProjects()).find(
+  const projects = await listProjects();
+  const existing = projects.find(
     (project) =>
       project.agent === options.agent &&
       normalizeProjectPath(project.realPath) === normalizeProjectPath(realPath),
@@ -428,14 +438,18 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       ? ((await findProjectRepositoryRoot(realPath)) ?? realPath)
       : realPath;
   try {
-    await preferences.registerProject({ id, agent: options.agent, realPath, historyPath });
+    await preferences.registerProject(
+      { id, agent: options.agent, realPath, historyPath },
+      options.mode === 'worktree' ? [options.basePath] : [],
+    );
   } catch (error) {
     throw new Error(
       `Folder is ready at "${realPath}", but saving the project failed: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
-  return (
+  const decorated = await addProjectWorktreeMetadata([
+    ...projects.filter((project) => project.id !== id),
     existing ?? {
       id,
       agent: options.agent,
@@ -447,8 +461,9 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       hidden: false,
       sessionCount: 0,
       lastActivity: null,
-    }
-  );
+    },
+  ]);
+  return decorated[decorated.length - 1];
 }
 
 export async function resolveHistoryProjectId(projectId: string): Promise<string | null> {

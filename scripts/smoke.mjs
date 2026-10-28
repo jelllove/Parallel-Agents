@@ -72,6 +72,37 @@ try {
   await writeFile(join(project, 'notes.txt'), 'committed\n');
   await git('add', '--', 'notes.txt');
   await git('commit', '-m', 'Initial smoke fixture');
+  const worktree = join(home, 'feature-checkout');
+  await git('worktree', 'add', '-b', 'feature/sidebar', worktree);
+  const worktreeProvider = join(home, '.claude', 'projects', 'C--smoke-worktree');
+  await mkdir(worktreeProvider);
+  await writeFile(
+    join(worktreeProvider, 'worktree-session.jsonl'),
+    JSON.stringify({
+      type: 'user',
+      cwd: worktree,
+      gitBranch: 'feature/sidebar',
+      timestamp: '2026-01-02T00:00:00Z',
+      message: { content: 'Isolated worktree session' },
+    }) + '\n',
+  );
+  const invalidRepository = join(home, 'old-project');
+  await mkdir(join(invalidRepository, '.git'), { recursive: true });
+  const invalidProvider = join(home, '.claude', 'projects', 'C--smoke-invalid-repository');
+  await mkdir(invalidProvider);
+  await writeFile(
+    join(invalidProvider, 'legacy-session.jsonl'),
+    JSON.stringify({
+      type: 'user',
+      cwd: invalidRepository,
+      timestamp: '2025-01-01T00:00:00Z',
+      message: { content: 'Isolated legacy session with invalid Git metadata' },
+    }) + '\n',
+  );
+  await writeFile(
+    join(home, '.claude', 'parallel-agents.json'),
+    JSON.stringify({ hidden: ['C--smoke-invalid-repository'] }) + '\n',
+  );
   await writeFile(join(project, 'notes.txt'), 'staged\n');
   await git('add', '--', 'notes.txt');
   await writeFile(join(project, 'notes.txt'), 'working\n');

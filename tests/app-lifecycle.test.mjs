@@ -112,7 +112,7 @@ async function themeHarness(platform) {
       if (id === './window-titlebar.ts') return require('../src/main/window-titlebar.ts');
       if (id === './pty-manager.ts') return { ptyManager: { attachWindow() {} } };
       if (id === './git.ts') return { attachWindow() {} };
-      if (id.startsWith('./')) return {};
+      if (id.startsWith('.')) return {};
       return require(id);
     },
     module,

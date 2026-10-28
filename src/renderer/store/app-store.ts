@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_AGENT_ORDER } from '../../shared/types.ts';
 import type {
   Project,
   Session,
@@ -18,7 +19,9 @@ import {
   type FontFamilyId,
 } from '../../shared/typography.ts';
 import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/agent-commands.ts';
+import { orderedAgents } from '../../shared/sidebar-order.ts';
 import { pickDeletableMissingProjectIds } from './project-cleanup.ts';
+import { groupProjectTrees } from '../../shared/project-tree.ts';
 import {
   cleanupShellStateForTabs,
   closeTabIds,
@@ -51,6 +54,10 @@ export interface SessionLinkRequest {
 }
 
 interface AppState {
+  layoutError: string | null;
+  layoutSaving: boolean;
+  launchSettingsAgent: AgentId | null;
+  showAgentLaunchSettings: (agent: AgentId | null) => void;
   projects: Project[];
   adhocProjects: Project[];
   inventoryRefreshing: boolean;
@@ -76,6 +83,13 @@ interface AppState {
   agentStatus: Record<AgentId, AgentStatus>;
   agentsChecked: boolean;
   collapsedAgents: AgentId[];
+  agentOrder: AgentId[];
+  pinnedAgents: AgentId[];
+  expandedProjects: string[];
+  sidebarTreeLoaded: boolean;
+  sidebarTreeLoading: boolean;
+  sidebarTreeError: string | null;
+  sidebarTreeSaveVersion: number;
   clipboard: Clipboard | null;
   gitStatusByPath: Record<string, GitStatus | null>;
   layout: LayoutConfig | null;
@@ -108,8 +122,13 @@ interface AppState {
   closeTabs: (ids: string[]) => void;
   openShellForTab: (projectId: string, profile?: SessionShellProfile) => void;
   setTabShellVisible: (projectId: string, visible: boolean) => void;
-  setShowHidden: (v: boolean) => void;
-  toggleAgentGroup: (id: AgentId) => void;
+  setShowHidden: (v: boolean) => Promise<void>;
+  toggleAgentGroup: (id: AgentId) => Promise<void>;
+  reorderAgentGroups: (from: AgentId, to: AgentId, placement: 'before' | 'after') => Promise<void>;
+  pinAgent: (agent: AgentId) => Promise<void>;
+  setProjectExpanded: (id: string, expanded: boolean) => Promise<void>;
+  loadSidebarTree: () => Promise<void>;
+  saveSidebarTree: () => Promise<void>;
   pinProject: (id: string, pinned: boolean) => Promise<void>;
   hideProject: (id: string, hidden: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -155,15 +174,24 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
 });
 
 let layoutWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let layoutSaveId = 0;
 function scheduleLayoutWrite(layout: LayoutConfig) {
   if (layoutWriteTimer) clearTimeout(layoutWriteTimer);
   layoutWriteTimer = setTimeout(() => {
-    void window.api.config.setLayout(layout);
+    void window.api.config.setLayout(layout).catch((error: unknown) => {
+      useAppStore.setState({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    });
     layoutWriteTimer = null;
   }, 300);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  layoutError: null,
+  layoutSaving: false,
+  launchSettingsAgent: null,
+  showAgentLaunchSettings: (agent) => set({ launchSettingsAgent: agent }),
   projects: [],
   adhocProjects: [],
   inventoryRefreshing: false,
@@ -189,6 +217,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   agentStatus: emptyStatus(),
   agentsChecked: false,
   collapsedAgents: [],
+  agentOrder: [...DEFAULT_AGENT_ORDER],
+  pinnedAgents: [],
+  expandedProjects: [],
+  sidebarTreeLoaded: false,
+  sidebarTreeLoading: false,
+  sidebarTreeError: null,
+  sidebarTreeSaveVersion: 0,
   clipboard: null,
   gitStatusByPath: {},
   layout: null,
@@ -482,13 +517,97 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ activeTabId: id });
   },
 
-  setShowHidden(v) {
+  async setShowHidden(v) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
     set({ showHidden: v });
+    await get().saveSidebarTree();
   },
 
-  toggleAgentGroup(id) {
+  async toggleAgentGroup(id) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
     const cur = get().collapsedAgents;
     set({ collapsedAgents: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
+    await get().saveSidebarTree();
+  },
+
+  async reorderAgentGroups(from, to, placement) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
+    if (from === to) return;
+    const pinned = get().pinnedAgents;
+    if (pinned.includes(from) !== pinned.includes(to)) {
+      throw new Error('Reorder agents within the same pinned section.');
+    }
+    const current = orderedAgents(get());
+    if (!current.includes(from) || !current.includes(to)) {
+      set({
+        sidebarTreeError: 'Cannot reorder unknown Agent sections. Reload the sidebar and retry.',
+      });
+      return;
+    }
+    const next = current.filter((id) => id !== from);
+    next.splice(next.indexOf(to) + (placement === 'after' ? 1 : 0), 0, from);
+    if (next.every((id, index) => id === current[index])) return;
+    set({ agentOrder: next });
+    await get().saveSidebarTree();
+  },
+
+  async pinAgent(agent) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
+    await window.api.config.setAgentPinned(agent, !get().pinnedAgents.includes(agent));
+    const layout = await window.api.config.getAgentLayout();
+    set(layout);
+  },
+
+  async setProjectExpanded(id, expanded) {
+    if (!get().sidebarTreeLoaded) return get().saveSidebarTree();
+    const cur = get().expandedProjects;
+    if (cur.includes(id) === expanded) return;
+    set({ expandedProjects: expanded ? [...cur, id] : cur.filter((x) => x !== id) });
+    await get().saveSidebarTree();
+  },
+
+  async loadSidebarTree() {
+    if (get().sidebarTreeLoaded || get().sidebarTreeLoading) return;
+    set({ sidebarTreeLoading: true, sidebarTreeError: null });
+    try {
+      const [tree, layout] = await Promise.all([
+        window.api.config.getSidebarTree(),
+        window.api.config.getAgentLayout(),
+      ]);
+      set({ ...tree, ...layout, sidebarTreeLoaded: true, sidebarTreeError: null });
+    } catch (error) {
+      set({
+        sidebarTreeError: `Cannot load sidebar layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    } finally {
+      set({ sidebarTreeLoading: false });
+    }
+  },
+
+  async saveSidebarTree() {
+    if (!get().sidebarTreeLoaded) {
+      set({
+        sidebarTreeError: 'Sidebar layout is not loaded. Retry loading before making changes.',
+      });
+      return;
+    }
+    const { agentOrder, collapsedAgents, expandedProjects, showHidden } = get();
+    const version = get().sidebarTreeSaveVersion + 1;
+    set({ sidebarTreeSaveVersion: version, sidebarTreeError: null });
+    try {
+      await window.api.config.setSidebarTree({
+        agentOrder,
+        collapsedAgents,
+        expandedProjects,
+        showHidden,
+      });
+    } catch (error) {
+      if (get().sidebarTreeSaveVersion === version) {
+        set({
+          sidebarTreeError: `Cannot save sidebar layout: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
   },
 
   async pinProject(id, pinned) {
@@ -559,16 +678,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async reorderProjects(agent, fromId, toId) {
     if (fromId === toId) return;
-    const groupIds = get()
-      .projects.filter((p) => p.agent === agent)
-      .map((p) => p.id);
-    const fromIdx = groupIds.indexOf(fromId);
-    const toIdx = groupIds.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...groupIds];
-    next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, fromId);
-    await window.api.projects.setOrder(agent, next);
+    const groups = groupProjectTrees(
+      get().projects.filter((p) => p.agent === agent),
+      true,
+    );
+    const fromIdx = groups.findIndex((group) => group.projects.some((p) => p.id === fromId));
+    const toIdx = groups.findIndex((group) => group.projects.some((p) => p.id === toId));
+    if (fromIdx < 0 || toIdx < 0) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
+    if (groups[fromIdx].pinned !== groups[toIdx].pinned) {
+      throw new Error('Reorder projects within the same agent and the same pinned section.');
+    }
+    const [moved] = groups.splice(fromIdx, 1);
+    groups.splice(toIdx, 0, moved);
+    await window.api.projects.setOrder(
+      agent,
+      groups.flatMap((group) => group.projects.map((p) => p.id)),
+    );
     await get().loadProjects();
   },
 
@@ -650,25 +777,45 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async loadLayout() {
-    const layout = await window.api.config.getLayout();
-    set({ layout });
+    try {
+      const layout = await window.api.config.getLayout();
+      set({ layout, layoutError: null });
+    } catch (error) {
+      set({
+        layoutError: `Could not load window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   },
 
   async setLayout(layout) {
-    set({ layout });
+    const saveId = ++layoutSaveId;
+    const previous = get().layout;
+    set({ layout, layoutError: null, layoutSaving: true });
     if (layoutWriteTimer) {
       clearTimeout(layoutWriteTimer);
       layoutWriteTimer = null;
     }
-    await window.api.config.setLayout(layout);
+    try {
+      await window.api.config.setLayout(layout);
+    } catch (error) {
+      if (get().layout === layout) set({ layout: previous });
+      set({
+        layoutError: `Could not save window layout: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      throw error;
+    } finally {
+      if (saveId === layoutSaveId) set({ layoutSaving: false });
+    }
   },
 
   updateLayoutSizes(sizes) {
     const cur = get().layout;
+    if (get().layoutSaving) return;
     if (!cur) return;
+    if (cur.hiddenPanes?.length) return;
     if (sizes.length !== 3) return;
     const next: LayoutConfig = {
-      order: cur.order,
+      ...cur,
       sizes: [sizes[0], sizes[1], sizes[2]],
     };
     const same = cur.sizes.every((v, i) => Math.abs(v - next.sizes[i]) < 0.01);

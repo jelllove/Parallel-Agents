@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { lstat, realpath, stat } from 'fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
+import type { Project } from '../shared/types.ts';
 
 const execFileAsync = promisify(execFile);
 const repositoryGitEnvironmentKeys = [
@@ -106,6 +107,71 @@ export async function findProjectRepositoryRoot(basePath: string): Promise<strin
     if (parent === directory) return null;
     directory = parent;
   }
+}
+
+export async function addProjectWorktreeMetadata(projects: Project[]): Promise<Project[]> {
+  const metadata = new Map<string, Promise<Project['worktree']>>();
+  const canonicalPaths = new Map<string, string>();
+  const pathKey = (path: string) =>
+    process.platform === 'win32' ? normalize(path).toLowerCase() : normalize(path);
+
+  async function inspect(path: string): Promise<Project['worktree']> {
+    const canonicalPath = await realpath(path);
+    canonicalPaths.set(pathKey(path), canonicalPath);
+    const root = await findProjectRepositoryRoot(canonicalPath);
+    if (!root || !(await lstat(join(root, '.git'))).isFile()) return undefined;
+    const records = (
+      await git(root, ['worktree', 'list', '--porcelain', '-z'], 'Cannot resolve project worktrees')
+    )
+      .split('\0\0')
+      .map((record) => record.split('\0'));
+    const parent = records[0]?.find((field) => field.startsWith('worktree '))?.slice(9);
+    if (!parent) throw new Error(`Git did not return a primary worktree for ${path}`);
+    if (pathKey(parent) === pathKey(root)) return undefined;
+    const current = records.find((fields) =>
+      fields.some(
+        (field) => field.startsWith('worktree ') && pathKey(field.slice(9)) === pathKey(root),
+      ),
+    );
+    if (!current) throw new Error(`Git did not return worktree metadata for ${path}`);
+    return {
+      parentPath: normalize(parent),
+      branch: current.find((field) => field.startsWith('branch refs/heads/'))?.slice(18) ?? null,
+    };
+  }
+
+  // Bound subprocess concurrency; duplicate provider paths share the same lookup.
+  const result: Project[] = [];
+  for (const project of projects) {
+    if (!project.exists) {
+      result.push(project);
+      continue;
+    }
+    const key = pathKey(project.realPath);
+    let lookup = metadata.get(key);
+    if (!lookup) {
+      lookup = inspect(project.realPath).catch((error: unknown) => {
+        console.warn(`Skipping worktree metadata for "${project.realPath}":`, error);
+        return undefined;
+      });
+      metadata.set(key, lookup);
+    }
+    const worktree = await lookup;
+    result.push(worktree ? { ...project, worktree } : project);
+  }
+  if (!result.some((project) => project.worktree)) return result;
+  const parents = new Map<string, string>();
+  for (const project of result) {
+    const canonicalPath = canonicalPaths.get(pathKey(project.realPath));
+    if (project.exists && !project.worktree && canonicalPath) {
+      parents.set(`${project.agent}:${pathKey(canonicalPath)}`, project.realPath);
+    }
+  }
+  return result.map((project) => {
+    if (!project.worktree) return project;
+    const parentPath = parents.get(`${project.agent}:${pathKey(project.worktree.parentPath)}`);
+    return parentPath ? { ...project, worktree: { ...project.worktree, parentPath } } : project;
+  });
 }
 
 export async function createProjectWorktree(options: {

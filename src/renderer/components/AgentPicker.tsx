@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentId, AgentInfo, AgentStatus } from '../../shared/types';
 import { AgentIcon } from './AgentIcon';
+import { useAppStore } from '../store/app-store';
 
 interface Props {
   agents: AgentInfo[];
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function AgentPicker({ agents, status, onPick, onClose, anchorX, anchorY, title }: Props) {
+  const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const [pos, setPos] = useState({ x: anchorX, y: anchorY });
 
   useEffect(() => {
@@ -61,6 +63,18 @@ export function AgentPicker({ agents, status, onPick, onClose, anchorX, anchorY,
                   {available ? st?.path || 'installed' : 'not installed'}
                 </div>
               </div>
+              <button
+                type="button"
+                className="btn-secondary agent-launch-configure"
+                aria-label={`Configure ${a.displayName} launch`}
+                title="Configure this agent's approval mode and model"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  showAgentLaunchSettings(a.id);
+                }}
+              >
+                Options
+              </button>
             </div>
           );
         })}

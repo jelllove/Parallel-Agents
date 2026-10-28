@@ -1,49 +1,8 @@
-import { useEffect, useState } from 'react';
-import type { UpdateStatus } from '../../shared/types';
 import { ClaudeIcon } from './ClaudeIcon';
+import { useUpdateStatus } from '../hooks/use-update-status';
 
 export function AppHeader({ fullscreen }: { fullscreen: boolean }) {
-  const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let receivedEvent = false;
-    const unsubscribe = window.api.updates.onStatus((status) => {
-      receivedEvent = true;
-      if (active) {
-        setUpdate(status);
-        setError(null);
-      }
-    });
-    window.api.updates
-      .getStatus()
-      .then((status) => {
-        if (active && !receivedEvent) setUpdate(status);
-      })
-      .catch((failure) => {
-        if (active && !receivedEvent)
-          setError(failure instanceof Error ? failure.message : String(failure));
-      });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
-
-  async function runUpdateAction() {
-    setPending(true);
-    setError(null);
-    try {
-      const action = update?.canInstall ? 'install' : 'check';
-      setUpdate(await window.api.updates[action]());
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setPending(false);
-    }
-  }
+  const { update, updateError: error, pending, runUpdateAction } = useUpdateStatus();
 
   const hasUpdate =
     !!update?.version &&
@@ -84,7 +43,7 @@ export function AppHeader({ fullscreen }: { fullscreen: boolean }) {
                 ? `Update to version ${update.version}. Your agents keep running until you confirm a restart.`
                 : 'Retry checking for updates'
             }
-            onClick={() => void runUpdateAction()}
+            onClick={() => void runUpdateAction(update?.canInstall ? 'install' : 'check')}
           >
             <span role="status" aria-live="polite">
               {label}

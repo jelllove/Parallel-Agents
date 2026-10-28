@@ -196,7 +196,7 @@ app.whenReady().then(async () => {
     app.setAppUserModelId(APP_USER_MODEL_ID);
   }
   const menu = applicationMenu(process.platform, () => void quitWithConfirm());
-  if (menu) Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
+  Menu.setApplicationMenu(menu ? Menu.buildFromTemplate(menu) : null);
   createWindow();
   if (process.platform !== 'linux') createTray();
   updates.start();

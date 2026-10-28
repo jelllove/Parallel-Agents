@@ -16,6 +16,7 @@ reference link definitions, and inline source-path references for these active f
 - `.github/instructions/learned-rules.instructions.md`
 - `.github/instructions/tooling.instructions.md`
 - `.github/prompts/validation-repair.prompt.md`
+- `.github/skills/release-authoring/SKILL.md`
 - `.github/skills/review-maintenance/SKILL.md`
 - `.github/skills/validate-changes/SKILL.md`
 - `AGENTS.md`

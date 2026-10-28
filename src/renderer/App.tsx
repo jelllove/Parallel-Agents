@@ -1,5 +1,16 @@
-import { Fragment, Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import type { ImperativePanelGroupHandle } from 'react-resizable-panels';
+import { projectedPanelSizes, visiblePaneBefore } from '../shared/pane-visibility';
 import { useAppStore } from './store/app-store';
 import { StatusBar } from './components/StatusBar';
 import { AppHeader } from './components/AppHeader';
@@ -23,6 +34,10 @@ const GitPanel = lazy(async () => ({
 const AboutDialog = lazy(async () => ({
   default: (await import('./components/AboutDialog')).AboutDialog,
 }));
+const AgentLaunchDialog = lazy(async () => ({
+  default: (await import('./components/AgentLaunchDialog')).AgentLaunchDialog,
+}));
+
 function PaneFallback() {
   return <div className="pane-loading">Loading…</div>;
 }
@@ -42,6 +57,8 @@ function RightColumn() {
 }
 
 export default function App() {
+  const launchSettingsAgent = useAppStore((s) => s.launchSettingsAgent);
+  const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const refreshProjectsAndAgents = useAppStore((s) => s.refreshProjectsAndAgents);
   const subscribeGitChanges = useAppStore((s) => s.subscribeGitChanges);
   const loadLayout = useAppStore((s) => s.loadLayout);
@@ -49,6 +66,7 @@ export default function App() {
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes);
   const loadTheme = useAppStore((s) => s.loadTheme);
   const loadSettings = useAppStore((s) => s.loadSettings);
+  const loadSidebarTree = useAppStore((s) => s.loadSidebarTree);
   const openTabs = useAppStore((s) => s.openTabs);
   const tabProjectId = useAppStore((s) => s.tabProjectId);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
@@ -57,6 +75,11 @@ export default function App() {
   const findProject = useAppStore((s) => s.findProject);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const panelGroup = useRef<ImperativePanelGroupHandle>(null);
+  const currentLayout = useRef(layout);
+  currentLayout.current = layout;
+  const appliedVisibility = useRef('');
+  const resizingVisibility = useRef(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -81,9 +104,17 @@ export default function App() {
     loadLayout();
     loadTheme();
     loadSettings();
+    void loadSidebarTree();
     const off = subscribeGitChanges();
     return off;
-  }, [refreshProjectsAndAgents, loadLayout, loadTheme, loadSettings, subscribeGitChanges]);
+  }, [
+    refreshProjectsAndAgents,
+    loadLayout,
+    loadTheme,
+    loadSettings,
+    loadSidebarTree,
+    subscribeGitChanges,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -158,20 +189,65 @@ export default function App() {
   const order: [PaneId, PaneId, PaneId] = layout?.order ?? ['sidebar', 'middle', 'right'];
   const sizes: [number, number, number] = layout?.sizes ?? [20, 58, 22];
   const groupKey = order.join('-');
+  const hidden = layout?.hiddenPanes ?? [];
+  const visibilityKey = `${groupKey}:${hidden.join(',')}`;
+  const visibilityChanged = appliedVisibility.current !== visibilityKey;
+  const layoutReady = layout !== null;
+  if (visibilityChanged) resizingVisibility.current = true;
+  useLayoutEffect(() => {
+    const current = currentLayout.current;
+    if (!current) return;
+    resizingVisibility.current = true;
+    panelGroup.current?.setLayout(projectedPanelSizes(current));
+    appliedVisibility.current = visibilityKey;
+    const frame = requestAnimationFrame(() => {
+      resizingVisibility.current = false;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [visibilityKey, layoutReady]);
 
   return (
     <div className="app">
       <AppHeader fullscreen={fullscreen} />
       <div className="app-body">
-        <PanelGroup key={groupKey} direction="horizontal" onLayout={(s) => updateLayoutSizes(s)}>
+        <PanelGroup
+          key={groupKey}
+          ref={panelGroup}
+          direction="horizontal"
+          onLayout={(s) => {
+            if (!resizingVisibility.current) updateLayoutSizes(s);
+          }}
+        >
           {order.map((paneId, i) => {
             const pane = panes[paneId];
+            const collapsed = hidden.some((id) => id === paneId);
             return (
               <Fragment key={paneId}>
-                <Panel defaultSize={sizes[i]} minSize={pane.minSize} maxSize={pane.maxSize}>
-                  {pane.node}
+                <Panel
+                  id={`workspace-${paneId}`}
+                  order={i}
+                  defaultSize={sizes[i]}
+                  minSize={collapsed ? 0 : pane.minSize}
+                  maxSize={collapsed ? 0 : pane.maxSize}
+                >
+                  <div
+                    className="workspace-pane"
+                    data-pane={paneId}
+                    hidden={collapsed}
+                    aria-hidden={collapsed}
+                  >
+                    {pane.node}
+                  </div>
                 </Panel>
-                {i < order.length - 1 && <PanelResizeHandle className="resize-handle" />}
+                {i < order.length - 1 && (
+                  <PanelResizeHandle
+                    className="resize-handle"
+                    disabled={!visiblePaneBefore(order, i, hidden)}
+                    style={{ display: visiblePaneBefore(order, i, hidden) ? undefined : 'none' }}
+                  />
+                )}
               </Fragment>
             );
           })}
@@ -180,6 +256,13 @@ export default function App() {
       <StatusBar />
       <Suspense fallback={null}>
         {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+        {launchSettingsAgent && (
+          <AgentLaunchDialog
+            key={launchSettingsAgent}
+            agent={launchSettingsAgent}
+            onClose={() => showAgentLaunchSettings(null)}
+          />
+        )}
       </Suspense>
     </div>
   );

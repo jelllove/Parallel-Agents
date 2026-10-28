@@ -3,9 +3,15 @@ export function desktopTarget(platform = process.platform, arch = process.arch) 
     return { asarSegments: ['win-unpacked', 'resources', 'app.asar'] };
   if (platform === 'linux' && arch === 'x64')
     return { asarSegments: ['linux-unpacked', 'resources', 'app.asar'] };
-  if (platform === 'darwin' && arch === 'arm64')
+  if (platform === 'darwin' && (arch === 'arm64' || arch === 'x64'))
     return {
-      asarSegments: ['mac-arm64', 'Parallel Agents.app', 'Contents', 'Resources', 'app.asar'],
+      asarSegments: [
+        arch === 'arm64' ? 'mac-arm64' : 'mac',
+        'Parallel Agents.app',
+        'Contents',
+        'Resources',
+        'app.asar',
+      ],
     };
   throw new Error(`Unsupported desktop target: ${platform}/${arch}.`);
 }
@@ -13,8 +19,16 @@ export function desktopTarget(platform = process.platform, arch = process.arch) 
 export function providerShim(agent, platform) {
   if (!/^[a-z][a-z0-9-]*$/.test(agent)) throw new Error('Invalid provider shim name.');
   if (platform === 'win32')
-    return { name: `${agent}.cmd`, content: '@echo off\r\necho SMOKE_AGENT\r\n', mode: 0o644 };
+    return {
+      name: `${agent}.cmd`,
+      content: '@echo off\r\necho SMOKE_AGENT\r\necho SMOKE_AGENT_ARGS %*\r\n',
+      mode: 0o644,
+    };
   if (platform !== 'darwin' && platform !== 'linux')
     throw new Error(`Unsupported provider shim platform: ${platform}.`);
-  return { name: agent, content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\n', mode: 0o755 };
+  return {
+    name: agent,
+    content: '#!/bin/sh\nprintf "SMOKE_AGENT\\n"\nprintf "SMOKE_AGENT_ARGS %s\\n" "$*"\n',
+    mode: 0o755,
+  };
 }

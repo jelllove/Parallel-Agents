@@ -311,6 +311,7 @@ for (const [platform, arch, status] of [
   ['linux', 'x64', 'pass'],
   ['linux', 'arm64', 'warn'],
   ['darwin', 'arm64', 'pass'],
+  ['darwin', 'x64', 'pass'],
   ['win32', 'arm64', 'warn'],
   ['freebsd', 'x64', 'fail'],
   ['win32', 'ia32', 'fail'],
