@@ -888,11 +888,13 @@ async function checkRenderer(projectPath) {
       () => order() === 'codex,claude,gemini,aider,copilot',
       'Downward Agent drag failed',
     );
+    await settleSidebar();
     drag(header('gemini'), header('codex'));
     await waitFor(
       () => order() === 'gemini,codex,claude,aider,copilot',
       'Upward Agent drag failed',
     );
+    await settleSidebar();
     header('gemini').focus();
     header('gemini').dispatchEvent(
       new window.KeyboardEvent('keydown', {
@@ -906,6 +908,7 @@ async function checkRenderer(projectPath) {
       () => order() === 'codex,gemini,claude,aider,copilot',
       'Keyboard Agent reorder failed',
     );
+    await settleSidebar();
     header('gemini').dispatchEvent(
       new window.KeyboardEvent('keydown', {
         key: 'ArrowUp',
