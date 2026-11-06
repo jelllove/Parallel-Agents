@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 interface Props {
   title: string;
-  message: string;
+  message: ReactNode;
   confirmText: string;
-  typeToConfirm: string;
+  typeToConfirm?: string;
   destructive?: boolean;
   warning?: string;
   confirmDisabled?: boolean;
@@ -26,17 +27,19 @@ export function ConfirmDialog({
   const [input, setInput] = useState('');
   const [armed, setArmed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const checkboxRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    (typeToConfirm === undefined ? checkboxRef : inputRef).current?.focus();
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onCancel();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  }, [onCancel, typeToConfirm]);
 
-  const canConfirm = input === typeToConfirm && armed && !confirmDisabled;
+  const canConfirm =
+    (typeToConfirm === undefined || input === typeToConfirm) && armed && !confirmDisabled;
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
@@ -44,24 +47,33 @@ export function ConfirmDialog({
         <div className="modal-title">{title}</div>
         <div className="modal-body">
           <div>{message}</div>
-          <div
-            style={{
-              marginTop: 12,
-              fontSize: 'calc(var(--app-font-size) * 0.923077)',
-              color: 'var(--text-dim)',
-            }}
-          >
-            Type <code>{typeToConfirm}</code> to enable the {confirmText} button:
-          </div>
-          <input
-            ref={inputRef}
-            className="modal-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={typeToConfirm}
-          />
+          {typeToConfirm !== undefined && (
+            <>
+              <div
+                style={{
+                  marginTop: 12,
+                  fontSize: 'calc(var(--app-font-size) * 0.923077)',
+                  color: 'var(--text-dim)',
+                }}
+              >
+                Type <code>{typeToConfirm}</code> to enable the {confirmText} button:
+              </div>
+              <input
+                ref={inputRef}
+                className="modal-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={typeToConfirm}
+              />
+            </>
+          )}
           <label className="modal-check">
-            <input type="checkbox" checked={armed} onChange={(e) => setArmed(e.target.checked)} />
+            <input
+              ref={checkboxRef}
+              type="checkbox"
+              checked={armed}
+              onChange={(e) => setArmed(e.target.checked)}
+            />
             <span>I understand this cannot be undone.</span>
           </label>
           {warning && (

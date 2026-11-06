@@ -7,6 +7,7 @@ import { collectProjectSessions } from '../../shared/project-tree';
 import type { ProjectSession } from '../../shared/project-tree';
 import { RenameSessionDialog } from './RenameSessionDialog';
 import { ActionIcon } from './ActionIcon';
+import { queueSessionDeletion } from '../store/workspace-operations';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -19,17 +20,16 @@ function formatTime(ts: number): string {
 }
 
 interface Props {
+  selection?: { selectedKeys: string[]; onToggle: (key: string, checked: boolean) => void };
   projects: Project[];
   onProjectContext?: (event: React.MouseEvent, project: Project) => void;
 }
 
-export function SessionList({ projects, onProjectContext }: Props) {
+export function SessionList({ projects, onProjectContext, selection }: Props) {
   const sessions = useAppStore((s) => s.sessions);
   const loadSessions = useAppStore((s) => s.loadSessions);
   const selectProject = useAppStore((s) => s.selectProject);
   const openSessionTab = useAppStore((s) => s.openSessionTab);
-  const openProjectFromList = useAppStore((s) => s.openProjectFromList);
-  const deleteSession = useAppStore((s) => s.deleteSession);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const activeSessionId = useAppStore((s) => s.tabSessionId[s.activeTabId ?? '']);
   const activeAgent = useAppStore((s) => s.tabAgent[s.activeTabId ?? '']);
@@ -38,7 +38,6 @@ export function SessionList({ projects, onProjectContext }: Props) {
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ProjectSession | null>(null);
   const [rename, setRename] = useState<ProjectSession | null>(null);
 
@@ -102,12 +101,23 @@ export function SessionList({ projects, onProjectContext }: Props) {
           ? s.gitBranch || project.worktree.branch || 'detached HEAD'
           : null;
         const active = Boolean(activeTabId && activeSessionId === s.id && activeAgent === s.agent);
+        const selected = selection?.selectedKeys.includes(`${s.agent}:${s.id}`);
         return (
           <div
             key={`${s.agent}:${s.id}`}
-            className={`list-item session-item${enabled ? '' : ' disabled'}${active ? ' active' : ''}`}
+            className={`list-item session-item${enabled ? '' : ' disabled'}${active ? ' active' : ''}${selected ? ' deletion-selected' : ''}`}
             onContextMenu={(event) => onProjectContext?.(event, project)}
           >
+            {selection && (
+              <input
+                type="checkbox"
+                className="session-selection-check"
+                aria-label={`Select session ${s.title || s.id} for deletion`}
+                checked={Boolean(selected)}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => selection.onToggle(`${s.agent}:${s.id}`, event.target.checked)}
+              />
+            )}
             <button
               className="session-open"
               disabled={!enabled}
@@ -115,7 +125,9 @@ export function SessionList({ projects, onProjectContext }: Props) {
               title={`${s.title}\n${project.realPath}\n${!project.exists ? 'Directory not found' : cmd || `No resume available for ${s.agent}`}`}
               aria-current={active ? 'true' : undefined}
             >
-              <span className="session-marker" aria-hidden="true" />
+              <span className={`session-marker${active ? ' active' : ''}`} aria-hidden="true">
+                {active ? '▶' : undefined}
+              </span>
               <span className="session-text">
                 <span className="list-item-title">{s.title || '(empty)'}</span>
                 <span className="list-item-sub session-meta">
@@ -172,21 +184,6 @@ export function SessionList({ projects, onProjectContext }: Props) {
                   {project.worktree ? `${project.worktree.branch || 'detached HEAD'}: ` : ''}No
                   sessions yet.
                 </span>
-                {project.exists && (
-                  <button
-                    className="project-action"
-                    onClick={async () => {
-                      setError('');
-                      try {
-                        await openProjectFromList(project.id);
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : String(err));
-                      }
-                    }}
-                  >
-                    Start session
-                  </button>
-                )}
               </div>
             ),
         )}
@@ -202,30 +199,18 @@ export function SessionList({ projects, onProjectContext }: Props) {
         <ConfirmDialog
           title="Delete session?"
           message={`This will permanently delete the session file for "${confirmDelete.session.title || '(empty)'}". This cannot be undone.`}
-          confirmText={busy ? 'Deleting...' : 'Delete forever'}
-          typeToConfirm="delete"
-          destructive
+          confirmText="Delete forever"
           warning={error}
-          confirmDisabled={busy}
-          onConfirm={async () => {
-            if (busy) return;
-            setBusy(true);
-            setError('');
-            try {
-              await deleteSession(confirmDelete.project.id, confirmDelete.session.id);
-              setConfirmDelete(null);
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setBusy(false);
+          destructive
+          onConfirm={() => {
+            const accepted = queueSessionDeletion(confirmDelete.project, confirmDelete.session);
+            if (accepted === null) {
+              setError('This session already has a pending deletion.');
+              return;
             }
+            setConfirmDelete(null);
           }}
-          onCancel={() => {
-            if (!busy) {
-              setError('');
-              setConfirmDelete(null);
-            }
-          }}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

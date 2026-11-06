@@ -298,6 +298,172 @@ test('single session project opens a bound tab and renames without restarting it
   assert.equal(store.getState().sessions[project.id][0].title, 'Renamed');
 });
 
+test('background creation preserves navigation during registration and launch preparation', async () => {
+  const registration = Promise.withResolvers();
+  const baseline = Promise.withResolvers();
+  const project = { id: 'codex:new', agent: 'codex', realPath: 'C:\\new', exists: true };
+  const store = await createStore({
+    projects: { create: () => registration.promise },
+    sessions: { listForProject: () => baseline.promise },
+    config: { setLastAgent: async () => {} },
+  });
+  store.setState({ selectedProjectId: 'old', activeTabId: 'old-tab' });
+  const creating = store
+    .getState()
+    .createProject({ agent: 'codex', mode: 'folder', basePath: project.realPath });
+  store.setState({ selectedProjectId: 'elsewhere', activeTabId: 'other-tab' });
+  registration.resolve(project);
+  await new Promise((resolve) => setImmediate(resolve));
+  baseline.resolve([]);
+  const result = await creating;
+  assert.equal(result.projectId, project.id);
+  assert.equal(store.getState().selectedProjectId, 'elsewhere');
+  assert.equal(store.getState().activeTabId, 'other-tab');
+  assert.equal(store.getState().pendingInitialCommand[project.id].command, 'codex');
+});
+
+test('creation reports successful registration separately from failed launch preparation', async () => {
+  const project = { id: 'codex:new', agent: 'codex', realPath: 'C:\\new', exists: true };
+  const store = await createStore({
+    projects: { create: async () => project },
+    sessions: {
+      listForProject: async () => {
+        throw new Error('History unavailable');
+      },
+    },
+  });
+  const result = await store
+    .getState()
+    .createProject({ agent: 'codex', mode: 'folder', basePath: project.realPath });
+  assert.equal(result.projectId, project.id);
+  assert.match(result.message, /created.*launch.*History unavailable/i);
+  assert.equal(store.getState().projects[0].id, project.id);
+});
+
+test('successful deletion reports a later refresh failure without implying mutation failed', async () => {
+  const store = await createStore({
+    projects: {
+      delete: async () => {},
+      list: async () => {
+        throw new Error('Refresh unavailable');
+      },
+    },
+    sessions: {
+      delete: async () => {},
+      listForProject: async () => {
+        throw new Error('History unavailable');
+      },
+    },
+  });
+  const project = await store.getState().deleteProject('codex:repo');
+  assert.match(project.message, /deleted.*refresh.*Refresh unavailable/i);
+  const session = await store.getState().deleteSession('codex:repo', 'one');
+  assert.match(session.message, /deleted.*refresh.*History unavailable/i);
+});
+
+test('session deletion clears aliases of shared history but not another provider', async () => {
+  const store = await createStore({
+    sessions: { delete: async () => {}, listForProject: async () => [] },
+    projects: { list: async () => [] },
+  });
+  const session = { id: 'one', agent: 'copilot' };
+  store.setState({
+    sessions: {
+      'copilot:root': [session],
+      'copilot:child': [session],
+      'claude:other': [{ ...session, agent: 'claude' }],
+    },
+  });
+  await store.getState().deleteSession('copilot:child', 'one');
+  assert.deepEqual(store.getState().sessions['copilot:root'], []);
+  assert.equal(store.getState().sessions['claude:other'].length, 1);
+});
+
+test('batch deletion deduplicates native history, continues failures and refreshes aliases/counts once', async () => {
+  const deleted = [];
+  const refreshed = [];
+  let inventoryReads = 0;
+  const root = { id: 'copilot:root', agent: 'copilot', displayName: 'Root' };
+  const child = { ...root, id: 'copilot:child', displayName: 'Child' };
+  const one = { id: 'one', agent: 'copilot', title: 'One' };
+  const bad = { ...one, id: 'bad', title: 'Bad' };
+  const two = { ...one, id: 'two', title: 'Two' };
+  const store = await createStore({
+    sessions: {
+      delete: async (projectId, id) => {
+        deleted.push([projectId, id]);
+        if (id === 'bad') throw new Error('Access denied');
+      },
+      listForProject: async (id) => {
+        refreshed.push(id);
+        return [bad];
+      },
+    },
+    projects: {
+      list: async () => {
+        inventoryReads++;
+        return [{ ...root, sessionCount: 1 }, child];
+      },
+    },
+  });
+  store.setState({
+    sessions: {
+      [root.id]: [one, bad, two],
+      [child.id]: [one, bad, two],
+      unrelated: [{ ...one, agent: 'claude' }],
+    },
+  });
+  assert.equal(typeof store.getState().deleteSessions, 'function');
+  const result = await store.getState().deleteSessions([
+    { project: root, session: one },
+    { project: child, session: one },
+    { project: root, session: bad },
+    { project: child, session: two },
+  ]);
+  assert.deepEqual(deleted, [
+    [root.id, 'one'],
+    [root.id, 'bad'],
+    [child.id, 'two'],
+  ]);
+  assert.equal(inventoryReads, 1);
+  assert.deepEqual(refreshed.sort(), [child.id, root.id].sort());
+  assert.deepEqual(store.getState().sessions[root.id], [bad]);
+  assert.equal(store.getState().sessions.unrelated.length, 1);
+  assert.equal(result.warning, true);
+  assert.match(result.message, /2.*deleted.*1.*failed/i);
+  assert.match(result.message, /Bad.*Access denied/);
+});
+
+test('old session and inventory reads cannot restore deleted history or outdated counts', async () => {
+  const staleSessions = Promise.withResolvers();
+  const staleProjects = Promise.withResolvers();
+  let sessionReads = 0;
+  let projectReads = 0;
+  const project = { id: 'claude:repo', agent: 'claude', sessionCount: 1 };
+  const session = { id: 'one', agent: 'claude', title: 'One' };
+  const store = await createStore({
+    sessions: {
+      delete: async () => {},
+      listForProject: () => (++sessionReads === 1 ? staleSessions.promise : Promise.resolve([])),
+    },
+    projects: {
+      list: () =>
+        ++projectReads === 1
+          ? staleProjects.promise
+          : Promise.resolve([{ ...project, sessionCount: 0 }]),
+    },
+  });
+  store.setState({ projects: [project], sessions: { [project.id]: [session] } });
+  const oldHistory = store.getState().loadSessions(project.id);
+  const oldInventory = store.getState().loadProjects();
+  await store.getState().deleteSession(project.id, session.id);
+  staleSessions.resolve([session]);
+  staleProjects.resolve([project]);
+  await Promise.all([oldHistory, oldInventory]);
+  assert.deepEqual(store.getState().sessions[project.id], []);
+  assert.equal(store.getState().projects[0].sessionCount, 0);
+});
+
 test('new project requires explicit session association and avoids duplicate resume', async () => {
   let sessions = [];
   const project = {

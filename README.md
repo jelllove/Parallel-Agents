@@ -27,7 +27,9 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   choices, session rename/link flows, and optional attached shell panes.
 - **Provider-specific launch settings** for approval modes and model IDs, saved independently
   per agent and applied to managed new/resumed launches without restarting running terminals.
-- **New project workflow** for opening folders directly or creating Git worktrees before launch.
+- **Non-blocking project workflows** for opening folders, creating branches/worktrees, and deleting
+  project/session histories. Accepted operations run in the background with completion/error notices;
+  the create/delete dialogs close immediately so other terminals remain usable.
 - **Recently opened folders in the same Create/Open dialog**, with folder icons, full paths and
   one-click reuse for both folder and worktree modes. Successfully opened folders persist across
   restarts, are deduplicated and sorted by latest use, and are not truncated to a fixed count.
@@ -50,12 +52,21 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 Projects remain grouped by agent. Use the folder icon beside a project (an arrow on hover/focus)
 to expand or collapse its sessions without launching a terminal. Sessions are ordered newest
 first; multiple projects can stay expanded. Opening a project with multiple worktree entries
-selects it and lets you choose the desired session. Empty checkouts offer **Start session**.
+selects it and lets you choose the desired session. Empty checkouts show a message without a
+**Start session** button; project opening and the New Project workflow remain available.
 
 Project rows show just the name; hover for the full path. Sessions use indented, two-line rows
-with muted branch/time metadata and a neutral selected background in both themes. Rename/delete
+with muted branch/time metadata and a yellow active-session background (pale yellow in light mode,
+warm amber in dark mode), plus an arrow. Selection follows terminal tab switches and remains visible
+on hover. Rename/delete
 controls appear on hover or keyboard focus and retain their own space, so long names truncate
 with an ellipsis rather than overlap the buttons. Widening the sidebar reveals more of each name.
+Use **Select sessions** in the sidebar toolbar to reveal checkboxes across expanded projects.
+Check the histories to remove, then **Delete selected (N)**. Review the listed titles and checkout
+paths, acknowledge permanent deletion, and confirm once. The operation runs in the background;
+rows and project counts refresh automatically. Partial failures identify the histories not deleted.
+Collapsed/hidden sessions leave the selection; checkbox selection does not switch the active terminal.
+
 Agent headings are separate background blocks with consistently sized icons rather than another
 indented tree level. Project and two-line session rows use compact spacing.
 
@@ -409,7 +420,9 @@ your selected projects are separate data, not contents of the settings file.
 
 - **Hide** changes a visibility preference.
 - **Delete project/session** can permanently remove provider history. This is not the Explorer's
-  recycle-bin action.
+  recycle-bin action. Session deletion requires checking the acknowledgement and clicking **Delete
+  forever**, without typing `delete`. Project deletion retains its session review and acknowledgement.
+  Accepted deletions run in the background; failures remain visible in dismissible notices.
 - **Explorer trash**, file moves, and **Git discard/commit** operate on real selected project files.
 
 Do not delete settings or provider directories as a routine troubleshooting step. Quit the app and

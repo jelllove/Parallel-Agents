@@ -60,6 +60,7 @@ function harness(overrides = {}, openExternal = async () => {}) {
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore: (select) => select(state) };
+      if (id === '../store/workspace-operations') return { queueProjectDeletion() {} };
       if (id === '../icons/iconResolver') return { folderIconUrl: () => 'folder.svg' };
       if (id === '../../shared/project-delete') return { canDeleteProject };
       if (id === '../../shared/sidebar-order') return sidebarOrder;
@@ -67,6 +68,7 @@ function harness(overrides = {}, openExternal = async () => {}) {
       if (id === './AgentIcon') return { AgentIcon: 'agent-icon' };
       if (id === './ActionIcon') return { ActionIcon: 'action-icon' };
       if (id === './ProjectDeleteDialog') return { ProjectDeleteDialog: 'delete-dialog' };
+      if (id === './ConfirmDialog') return { ConfirmDialog: 'confirm-dialog' };
       if (id === './SessionList') return { SessionList: 'session-list' };
       return require(id);
     },

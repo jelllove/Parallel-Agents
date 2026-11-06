@@ -7,11 +7,18 @@ import { ProjectDeleteDialog } from './ProjectDeleteDialog';
 import { canDeleteProject } from '../../shared/project-delete';
 import { ActionIcon } from './ActionIcon';
 import { SessionList } from './SessionList';
-import { groupProjectTrees } from '../../shared/project-tree';
-import type { ProjectTree } from '../../shared/project-tree';
+import { groupProjectTrees, collectProjectSessions } from '../../shared/project-tree';
+import type { ProjectTree, ProjectSession } from '../../shared/project-tree';
+import { queueProjectDeletion, queueSessionsDeletion } from '../store/workspace-operations';
+import { ConfirmDialog } from './ConfirmDialog';
 
 export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) => void }) {
   const projects = useAppStore((s) => s.projects);
+  const sessions = useAppStore((s) => s.sessions);
+  const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
+  const [selectedSessionKeys, setSelectedSessionKeys] = useState<string[]>([]);
+  const [confirmSessions, setConfirmSessions] = useState<ProjectSession[] | null>(null);
+  const [sessionDeleteError, setSessionDeleteError] = useState('');
   const refresh = useAppStore((s) => s.refreshProjectsAndAgents);
   const refreshing = useAppStore((s) => s.inventoryRefreshing);
   const inventoryError = useAppStore((s) => s.inventoryError);
@@ -22,8 +29,6 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
   const sessionGuideSeq = useAppStore((s) => s.sessionGuideSeq);
   const pinProject = useAppStore((s) => s.pinProject);
   const hideProject = useAppStore((s) => s.hideProject);
-  const deleteProject = useAppStore((s) => s.deleteProject);
-  const deleteMissingProjects = useAppStore((s) => s.deleteMissingProjects);
   const reorderProjects = useAppStore((s) => s.reorderProjects);
   const showHidden = useAppStore((s) => s.showHidden);
   const setShowHidden = useAppStore((s) => s.setShowHidden);
@@ -55,7 +60,6 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
   const [cleanupMode, setCleanupMode] = useState(false);
   const [selectedMissingIds, setSelectedMissingIds] = useState<string[]>([]);
   const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null);
-  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -78,12 +82,43 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
         : groupProjectTrees(projects, showHidden),
     [projects, showHidden, cleanupMode],
   );
+  const visibleSessionRows = useMemo(() => {
+    const visibleProjects = trees
+      .filter(
+        (tree) =>
+          expandedProjects.includes(tree.id) && !collapsedAgents.includes(tree.project.agent),
+      )
+      .flatMap((tree) => tree.projects);
+    return collectProjectSessions(visibleProjects, sessions);
+  }, [trees, expandedProjects, collapsedAgents, sessions]);
+  const selectedSessionRows = visibleSessionRows.filter(({ session }) =>
+    selectedSessionKeys.includes(`${session.agent}:${session.id}`),
+  );
+  const visibleSelectedKeys = selectedSessionRows.map(
+    ({ session }) => `${session.agent}:${session.id}`,
+  );
+  const visibleSessionKey = JSON.stringify(
+    visibleSessionRows.map(({ session }) => `${session.agent}:${session.id}`),
+  );
+  useEffect(() => {
+    const visible = new Set<string>(JSON.parse(visibleSessionKey));
+    setSelectedSessionKeys((keys) => {
+      const next = keys.filter((key) => visible.has(key));
+      return next.length === keys.length ? keys : next;
+    });
+  }, [visibleSessionKey]);
+  function toggleSession(key: string, checked: boolean) {
+    setSelectedSessionKeys((keys) =>
+      checked ? [...new Set([...keys, key])] : keys.filter((item) => item !== key),
+    );
+  }
+
   const [agentMenu, setAgentMenu] = useState<{ x: number; y: number; agent: AgentId } | null>(null);
   const [sidebarError, setSidebarError] = useState('');
   const [sidebarBusy, setSidebarBusy] = useState(false);
   const actionBusy = useRef(false);
   const agentIds = orderedAgents({ agentOrder, pinnedAgents });
-  const orderDisabled = sidebarBusy || !sidebarTreeLoaded || cleanupMode || bulkDeleteBusy;
+  const orderDisabled = sidebarBusy || !sidebarTreeLoaded || cleanupMode;
 
   async function runSidebarAction(action: () => Promise<void>) {
     if (actionBusy.current) return;
@@ -287,7 +322,7 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
           className="project-action"
           title="Refresh projects and agents"
           aria-label="Refresh projects and agents"
-          disabled={refreshing || bulkDeleteBusy}
+          disabled={refreshing}
           onClick={() => void refresh()}
         >
           <ActionIcon name="refresh" spinning={refreshing} />
@@ -298,14 +333,62 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
           title={`Clean ${missingProjects.length} deleted project histories`}
           aria-label={`Clean deleted projects (${missingProjects.length})`}
           aria-pressed={cleanupMode}
-          disabled={missingProjects.length === 0 || bulkDeleteBusy}
-          onClick={() => setCleanupMode(!cleanupMode)}
+          disabled={missingProjects.length === 0}
+          onClick={() => {
+            setCleanupMode(!cleanupMode);
+            setSessionSelectionMode(false);
+            setSelectedSessionKeys([]);
+          }}
         >
           <ActionIcon name="cleanup" />
           <span>Clean</span>
           <span className="action-count">{missingProjects.length}</span>
         </button>
+        {!sessionSelectionMode && (
+          <button
+            className="project-action"
+            aria-label="Select sessions"
+            disabled={!sidebarTreeLoaded}
+            onClick={() => {
+              setSessionSelectionMode(true);
+              setSelectedSessionKeys([]);
+              setCleanupMode(false);
+            }}
+          >
+            Select sessions
+          </button>
+        )}
       </div>
+      {sessionSelectionMode && (
+        <div className="session-selection-toolbar">
+          <button
+            className="btn-danger"
+            aria-label="Delete selected sessions"
+            disabled={!selectedSessionRows.length}
+            onClick={() => {
+              setSessionDeleteError('');
+              setConfirmSessions(
+                selectedSessionRows.map(({ project, session }) => ({
+                  project: { ...project },
+                  session: { ...session },
+                })),
+              );
+            }}
+          >
+            Delete selected ({selectedSessionRows.length})
+          </button>
+          <button
+            className="btn-secondary"
+            aria-label="Cancel session selection"
+            onClick={() => {
+              setSessionSelectionMode(false);
+              setSelectedSessionKeys([]);
+            }}
+          >
+            Cancel selection
+          </button>
+        </div>
+      )}
       {inventoryError && (
         <div className="inventory-error" role="alert">
           {inventoryError}
@@ -533,7 +616,7 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
                     ? `New project with ${agentName(agent)}`
                     : `${agentName(agent)} is not installed`
                 }
-                disabled={!available || bulkDeleteBusy}
+                disabled={!available}
                 draggable={false}
                 onDragStart={(event) => {
                   event.preventDefault();
@@ -659,7 +742,15 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
                             flashingProject === tree.id ? 'sessions-guide-flash' : undefined
                           }
                         >
-                          <SessionList projects={tree.projects} onProjectContext={handleContext} />
+                          <SessionList
+                            projects={tree.projects}
+                            onProjectContext={handleContext}
+                            selection={
+                              sessionSelectionMode
+                                ? { selectedKeys: visibleSelectedKeys, onToggle: toggleSession }
+                                : undefined
+                            }
+                          />
                         </div>
                       )}
                     </div>
@@ -791,11 +882,53 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
           })}
         </div>
       )}
+      {confirmSessions && (
+        <ConfirmDialog
+          title={`Delete ${confirmSessions.length} sessions?`}
+          message={
+            <>
+              <p>
+                This permanently deletes the selected session histories. This cannot be undone.
+                Working folders are not deleted.
+              </p>
+              <ul className="session-delete-review" aria-label="Sessions to delete">
+                {confirmSessions.map(({ project, session }) => (
+                  <li key={`${session.agent}:${session.id}`}>
+                    <strong>{session.title || '(empty)'}</strong>
+                    <div>
+                      {session.agent} · {project.displayName}
+                    </div>
+                    <div>{project.realPath}</div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          }
+          confirmText="Delete forever"
+          destructive
+          warning={sessionDeleteError}
+          onConfirm={() => {
+            if (queueSessionsDeletion(confirmSessions) === null) {
+              setSessionDeleteError(
+                'One or more selected sessions already have a pending deletion.',
+              );
+              return;
+            }
+            setConfirmSessions(null);
+            setSelectedSessionKeys([]);
+            setSessionSelectionMode(false);
+          }}
+          onCancel={() => {
+            setConfirmSessions(null);
+            setSessionDeleteError('');
+          }}
+        />
+      )}
       {confirmDelete && (
         <ProjectDeleteDialog
           projects={[confirmDelete]}
           onConfirm={async () => {
-            await deleteProject(confirmDelete.id);
+            queueProjectDeletion([confirmDelete]);
             setConfirmDelete(null);
           }}
           onCancel={() => setConfirmDelete(null)}
@@ -805,20 +938,15 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
         <ProjectDeleteDialog
           projects={projects.filter((project) => confirmBulkIds.includes(project.id))}
           onConfirm={async () => {
-            if (bulkDeleteBusy) return;
-            const ids = confirmBulkIds;
-            setBulkDeleteBusy(true);
-            try {
-              await deleteMissingProjects(ids);
-              setConfirmBulkIds(null);
-              setSelectedMissingIds([]);
-            } finally {
-              setBulkDeleteBusy(false);
-            }
+            queueProjectDeletion(
+              projects.filter((project) => confirmBulkIds.includes(project.id)),
+              true,
+            );
+            setConfirmBulkIds(null);
+            setSelectedMissingIds([]);
           }}
           onCancel={() => {
             setConfirmBulkIds(null);
-            setBulkDeleteBusy(false);
           }}
         />
       )}

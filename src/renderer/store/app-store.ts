@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { OperationResult } from './background-operations.ts';
 import { DEFAULT_AGENT_ORDER } from '../../shared/types.ts';
 import type {
   Project,
@@ -22,6 +23,7 @@ import { startCommandFor, resumeCommandFor, extraPathFor } from '../../shared/ag
 import { orderedAgents } from '../../shared/sidebar-order.ts';
 import { pickDeletableMissingProjectIds } from './project-cleanup.ts';
 import { groupProjectTrees } from '../../shared/project-tree.ts';
+import type { ProjectSession } from '../../shared/project-tree.ts';
 import {
   cleanupShellStateForTabs,
   closeTabIds,
@@ -113,6 +115,7 @@ interface AppState {
     agentId: AgentId,
     startCommand: string,
     extraPath?: string[],
+    shouldFocus?: () => boolean,
   ) => Promise<void>;
   openSessionTab: (projectId: string, session: Session, separate?: boolean) => Promise<void>;
   requestSessionLink: (request: SessionLinkRequest | null) => void;
@@ -131,13 +134,17 @@ interface AppState {
   saveSidebarTree: () => Promise<void>;
   pinProject: (id: string, pinned: boolean) => Promise<void>;
   hideProject: (id: string, hidden: boolean) => Promise<void>;
-  deleteProject: (id: string) => Promise<void>;
-  deleteMissingProjects: (ids: string[]) => Promise<void>;
+  deleteProject: (id: string) => Promise<OperationResult>;
+  deleteMissingProjects: (ids: string[]) => Promise<OperationResult>;
   reorderProjects: (agent: AgentId, fromId: string, toId: string) => Promise<void>;
   loadSessions: (projectId: string) => Promise<void>;
-  deleteSession: (projectId: string, sessionId: string) => Promise<void>;
+  deleteSession: (projectId: string, sessionId: string) => Promise<OperationResult>;
+  deleteSessions: (targets: ProjectSession[], stopOnError?: boolean) => Promise<OperationResult>;
   renameSession: (projectId: string, sessionId: string, title: string) => Promise<void>;
-  createProject: (options: NewProjectOptions) => Promise<void>;
+  createProject: (
+    options: NewProjectOptions,
+    shouldFocus?: () => boolean,
+  ) => Promise<OperationResult>;
   setFontSize: (size: number) => Promise<void>;
   setFontFamily: (fontFamily: string) => Promise<void>;
   setFontBold: (bold: boolean) => Promise<void>;
@@ -173,6 +180,9 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
   copilot: { available: false, path: null },
 });
 
+let historyMutationVersion = 0;
+let projectReadVersion = 0;
+const sessionReadVersions = new Map<string, number>();
 let layoutWriteTimer: ReturnType<typeof setTimeout> | null = null;
 let layoutSaveId = 0;
 function scheduleLayoutWrite(layout: LayoutConfig) {
@@ -236,8 +246,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   fontBold: false,
 
   async loadProjects() {
+    const mutation = historyMutationVersion;
+    const request = ++projectReadVersion;
     const projects = await window.api.projects.list();
-    set({ projects });
+    if (mutation === historyMutationVersion && request === projectReadVersion) set({ projects });
   },
 
   async loadAgents() {
@@ -325,17 +337,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
   },
 
-  async openTabWithAgent(projectId, agentId, startCommand, extraPath = []) {
+  async openTabWithAgent(
+    projectId,
+    agentId,
+    startCommand,
+    extraPath = [],
+    shouldFocus = () => true,
+  ) {
     const tabId = projectId;
     if (get().openTabs.includes(tabId)) {
-      set({ activeTabId: tabId });
+      if (shouldFocus()) set({ activeTabId: tabId });
       return;
     }
     const baseline = await window.api.sessions.listForProject(projectId);
     await window.api.config.setLastAgent(projectId, agentId);
     const { openTabs } = get();
     if (openTabs.includes(tabId)) {
-      set({ activeTabId: tabId });
+      if (shouldFocus()) set({ activeTabId: tabId });
       return;
     }
     const pending: PendingLaunch = { command: startCommand, extraPath };
@@ -350,7 +368,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? get().tabSessionBaseline
           : { ...get().tabSessionBaseline, [tabId]: baseline.map((s) => s.id) },
       tabAgent: { ...get().tabAgent, [tabId]: agentId },
-      activeTabId: tabId,
+      activeTabId: shouldFocus() ? tabId : get().activeTabId,
       tabShellProfile: nextTabShellProfile,
       pendingInitialCommand: { ...get().pendingInitialCommand, [tabId]: pending },
     };
@@ -631,7 +649,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions: nextSessions,
       selectedProjectId: get().selectedProjectId === id ? null : get().selectedProjectId,
     });
-    await get().loadProjects();
+    try {
+      await get().loadProjects();
+      return { message: 'Project history deleted. Working folders were not deleted.' };
+    } catch (error) {
+      return {
+        message: `History deleted, but refreshing projects failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   },
 
   async deleteMissingProjects(ids) {
@@ -639,6 +664,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ inventoryError: 'No projects selected' });
       throw new Error('No projects selected');
     }
+    let refreshError = '';
     try {
       await get().loadProjects();
       const targetIds = pickDeletableMissingProjectIds(get().projects, ids);
@@ -671,9 +697,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         await get().loadProjects();
       } catch (error) {
-        set({ inventoryError: error instanceof Error ? error.message : String(error) });
+        refreshError = error instanceof Error ? error.message : String(error);
+        set({ inventoryError: refreshError });
       }
     }
+    return {
+      message: refreshError
+        ? `Histories deleted, but refreshing projects failed: ${refreshError}`
+        : 'Project histories deleted. Working folders were not deleted.',
+    };
   },
 
   async reorderProjects(agent, fromId, toId) {
@@ -700,13 +732,99 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async loadSessions(projectId) {
+    const mutation = historyMutationVersion;
+    const request = (sessionReadVersions.get(projectId) ?? 0) + 1;
+    sessionReadVersions.set(projectId, request);
     const list = await window.api.sessions.listForProject(projectId);
-    set({ sessions: { ...get().sessions, [projectId]: list } });
+    if (mutation === historyMutationVersion && request === sessionReadVersions.get(projectId)) {
+      set({ sessions: { ...get().sessions, [projectId]: list } });
+    }
   },
 
   async deleteSession(projectId, sessionId) {
-    await window.api.sessions.delete(projectId, sessionId);
-    await get().loadSessions(projectId);
+    const project = get().findProject(projectId) ?? ({ id: projectId } as Project);
+    const session =
+      get().sessions[projectId]?.find((item) => item.id === sessionId) ??
+      ({
+        id: sessionId,
+        agent: project.agent,
+        title: sessionId,
+      } as Session);
+    return get().deleteSessions([{ project, session }], true);
+  },
+
+  async deleteSessions(targets, stopOnError = false) {
+    const unique = [
+      ...new Map(
+        [...targets]
+          .reverse()
+          .map(({ project, session }) => [
+            `${session.agent}:${session.id}`,
+            { projectId: project.id, id: session.id, agent: session.agent, title: session.title },
+          ]),
+      ).values(),
+    ].reverse();
+    if (!unique.length) throw new Error('No sessions selected');
+    let deleted = 0;
+    let mutationError: unknown;
+    const failures: string[] = [];
+    const refreshIds = new Set<string>();
+    for (const target of unique) {
+      refreshIds.add(target.projectId);
+      for (const [id, sessions] of Object.entries(get().sessions)) {
+        if (sessions.some((session) => session.id === target.id && session.agent === target.agent))
+          refreshIds.add(id);
+      }
+      try {
+        await window.api.sessions.delete(target.projectId, target.id);
+        historyMutationVersion++;
+        deleted++;
+        set((state) => ({
+          sessions: Object.fromEntries(
+            Object.entries(state.sessions).map(([id, sessions]) => [
+              id,
+              sessions.filter(
+                (session) =>
+                  session.id !== target.id ||
+                  (id !== target.projectId && session.agent !== target.agent),
+              ),
+            ]),
+          ),
+        }));
+      } catch (error) {
+        mutationError = error;
+        failures.push(
+          `${target.title || target.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        if (stopOnError) break;
+      }
+    }
+    const refreshErrors: string[] = [];
+    const refreshes = await Promise.allSettled([
+      ...[...refreshIds].map((id) => get().loadSessions(id)),
+      get().loadProjects(),
+    ]);
+    refreshes.forEach((result) => {
+      if (result.status === 'rejected')
+        refreshErrors.push(
+          result.reason instanceof Error ? result.reason.message : String(result.reason),
+        );
+    });
+    if (stopOnError && failures.length) throw mutationError;
+    const summary =
+      unique.length === 1 && !failures.length
+        ? 'Session deleted.'
+        : `${deleted} sessions deleted; ${failures.length} failed.`;
+    return {
+      warning: failures.length > 0 || refreshErrors.length > 0,
+      message: [
+        summary,
+        ...failures,
+        ...(refreshErrors.length
+          ? [`Refreshing history/projects failed: ${refreshErrors.join('; ')}`]
+          : []),
+      ].join(' '),
+    };
   },
 
   async renameSession(projectId, sessionId, title) {
@@ -726,18 +844,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  async createProject(options) {
+  async createProject(options, shouldFocus) {
+    const selected = get().selectedProjectId;
+    const active = get().activeTabId;
+    const focus =
+      shouldFocus ?? (() => get().selectedProjectId === selected && get().activeTabId === active);
     const project = await window.api.projects.create(options);
-    set({
-      projects: [...get().projects.filter((p) => p.id !== project.id), project],
-      selectedProjectId: project.id,
-    });
-    await get().openTabWithAgent(
-      project.id,
-      options.agent,
-      startCommandFor(options.agent),
-      extraPathFor(get().agentStatus[options.agent]?.path),
-    );
+    set({ projects: [...get().projects.filter((p) => p.id !== project.id), project] });
+    try {
+      let focused = false;
+      await get().openTabWithAgent(
+        project.id,
+        options.agent,
+        startCommandFor(options.agent),
+        extraPathFor(get().agentStatus[options.agent]?.path),
+        () => (focused = focus()),
+      );
+      if (focused && get().activeTabId === project.id) set({ selectedProjectId: project.id });
+      return { projectId: project.id, message: `Project ready: ${project.displayName}` };
+    } catch (error) {
+      return {
+        projectId: project.id,
+        message: `Project created, but launch preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   },
 
   consumePendingCommand(projectId) {

@@ -412,6 +412,37 @@ Start commands are `claude`, `copilot`, `gemini`, `codex`, and `aider`; Copilot 
 The command-builder module, not this prose, is the exact resume-syntax authority.
 Binary detection does not verify authentication or a live provider response.
 
+### Non-blocking workspace operations
+
+[background-operations.ts](src/renderer/store/background-operations.ts) owns the renderer's
+in-process serial mutation queue independently of dialog/component lifetimes. Requests capture
+inputs before closing create/delete dialogs; pending target identities prevent duplicate submissions,
+including overlapping single/bulk project deletion and single/batch native session targets.
+ProjectList owns transient checkbox selection across visible expanded trees, separate from active
+terminal identity. A reviewed batch snapshots original provider/session IDs and checkout paths;
+collapsing/hiding/disappearing rows removes their selection from subsequent reviews.
+Existing async IPC still performs filesystem/Git
+work in main; this is not a new daemon or a persistent/resumable job system.
+
+[workspace-operations.ts](src/renderer/store/workspace-operations.ts) connects accepted requests to
+existing application store actions. A short-lived navigation subscription prevents late create
+completion from replacing a project/tab the user chose while waiting. Launch preparation can create
+its own tab without activating it. Success is reported only after the operation settles, and later
+refresh/launch errors explicitly distinguish completed mutations from incomplete follow-up work.
+No automatic retry risks repeating a partial mutation. Project deletion retains its pre-submit review;
+Explorer's typed confirmation is unaffected. Shared session aliases are removed only after deletion
+IPC succeeds, without removing identical IDs from other providers. Batch deletion continues individual
+failures and reports counts plus named failures. Single and batch paths share post-delete refresh of
+affected loaded aliases and project counts. A mutation generation and per-list read versions reject
+stale pre-delete responses, preventing removed history from reappearing during asynchronous refresh.
+Refresh failures are warnings about follow-up work; local successful removals are retained.
+
+[OperationNotices](src/renderer/components/OperationNotices.tsx) stays mounted at App level so pending
+work and result/error notices survive closing a dialog or collapsing a project. It exposes accessible
+status/alert messages and dismissible results, with an explicit **Open project** action for creation.
+Terminal readiness/provider compatibility remains a separate PTY concern; a queued launch is not a
+verified live agent response. Quitting or reloading can interrupt renderer-managed queued work.
+
 ## History and persistence
 
 | Location                                         | Data and ownership                                                                                                           |

@@ -10,7 +10,7 @@ const {
 } = require('node:fs');
 const { dirname, join } = require('node:path');
 const { once } = require('node:events');
-const { app, shell, Menu } = require('electron');
+const { app, shell, Menu, ipcMain } = require('electron');
 
 const externalLinks = [];
 shell.openExternal = async (url) => {
@@ -22,6 +22,19 @@ assert.ok(
   home && project && reports && mainEntry && reportName,
   'Run this fixture through npm run test:smoke',
 );
+const fixtureCreatePath = join(home, 'background-created-project');
+mkdirSync(fixtureCreatePath);
+const handle = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, listener) =>
+  handle(channel, async (event, ...args) => {
+    if (
+      (channel === 'projects:create' && args[0]?.basePath === fixtureCreatePath) ||
+      channel === 'projects:delete'
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    return listener(event, ...args);
+  });
 const startedAt = Date.now();
 const smokeTimeoutMs = 120_000;
 let finished = false;
@@ -70,7 +83,7 @@ setTimeout(async () => {
   }
 }, smokeTimeoutMs).unref();
 
-async function checkRenderer(projectPath) {
+async function checkRenderer(projectPath, createPath) {
   const checks = [];
   window.__smokeChecks = checks;
   const check = (condition, message) => {
@@ -750,22 +763,50 @@ async function checkRenderer(projectPath) {
         document.querySelector('.project-caret svg'),
       'project row uses a line folder icon and a single-line name',
     );
-    const activeSession = document.querySelector('.project-sessions .session-item.active');
+    let activeSession = document.querySelector('.project-sessions .session-item.active');
+    check(
+      activeSession.querySelector('.session-marker').textContent.trim() === '▶',
+      'active inline session displays an arrow',
+    );
+    const baseTab = [...document.querySelectorAll('.tab-bar .tab')].find((tab) =>
+      tab.textContent.includes('Isolated smoke fixture'),
+    );
+    baseTab.click();
+    await waitFor(
+      () =>
+        document
+          .querySelector('.session-item.active')
+          ?.textContent.includes('Isolated smoke fixture'),
+      'Tab switching did not update inline selection',
+    );
+    const worktreeTab = [...document.querySelectorAll('.tab-bar .tab')].find((tab) =>
+      tab.textContent.includes('Isolated worktree session'),
+    );
+    worktreeTab.click();
+    await waitFor(
+      () =>
+        document
+          .querySelector('.session-item.active')
+          ?.textContent.includes('Isolated worktree session'),
+      'Worktree tab did not restore selection',
+    );
+    activeSession = document.querySelector('.project-sessions .session-item.active');
+    checks.push('inline session arrow and highlight follow terminal tab switching');
     const originalTheme = document.documentElement.dataset.theme;
     try {
       for (const [theme, background] of [
-        ['dark', 'rgb(55, 55, 61)'],
-        ['light', 'rgb(227, 227, 232)'],
+        ['dark', 'rgb(98, 77, 22)'],
+        ['light', 'rgb(255, 241, 168)'],
       ]) {
         document.documentElement.dataset.theme = theme;
         await waitFor(
           () => window.getComputedStyle(activeSession).backgroundColor === background,
-          `${theme} neutral selection did not settle`,
+          `${theme} yellow session selection did not settle`,
         );
         const style = window.getComputedStyle(activeSession);
         check(
           style.backgroundColor === background && style.borderLeftWidth === '0px',
-          `${theme} sidebar uses neutral selection without a blue border`,
+          `${theme} active session uses visible yellow selection without changing project borders`,
         );
         check(
           window.getComputedStyle(document.querySelector('.project-sessions')).borderLeftWidth ===
@@ -837,6 +878,8 @@ async function checkRenderer(projectPath) {
       async () => (await window.api.config.getSidebarTree()).expandedProjects.length === 0,
       'Project collapse was not saved',
     );
+    refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
+    await waitFor(() => !refresh.disabled, 'Inventory refresh is already pending');
     refresh.click();
     await waitFor(() => refresh.disabled, 'Inventory refresh did not start');
     await waitFor(() => !refresh.disabled, 'Inventory refresh did not finish');
@@ -928,6 +971,8 @@ async function checkRenderer(projectPath) {
         document.querySelector('.project-caret').getAttribute('aria-expanded') === 'true',
       'Agent reordering preserves Agent and project disclosure state',
     );
+    refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
+    await waitFor(() => !refresh.disabled, 'Inventory refresh is already pending');
     refresh.click();
     await waitFor(() => refresh.disabled, 'Reorder refresh did not start');
     await waitFor(() => !refresh.disabled, 'Reorder refresh did not finish');
@@ -938,11 +983,234 @@ async function checkRenderer(projectPath) {
     checks.push(
       'Agent sections support up/down drag and keyboard reorder with durable final order',
     );
+    const deleteTarget = [...document.querySelectorAll('.session-item')].find((row) =>
+      row.textContent.includes('Isolated smoke fixture'),
+    );
+    deleteTarget.querySelector('.session-delete').click();
+    await waitFor(
+      () => document.querySelector('.modal-backdrop'),
+      'Session delete confirmation unavailable',
+    );
+    let modal = document.querySelector('.modal-backdrop');
+    check(
+      !modal.querySelector('.modal-input') && modal.querySelector('.btn-danger').disabled,
+      'session deletion uses unchecked acknowledgement without typing delete',
+    );
+    modal.querySelector('.btn-secondary').click();
+    await waitFor(
+      () => !document.querySelector('.modal-backdrop'),
+      'Session cancellation did not dismiss',
+    );
+    check(
+      (await window.api.sessions.listForProject(projectId)).length === 1,
+      'session cancellation preserves fixture history',
+    );
+    deleteTarget.querySelector('.session-delete').click();
+    await waitFor(
+      () => document.querySelector('.modal-backdrop'),
+      'Session deletion did not reopen',
+    );
+    modal = document.querySelector('.modal-backdrop');
+    modal.querySelector('input[type="checkbox"]').click();
+    await waitFor(
+      () => !modal.querySelector('.btn-danger').disabled,
+      'Checkbox did not enable deletion',
+    );
+    modal.querySelector('.btn-danger').click();
+    await waitFor(
+      () => !document.querySelector('.modal-backdrop'),
+      'Accepted deletion kept the modal open',
+    );
+    await waitFor(
+      () => document.querySelector('.operation-notice.succeeded'),
+      'Deletion completion notice unavailable',
+    );
+    check(
+      (await window.api.sessions.listForProject(projectId)).length === 0,
+      'background deletion removes only the confirmed fixture history',
+    );
+    check(
+      ![...document.querySelectorAll('button')].some(
+        (button) => button.textContent.trim() === 'Start session',
+      ),
+      'empty checkout has no Start session button',
+    );
+    checks.push('session confirmation closes immediately and background completion is announced');
+    await openNewDialog();
+    const createDialog = document.querySelector('dialog[open]');
+    await waitFor(
+      () => !createDialog.querySelector('select').disabled,
+      'Workspace mode did not load',
+    );
+    const pathInput = createDialog.querySelector('.workflow-path input');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      pathInput,
+      createPath,
+    );
+    pathInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    createDialog.querySelector('form').requestSubmit();
+    await waitFor(
+      () => !document.querySelector('dialog[open]'),
+      'Creation retained its blocking dialog',
+    );
+    await waitFor(
+      () => document.querySelector('.operation-notice.running'),
+      'Background creation was not tracked',
+    );
+    const noticeText = () =>
+      [...document.querySelectorAll('.operation-notice')].find((notice) =>
+        notice.textContent.includes(createPath),
+      );
+    check(
+      noticeText()?.classList.contains('running'),
+      'create dialog closes while slow registration is still running',
+    );
+    baseTab.click();
+    await waitFor(
+      () => noticeText()?.classList.contains('succeeded'),
+      'Create completion was not announced',
+    );
+    check(
+      baseTab.classList.contains('active'),
+      'background creation does not steal focus after navigation',
+    );
+    const createdProject = (await window.api.projects.list()).find(
+      (item) => item.realPath === createPath,
+    );
+    check(Boolean(createdProject), 'background creation registers the requested fixture project');
+    await waitFor(
+      () =>
+        [...document.querySelectorAll('[data-project-row]')].some(
+          (row) => row.dataset.projectRow === createdProject.id,
+        ),
+      'Created project row did not appear',
+    );
+    const createdRow = [...document.querySelectorAll('[data-project-row]')].find(
+      (row) => row.dataset.projectRow === createdProject.id,
+    );
+    createdRow.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+    );
+    await waitFor(
+      () =>
+        [...document.querySelectorAll('.ctx-menu-item')].some(
+          (item) => item.textContent.trim() === 'Delete...',
+        ),
+      'Project delete menu unavailable',
+    );
+    [...document.querySelectorAll('.ctx-menu-item')]
+      .find((item) => item.textContent.trim() === 'Delete...')
+      .click();
+    await waitFor(
+      () =>
+        document.querySelector(
+          '.project-delete-dialog[open] input[type="checkbox"]:not(:disabled)',
+        ),
+      'Project deletion review did not load',
+    );
+    const deleteDialog = document.querySelector('.project-delete-dialog[open]');
+    deleteDialog.querySelector('input[type="checkbox"]').click();
+    await waitFor(
+      () => !deleteDialog.querySelector('button[type="submit"]').disabled,
+      'Project acknowledgement did not enable deletion',
+    );
+    deleteDialog.querySelector('form').requestSubmit();
+    await waitFor(
+      () => !document.querySelector('.project-delete-dialog[open]'),
+      'Project deletion retained its dialog',
+    );
+    check(
+      document.querySelector('.operation-notice.running'),
+      'project delete confirmation closes before slow IPC finishes',
+    );
+    await waitFor(
+      async () => !(await window.api.projects.list()).some((item) => item.id === createdProject.id),
+      'Background project deletion did not finish',
+    );
+    await waitFor(
+      () => !document.querySelector('.operation-notice.running'),
+      'Project deletion completion did not settle',
+    );
+    checks.push(
+      'slow project creation and deletion run behind closed dialogs with completion notices and no focus theft',
+    );
   } finally {
     unsubscribeUi();
     await Promise.all([...uiPtys].map((id) => window.api.pty.kill(id)));
   }
   return checks;
+}
+
+async function checkBatchSelection(confirm = false) {
+  const waitFor = async (predicate) => {
+    const until = Date.now() + 12000;
+    while (!(await predicate())) {
+      if (Date.now() > until) throw new Error('Batch session fixture did not settle');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  };
+  if (!confirm) {
+    const refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
+    await waitFor(() => !refresh.disabled);
+    refresh.click();
+    await waitFor(
+      () =>
+        [...document.querySelectorAll('.session-item')].filter((row) =>
+          row.textContent.includes('Batch fixture'),
+        ).length === 2,
+    );
+    const active = [...document.querySelectorAll('.session-open')].find((button) =>
+      button.textContent.includes('Isolated worktree session'),
+    );
+    active.click();
+    await waitFor(() => document.querySelector('.session-item.active'));
+    document.querySelector('[aria-label="Select sessions"]').click();
+    await waitFor(() => document.querySelector('.session-selection-check'));
+    const selected = [...document.querySelectorAll('.session-item')].filter((row) =>
+      row.textContent.includes('Batch fixture'),
+    );
+    for (const row of selected) row.querySelector('.session-selection-check').click();
+    await waitFor(() =>
+      document.querySelector('[aria-label="Delete selected sessions"]').textContent.includes('(2)'),
+    );
+    if (
+      !document
+        .querySelector('.session-item.active')
+        .textContent.includes('Isolated worktree session')
+    )
+      throw new Error('Checkbox selection changed active session');
+    return 'batch checkboxes select two histories without changing the active terminal';
+  }
+  document.querySelector('[aria-label="Delete selected sessions"]').click();
+  await waitFor(() => document.querySelector('.session-delete-review'));
+  const modal = document.querySelector('.modal-backdrop');
+  if (
+    modal.querySelectorAll('.session-delete-review li').length !== 2 ||
+    !modal.querySelector('.btn-danger').disabled ||
+    modal.querySelector('.modal-input')
+  )
+    throw new Error('Incorrect batch deletion review');
+  modal.querySelector('input[type="checkbox"]').click();
+  await waitFor(() => !modal.querySelector('.btn-danger').disabled);
+  modal.querySelector('.btn-danger').click();
+  await waitFor(() => !document.querySelector('.modal-backdrop'));
+  await waitFor(
+    () =>
+      ![...document.querySelectorAll('.session-item')].some((row) =>
+        row.textContent.includes('Batch fixture'),
+      ),
+  );
+  await waitFor(() =>
+    [...document.querySelectorAll('.operation-notice.succeeded')].some(
+      (notice) =>
+        notice.textContent.includes('Delete 2 sessions') &&
+        notice.textContent.includes('2 sessions deleted; 0 failed'),
+    ),
+  );
+  if (document.querySelectorAll('.session-open').length !== 2)
+    throw new Error('Batch deletion removed unselected history');
+  return 'acknowledged batch deletion refreshes rows automatically without manually refreshing';
 }
 
 async function inspectUpdateHeader(expectedLabel, nativeTitleBar) {
@@ -1069,7 +1337,38 @@ app.on('browser-window-created', (_event, win) => {
         );
       }
       const checks = await win.webContents.executeJavaScript(
-        `(${checkRenderer.toString()})(${JSON.stringify(project)})`,
+        `(${checkRenderer.toString()})(${JSON.stringify(project)}, ${JSON.stringify(fixtureCreatePath)})`,
+      );
+      // Restore only the generated record deleted by the UI test before exercising renderer reload.
+      writeFileSync(
+        join(home, '.claude', 'projects', 'C--smoke-project', 'smoke-session.jsonl'),
+        JSON.stringify({
+          type: 'user',
+          cwd: project,
+          timestamp: '2026-01-01T00:00:00Z',
+          message: { content: 'Isolated smoke fixture' },
+        }) + '\n',
+      );
+      for (const id of ['batch-one', 'batch-two']) {
+        writeFileSync(
+          join(home, '.claude', 'projects', 'C--smoke-project', `${id}.jsonl`),
+          JSON.stringify({
+            type: 'user',
+            cwd: project,
+            timestamp: '2026-01-03T00:00:00Z',
+            message: { content: `Batch fixture ${id}` },
+          }) + '\n',
+        );
+      }
+      checks.push(
+        await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(false)`),
+      );
+      writeFileSync(
+        join(reports, `${reportName}-selection.png`),
+        (await win.capturePage()).toPNG(),
+      );
+      checks.push(
+        await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(true)`),
       );
       const nativeTitleBar = process.platform === 'win32';
       const verifyUpdateHeader = async (label, disabled, native = nativeTitleBar) => {

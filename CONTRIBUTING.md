@@ -191,6 +191,12 @@ The fixture checks:
 - Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
   pin buttons persist both agent and project ordering without recreating the running terminal.
   Extra project folders and configuration writes belong only to the disposable fixture.
+- Yellow/amber active-session backgrounds and arrows follow tab switches in both themes. Batch
+  checkboxes do not change the active terminal; captured acknowledgement deletes only checked fixture
+  histories and refreshes rows automatically. Unit tests cover partial failures, alias/count refresh,
+  selection pruning and stale reads. Session deletion uses acknowledgement
+  without typed text, preserves cancellation, and publishes background completion. Slow fixture project
+  creation/deletion close their dialogs before IPC settles; later navigation retains focus.
 - New Project displays settings/workspace/folder icons without a recent-folder search field.
   Changing workspace mode persists even after cancelling and opening another agent's dialog.
 - The original compact **About** entry (without a status badge) opening the installed-version/update controls and the exact

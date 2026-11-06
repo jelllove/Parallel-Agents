@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 async function harness({
   folders = ['C:\\repo', 'C:\\other'],
   failure,
-  createProject = async () => {},
+  queueProjectCreation = () => 1,
   workspace = {},
   agent = 'codex',
 } = {}) {
@@ -52,11 +52,12 @@ async function harness({
     { loader: 'tsx', format: 'cjs', jsx: 'automatic' },
   );
   const module = { exports: {} };
-  const state = { createProject, agents: [{ id: 'codex', displayName: 'Codex' }] };
+  const state = { queueProjectCreation, agents: [{ id: 'codex', displayName: 'Codex' }] };
   new Function('require', 'module', 'exports', 'window', code)(
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore: (selector) => selector(state) };
+      if (id === '../store/workspace-operations') return { queueProjectCreation };
       if (id === '../icons/iconResolver') return { folderIconUrl: () => 'folder.svg' };
       if (id === './ActionIcon') return { ActionIcon: 'ActionIcon' };
       return require(id);
@@ -118,7 +119,7 @@ const baseInput = (tree) => nodes(tree, (node) => node.type === 'input' && node.
 test('same dialog shows all saved paths with folder icons, no search box, and selects without submitting', async () => {
   let submissions = 0;
   const h = await harness({
-    createProject: async () => {
+    queueProjectCreation: async () => {
       submissions++;
     },
   });
@@ -229,7 +230,7 @@ test('workspace mode load failure prevents submission and offers retry', async (
         return 'worktree';
       },
     },
-    createProject: async () => {
+    queueProjectCreation: async () => {
       submitted = true;
     },
   });
@@ -264,7 +265,7 @@ test('pending mode saves prevent duplicate writes and submission with the old mo
         await pending.promise;
       },
     },
-    createProject: async () => {
+    queueProjectCreation: async () => {
       submitted = true;
     },
   });
@@ -291,10 +292,27 @@ test('closing during the initial workspace read ignores its late response', asyn
   assert.equal(nodes(h.render(), (node) => node.type === 'select')[0].props.value, '');
 });
 
-test('failed folder open keeps the dialog and current path, with explicit error', async () => {
+test('accepted creation closes immediately without waiting for background work', async () => {
+  const captured = [];
   const h = await harness({
-    createProject: async () => {
-      throw new Error('Directory is missing');
+    queueProjectCreation: (options) => {
+      captured.push(options);
+      return 1;
+    },
+  });
+  buttons(h.render())[0].props.onClick();
+  const submit = nodes(h.render(), (node) => node.type === 'form')[0].props.onSubmit;
+  submit({ preventDefault() {} });
+  submit({ preventDefault() {} });
+  assert.equal(h.closed(), 1);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].basePath, 'C:\\repo');
+});
+
+test('queue rejection keeps the dialog and current path, with explicit error', async () => {
+  const h = await harness({
+    queueProjectCreation: () => {
+      throw new Error('Operation unavailable');
     },
   });
   buttons(h.render())[0].props.onClick();
@@ -305,7 +323,7 @@ test('failed folder open keeps the dialog and current path, with explicit error'
   assert.equal(baseInput(h.render()).props.value, 'C:\\repo');
   assert.ok(
     nodes(h.render(), (node) => node.props.role === 'alert').some((node) =>
-      /Directory is missing/.test(node.props.children),
+      /Operation unavailable/.test(node.props.children),
     ),
   );
 });

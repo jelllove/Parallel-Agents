@@ -54,6 +54,7 @@ async function harness({ config = {}, projects = [] } = {}) {
   let layout = { agentOrder: [...ordering.DEFAULT_AGENT_ORDER], pinnedAgents: [] };
   const state = {
     projects,
+    sessions: {},
     collapsedAgents: [],
     agentOrder: [...layout.agentOrder],
     pinnedAgents: [],
@@ -151,6 +152,11 @@ async function harness({ config = {}, projects = [] } = {}) {
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore };
+      if (id === '../store/workspace-operations')
+        return {
+          queueProjectDeletion: (...args) => calls.push(['delete', ...args]),
+          queueSessionsDeletion: (...args) => calls.push(['deleteSessions', ...args]),
+        };
       if (id === '../../shared/sidebar-order') return ordering;
       if (id === '../../shared/project-tree') return projectTree;
       if (id === '../../shared/project-delete') return { canDeleteProject: () => true };
@@ -173,6 +179,84 @@ async function harness({ config = {}, projects = [] } = {}) {
   await flush();
   return { render, calls, state, unmount: () => slots.forEach((slot) => slot.cleanup?.()) };
 }
+
+test('project deletion acceptance queues captured targets and closes immediately', async () => {
+  const project = {
+    id: 'claude:delete',
+    agent: 'claude',
+    displayName: 'Delete me',
+    realPath: 'C:\\delete',
+    exists: true,
+  };
+  const h = await harness({ projects: [project] });
+  await h.state.loadSidebarTree();
+  const e = event();
+  row(h.render(), project.id).props.onContextMenu(e);
+  const action = nodes(
+    h.render(),
+    (node) =>
+      node.props?.className === 'ctx-menu-item danger' && node.props.children === 'Delete...',
+  )[0];
+  action.props.onClick();
+  const dialog = nodes(h.render(), (node) => node.type === 'ProjectDeleteDialog')[0];
+  dialog.props.onConfirm();
+  assert.equal(nodes(h.render(), (node) => node.type === 'ProjectDeleteDialog').length, 0);
+  assert.equal(h.calls.find((call) => call[0] === 'delete')[1][0].id, project.id);
+});
+
+test('batch session selection spans expanded projects and discards hidden selections', async () => {
+  const a = project('a');
+  const b = project('b', false, 'codex');
+  const h = await harness({ projects: [a, b] });
+  h.state.sessions = {
+    a: [{ id: 'one', agent: 'claude', title: 'One' }],
+    b: [{ id: 'two', agent: 'codex', title: 'Two' }],
+  };
+  h.state.expandedProjects = projectTree.groupProjectTrees([a, b]).map((tree) => tree.id);
+  const control = byLabel(h.render(), 'Select sessions');
+  assert.ok(control);
+  control.props.onClick();
+  const lists = nodes(h.render(), (node) => node.type === 'SessionList');
+  lists[0].props.selection.onToggle('claude:one', true);
+  lists[1].props.selection.onToggle('codex:two', true);
+  assert.equal(byLabel(h.render(), 'Delete selected sessions').props.disabled, false);
+  h.state.collapsedAgents = ['codex'];
+  h.render();
+  const remaining = nodes(h.render(), (node) => node.type === 'SessionList')[0];
+  assert.deepEqual(remaining.props.selection.selectedKeys, ['claude:one']);
+  byLabel(h.render(), 'Cancel session selection').props.onClick();
+  assert.equal(
+    nodes(h.render(), (node) => node.type === 'SessionList')[0].props.selection,
+    undefined,
+  );
+});
+
+test('batch review captures checked targets, cancellation enqueues nothing and acceptance closes', async () => {
+  const a = project('a');
+  const h = await harness({ projects: [a] });
+  h.state.sessions = { a: [{ id: 'one', agent: 'claude', title: 'Original' }] };
+  h.state.expandedProjects = projectTree.groupProjectTrees([a]).map((tree) => tree.id);
+  byLabel(h.render(), 'Select sessions').props.onClick();
+  assert.equal(byLabel(h.render(), 'Delete selected sessions').props.disabled, true);
+  nodes(h.render(), (node) => node.type === 'SessionList')[0].props.selection.onToggle(
+    'claude:one',
+    true,
+  );
+  byLabel(h.render(), 'Delete selected sessions').props.onClick();
+  let dialog = nodes(h.render(), (node) => node.type === 'ConfirmDialog')[0];
+  assert.equal(dialog.props.typeToConfirm, undefined);
+  dialog.props.onCancel();
+  assert.equal(
+    h.calls.some((call) => call[0] === 'deleteSessions'),
+    false,
+  );
+  byLabel(h.render(), 'Delete selected sessions').props.onClick();
+  dialog = nodes(h.render(), (node) => node.type === 'ConfirmDialog')[0];
+  h.state.sessions = { a: [{ id: 'changed', agent: 'claude', title: 'Changed' }] };
+  dialog.props.onConfirm();
+  assert.equal(h.calls.at(-1)[1][0].session.id, 'one');
+  assert.equal(nodes(h.render(), (node) => node.type === 'ConfirmDialog').length, 0);
+});
 
 test('each quick-create button targets its agent without toggling the group; unavailable CLIs stay disabled', async () => {
   const h = await harness();

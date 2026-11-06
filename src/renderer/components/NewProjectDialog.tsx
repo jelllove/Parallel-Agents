@@ -3,9 +3,10 @@ import type { AgentId, WorkspaceMode } from '../../shared/types';
 import { useAppStore } from '../store/app-store';
 import { ActionIcon } from './ActionIcon';
 import { folderIconUrl } from '../icons/iconResolver';
+import { queueProjectCreation } from '../store/workspace-operations';
 
 export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: () => void }) {
-  const createProject = useAppStore((s) => s.createProject);
+  const submitted = useRef(false);
   const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const agentName = useAppStore((s) => s.agents.find((a) => a.id === agent)?.displayName ?? agent);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -112,22 +113,30 @@ export function NewProjectDialog({ agent, onClose }: { agent: AgentId; onClose: 
       }}
     >
       <form
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault();
-          if (busy || modeRequestBusy.current) return;
+          if (submitted.current || busy || modeRequestBusy.current) return;
           if (!mode) {
             setError('Workspace mode is unavailable. Retry loading it first.');
             return;
           }
+          if (
+            !basePath.trim() ||
+            (mode === 'worktree' && (!branch.trim() || !targetPath.trim() || !startPoint.trim()))
+          ) {
+            setError('Complete the required workspace fields.');
+            return;
+          }
+          submitted.current = true;
           setBusy(true);
           setError('');
           try {
-            await createProject({ agent, mode, basePath, targetPath, branch, startPoint });
+            queueProjectCreation({ agent, mode, basePath, targetPath, branch, startPoint });
             onClose();
           } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-          } finally {
+            submitted.current = false;
             setBusy(false);
+            setError(err instanceof Error ? err.message : String(err));
           }
         }}
       >

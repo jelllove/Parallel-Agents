@@ -14,6 +14,7 @@ import { projectedPanelSizes, visiblePaneBefore } from '../shared/pane-visibilit
 import { useAppStore } from './store/app-store';
 import { StatusBar } from './components/StatusBar';
 import { AppHeader } from './components/AppHeader';
+import { OperationNotices } from './components/OperationNotices';
 import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 import { sessionTabLabelSuffix } from '../shared/session-terminals';
@@ -254,6 +255,7 @@ export default function App() {
         </PanelGroup>
       </div>
       <StatusBar />
+      <OperationNotices />
       <Suspense fallback={null}>
         {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
         {launchSettingsAgent && (

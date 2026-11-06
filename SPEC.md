@@ -99,11 +99,34 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
   - **三次确认**：右键 Delete → 弹 ConfirmDialog → 输入框必须打 project displayName + 勾选 "I understand" 才能点 Delete
 - **Reorder**：HTML5 native drag/drop，同 agent 组内拖；**跨组不允许**。新顺序存进 `projectOrder: Record<AgentId, string[]>`，重启保留
 
-### 5.2 Sessions（当前选中 project 的）
+### 5.2 Inline sessions and background operations
 
-- 时间倒序，**不可拖拽**
-- hover 出 × 按钮 → 同样的 ConfirmDialog → 物理删除 jsonl 文件
-- Gemini session 文件名 ≠ sessionId：删除时要遍历 jsonl 文件读 header 匹配
+- Sessions are nested under expandable projects, ordered newest first, with worktree branch metadata.
+- The active native session uses a visible yellow background (pale yellow in light mode, warm amber
+  in dark mode) and an arrow. Terminal tab switches update selection, including shared worktree
+  histories; hovering does not obscure the active indication. Project highlighting is unchanged.
+- **Select sessions** enables checkbox selection across visible expanded projects/providers. Checkbox
+  clicks do not open terminals. Shared native histories count once, and hidden/collapsed/disappeared
+  rows leave selection. **Delete selected (N)** reviews captured titles and checkout paths before one
+  acknowledgement and confirmation; cancelling never starts deletion.
+- Batch deletion continues past individual failures, reports accurate deleted/failed counts, and
+  refreshes affected session rows, shared-history aliases, and project counts automatically. Older
+  pending reads cannot restore deleted rows or counts. Successful deletion with failed refresh is
+  reported distinctly; no automatic retry or rollback is implied.
+- Session deletion requires an initially unchecked acknowledgement followed by **Delete forever**,
+  without typing `delete`. Cancel, Escape, and backdrop dismissal perform no deletion. Explorer's
+  filename-typing confirmation is unchanged.
+- Valid folder/worktree creation and acknowledged project/session deletion close their dialogs as
+  soon as accepted. Work continues in the background, with non-modal queued/running/result notices.
+  Project deletion still requires reviewing the affected histories before acknowledgement.
+- Serialize workspace mutations, reject duplicate pending targets, and retain errors until dismissed.
+  Refresh/launch failures after a successful mutation must not imply the mutation was undone; do not
+  retry automatically. Navigation while waiting must not be overridden on completion.
+- Creation preserves the existing launch flow and offers **Open project** on completion. Operations
+  are in-process only, not a persistent queue across application restart. Quit does not promise to
+  finish pending work. This feature does not reduce the actual time required by Git or storage.
+- Empty-session rows have no **Start session** button. Keep existing project/open-dialog launch paths.
+- Gemini filenames may differ from session IDs; deletion must match native session metadata.
 
 ### 5.3 Agent picker
 
