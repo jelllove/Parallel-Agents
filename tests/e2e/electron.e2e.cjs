@@ -11,6 +11,11 @@ const {
 const { dirname, join } = require('node:path');
 const { once } = require('node:events');
 const { app, shell, Menu, ipcMain } = require('electron');
+const { trackNativePtys } = require('../helpers/native-pty-lifecycle.cjs');
+const nativePtys = trackNativePtys();
+const nativePty = require('node-pty');
+const nativeSpawn = nativePty.spawn;
+nativePty.spawn = (...args) => nativePtys.track(nativeSpawn(...args));
 
 const externalLinks = [];
 shell.openExternal = async (url) => {
@@ -48,9 +53,17 @@ for (const name of ['userData', 'sessionData']) {
 }
 app.setPath('home', home);
 
-function finish(error, checks = []) {
+async function finish(error, checks = []) {
   if (finished) return;
   finished = true;
+  try {
+    nativePtys.terminate();
+    await nativePtys.drain();
+  } catch (shutdownError) {
+    error = error
+      ? new AggregateError([error, shutdownError], 'Smoke or native shutdown failed')
+      : shutdownError;
+  }
   const report = {
     success: !error,
     electron: process.versions.electron,
@@ -1164,7 +1177,11 @@ async function checkBatchSelection(confirm = false) {
       button.textContent.includes('Isolated worktree session'),
     );
     active.click();
-    await waitFor(() => document.querySelector('.session-item.active'));
+    await waitFor(() =>
+      document
+        .querySelector('.session-item.active')
+        ?.textContent.includes('Isolated worktree session'),
+    );
     document.querySelector('[aria-label="Select sessions"]').click();
     await waitFor(() => document.querySelector('.session-selection-check'));
     const selected = [...document.querySelectorAll('.session-item')].filter((row) =>
