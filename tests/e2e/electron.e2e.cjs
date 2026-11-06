@@ -15,7 +15,9 @@ const { trackNativePtys } = require('../helpers/native-pty-lifecycle.cjs');
 const nativePtys = trackNativePtys();
 const nativePty = require('node-pty');
 const nativeSpawn = nativePty.spawn;
-nativePty.spawn = (...args) => nativePtys.track(nativeSpawn(...args));
+const trackedSpawn = (...args) => nativePtys.track(nativeSpawn(...args));
+nativePty.spawn = trackedSpawn;
+const { createRequire } = require('node:module');
 
 const externalLinks = [];
 shell.openExternal = async (url) => {
@@ -27,6 +29,12 @@ assert.ok(
   home && project && reports && mainEntry && reportName,
   'Run this fixture through npm run test:smoke',
 );
+// app.asar resolves its own unpacked node-pty module, not the repository copy.
+const payloadPty = createRequire(mainEntry)('node-pty');
+if (payloadPty !== nativePty) {
+  const payloadSpawn = payloadPty.spawn;
+  payloadPty.spawn = (...args) => nativePtys.track(payloadSpawn(...args));
+}
 const fixtureCreatePath = join(home, 'background-created-project');
 mkdirSync(fixtureCreatePath);
 const handle = ipcMain.handle.bind(ipcMain);

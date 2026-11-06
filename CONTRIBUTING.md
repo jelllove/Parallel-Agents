@@ -202,7 +202,8 @@ The fixture checks:
 - The original compact **About** entry (without a status badge) opening the installed-version/update controls and the exact
   author website/latest-release links crossing IPC. The fixture replaces Electron's external
   browser opener with an in-memory recorder; it does not open a browser or contact those sites.
-- Native fixture teardown waits for actual PTY exit callbacks before Electron exits; asynchronous
+- Native fixture teardown tracks both repository and app.asar-resolved PTYs and waits for actual
+  exit callbacks before Electron exits; asynchronous
   selection assertions wait for the intended session, not merely any previously active row.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
