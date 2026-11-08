@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CodexStatusHooks } from '../src/main/codex-status-hooks.ts';
 
 test('Codex setup is additive, backed up, idempotent and removes only exact owned hooks', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'codex-status-'));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'codex-status-')));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, 'hooks.json');
   const original =
@@ -28,7 +28,7 @@ test('Codex setup is additive, backed up, idempotent and removes only exact owne
 });
 
 test('hook installer refuses linked parent paths and preserves unrelated files', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'codex-status-link-'));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'codex-status-link-')));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const real = join(dir, 'real');
   await (await import('node:fs/promises')).mkdir(real);
@@ -38,7 +38,7 @@ test('hook installer refuses linked parent paths and preserves unrelated files',
 });
 
 test('malformed and concurrently edited hook configurations are preserved', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'codex-status-'));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'codex-status-')));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, 'hooks.json');
   const installer = new CodexStatusHooks(path, { hooks: { Stop: [] } });

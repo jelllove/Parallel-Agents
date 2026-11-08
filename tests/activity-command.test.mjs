@@ -23,6 +23,9 @@ test('missing reporter runtime does not deny a tool or emit hook decisions', asy
     child.stderr.on('data', (data) => (stderr += data));
     child.on('error', reject);
     child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE') reject(error);
+    });
     child.stdin.end('{}');
   });
   assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });
@@ -50,6 +53,9 @@ test('real platform hook command remains silent without a managed launch token',
     child.stderr.on('data', (data) => (stderr += data));
     child.on('error', reject);
     child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE') reject(error);
+    });
     child.stdin.end('{}');
   });
   assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });

@@ -186,6 +186,9 @@ The fixture checks:
   Synthetic follow-up events verify enlarged running motion, waiting wiggle, unread completion pulses,
   explicit acknowledgement and re-arming. The fixture emulates both motion preferences rather than
   changing host accessibility settings; reduced motion retains a static completion-attention cue.
+  Canonicalize disposable hook-fixture roots before testing strict link rejection: macOS temporary
+  roots can themselves be system symlinks. Missing reporter commands may close stdin immediately;
+  fixture writers tolerate only EPIPE while still verifying silent successful command exit.
   Do not enable hooks in real user configuration to make a regression pass.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.

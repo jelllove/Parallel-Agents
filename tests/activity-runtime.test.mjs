@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ActivityRuntime } from '../src/main/activity-runtime.ts';
 
 test('managed launch hooks are temporary, preserve existing config and expose only private environment', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'activity-runtime-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'activity-runtime-')));
   const runtime = new ActivityRuntime({
     directory,
     executable: process.execPath,
