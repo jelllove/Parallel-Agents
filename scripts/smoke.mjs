@@ -49,6 +49,18 @@ try {
       message: { content: 'Isolated smoke fixture' },
     }) + '\n',
   );
+  // Launch a synthetic hook-aware provider using Electron's Node mode, never an actual account.
+  const runtime = require('electron');
+  const fixture = join(root, 'tests', 'helpers', 'activity-shim.cjs');
+  const hookShim =
+    process.platform === 'win32'
+      ? `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${runtime}" "${fixture}" %*\r\n`
+      : `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 '${runtime.replace(/'/g, "'\\''")}' '${fixture.replace(/'/g, "'\\''")}' "$@"\n`;
+  await writeFile(
+    join(agentBin, process.platform === 'win32' ? 'claude.cmd' : 'claude'),
+    hookShim,
+    { mode: 0o755 },
+  );
   const git = (...args) =>
     execFileAsync(
       'git',
@@ -108,6 +120,7 @@ try {
   await writeFile(join(project, 'notes.txt'), 'working\n');
 
   const env = { ...gitEnvironment, HOME: home, USERPROFILE: home };
+  env.PA_ACTIVITY_REPORTER_DIR = join(home, 'userData', 'agent-status');
   env.XDG_CONFIG_HOME = join(home, 'config');
   env.XDG_DATA_HOME = join(home, 'data');
   env.XDG_CACHE_HOME = join(home, 'cache');

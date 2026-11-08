@@ -47,6 +47,18 @@ async function componentHarness(name, state = {}) {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore: (select) => select(state) };
       if (id === '../icons/agentIcons') return { resumeCommandFor };
+      if (id === '../store/activity-store')
+        return {
+          useActivityStore: (select) =>
+            select({
+              records: [],
+              completions: state.completions ?? {},
+              acknowledge: (token) => state.acknowledge?.(token),
+            }),
+          sessionActivity: () => 'unknown',
+          sessionActivityRecord: (_records, _agent, sessionId) =>
+            state.activityRecord?.sessionId === sessionId ? state.activityRecord : undefined,
+        };
       if (id === '../../shared/project-tree') return { collectProjectSessions };
       if (id === '../store/workspace-operations')
         return { queueSessionDeletion: (...args) => state.queueSessionDeletion(...args) };
@@ -154,6 +166,35 @@ test('no session is highlighted for absent, unbound or other-agent tabs', async 
       0,
     );
   }
+});
+
+test('completion icon is a sibling control; icon acknowledges only, session title also resumes', async () => {
+  const state = sessionState();
+  const acknowledgements = [];
+  const resumes = [];
+  state.activityRecord = { terminalKey: 'tab-one::agent', sessionId: 'first', state: 'completed' };
+  state.completions = { 'tab-one::agent': { token: 'completion-one', acknowledged: false } };
+  state.acknowledge = (token) => acknowledgements.push(token);
+  state.selectProject = async () => {};
+  state.openSessionTab = async (_project, session) => resumes.push(session.id);
+  const { render } = await componentHarness('SessionList', state);
+  const row = rows(render())[0];
+  const icon = find(row, (node) => node.type === 'SessionActivityIcon');
+  assert.equal(icon.props.attention, true);
+  assert.equal(
+    find(
+      find(row, (node) => node.props.className === 'session-open'),
+      (node) => node.type === 'SessionActivityIcon',
+    ),
+    undefined,
+  );
+  icon.props.onAcknowledge();
+  assert.deepEqual(acknowledgements, ['completion-one']);
+  assert.deepEqual(resumes, []);
+  await find(row, (node) => node.props.className === 'session-open').props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(resumes, ['first']);
+  assert.deepEqual(acknowledgements, ['completion-one', 'completion-one']);
 });
 
 test('selection checkboxes are controlled independently of the active terminal', async () => {

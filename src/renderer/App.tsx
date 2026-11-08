@@ -15,6 +15,7 @@ import { useAppStore } from './store/app-store';
 import { StatusBar } from './components/StatusBar';
 import { AppHeader } from './components/AppHeader';
 import { OperationNotices } from './components/OperationNotices';
+import { subscribeActivity } from './store/activity-store';
 import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 import { sessionTabLabelSuffix } from '../shared/session-terminals';
@@ -81,6 +82,8 @@ export default function App() {
   currentLayout.current = layout;
   const appliedVisibility = useRef('');
   const resizingVisibility = useRef(false);
+
+  useEffect(() => subscribeActivity(), []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

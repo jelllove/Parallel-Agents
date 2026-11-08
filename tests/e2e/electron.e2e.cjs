@@ -440,6 +440,86 @@ async function checkRenderer(projectPath, createPath) {
       'existing project session receives exact provider-specific mode and model arguments',
     );
     checks.push('the initial CLI command reaches the mounted terminal');
+    await waitFor(
+      () =>
+        document.querySelector('.session-item.active .session-activity-icon')?.textContent === '✅',
+      'Synthetic Claude hooks did not update the session completion icon',
+    );
+    check(
+      document
+        .querySelector('.session-item.active .session-activity-icon')
+        .title.includes('Current turn finished'),
+      'hook completion is distinct from CLI process exit',
+    );
+    const activityRow = () =>
+      [...document.querySelectorAll('.session-item')].find(
+        (row) => row.querySelector('.list-item-title')?.textContent === 'Isolated smoke fixture',
+      );
+    const activityIcon = () => activityRow().querySelector('.session-activity-icon');
+    const glyphAnimation = () =>
+      getComputedStyle(activityIcon().querySelector('.session-activity-glyph')).animationName;
+    await waitFor(
+      () => activityIcon().classList.contains('needs-attention'),
+      'Completion attention was not armed',
+    );
+    check(
+      glyphAnimation() === 'activity-complete',
+      `unacknowledged completion gently pulses even on the active session (animation=${glyphAnimation()}, reducedMotion=${window.matchMedia('(prefers-reduced-motion: reduce)').matches})`,
+    );
+    activityIcon().click();
+    await waitFor(
+      () => !activityIcon().classList.contains('needs-attention'),
+      'Completion acknowledgement did not settle',
+    );
+    check(
+      activityIcon().textContent === '✅' && glyphAnimation() === 'none',
+      'acknowledgement leaves completion visible but stops its animation',
+    );
+    const activityPty = [...uiPtys].find(
+      (id) => id.includes('smoke-session') && id.endsWith('::agent'),
+    );
+    const emitActivity = async (event, state) => {
+      const previousRevision = (await window.api.activity.snapshot()).revision;
+      await window.api.pty.write(
+        activityPty,
+        `claude --resume smoke-session --activity-event ${event}\r`,
+      );
+      await waitFor(
+        async () =>
+          (await window.api.activity.snapshot()).revision > previousRevision &&
+          activityIcon().classList.contains(state),
+        `Synthetic ${state} state did not settle`,
+      );
+    };
+    await emitActivity('Stop', 'completed');
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    check(
+      !activityIcon().classList.contains('needs-attention'),
+      'repeated Stop does not re-arm acknowledged completion',
+    );
+    await emitActivity('UserPromptSubmit', 'running');
+    check(
+      glyphAnimation() === 'activity-run' &&
+        getComputedStyle(activityIcon().querySelector('.session-activity-glyph')).fontSize ===
+          '18px',
+      'running icon is enlarged and bobs continuously',
+    );
+    await emitActivity('PermissionRequest', 'waiting');
+    check(glyphAnimation() === 'activity-wait', 'waiting icon uses a gentle attention wiggle');
+    await emitActivity('Stop', 'completed');
+    await waitFor(
+      () => activityIcon().classList.contains('needs-attention'),
+      'New turn completion did not re-arm attention',
+    );
+    activityRow().querySelector('.session-open').click();
+    await waitFor(
+      () => !activityIcon().classList.contains('needs-attention'),
+      'Session title click did not acknowledge completion',
+    );
+    check(
+      glyphAnimation() === 'none',
+      'session title acknowledges completion without clearing the checkmark',
+    );
     const originalTerminal = document.querySelector('.xterm');
     const originalTabCount = document.querySelectorAll('.terminal-tab').length;
     const originalPtys = [...uiPtys].sort().join(',');
@@ -1361,6 +1441,11 @@ app.on('browser-window-created', (_event, win) => {
           `${agent} must resolve only to its inert fixture shim`,
         );
       }
+      // Verify animation explicitly, independently of the host's accessibility preference.
+      win.webContents.debugger.attach('1.3');
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+      });
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)}, ${JSON.stringify(fixtureCreatePath)})`,
       );
@@ -1384,6 +1469,30 @@ app.on('browser-window-created', (_event, win) => {
             message: { content: `Batch fixture ${id}` },
           }) + '\n',
         );
+      }
+      // Reduced motion disables glyph animation without removing the unread completion cue.
+      try {
+        await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+        });
+        assert.equal(
+          await win.webContents.executeJavaScript(`(() => {
+          const icon = document.createElement('span');
+          icon.className = 'session-activity-icon completed needs-attention';
+          const glyph = document.createElement('span');
+          glyph.className = 'session-activity-glyph';
+          glyph.textContent = '✅';
+          icon.append(glyph); document.body.append(icon);
+          const reduced = getComputedStyle(glyph).animationName === 'none' && getComputedStyle(icon, '::after').content !== 'none';
+          icon.remove(); return reduced;
+        })()`),
+          true,
+          'Reduced motion must retain unread completion without animation',
+        );
+        checks.push('reduced motion retains completion attention without animated glyphs');
+      } finally {
+        await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+        win.webContents.debugger.detach();
       }
       checks.push(
         await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(false)`),
@@ -1517,7 +1626,13 @@ app.on('browser-window-created', (_event, win) => {
       writeFileSync(join(reports, `${reportName}.png`), image.toPNG());
       finish(null, checks);
     } catch (error) {
-      finish(error);
+      let observed = [];
+      try {
+        observed = await win.webContents.executeJavaScript('window.__smokeChecks ?? []');
+      } catch {
+        /* Renderer may have exited. */
+      }
+      finish(error, observed);
     }
   });
 });

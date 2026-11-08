@@ -17,6 +17,7 @@ import { UpdateController } from './update-controller.ts';
 import { loadLoginPath } from './login-path.ts';
 import { applicationMenu, hidesOnClose } from './application-menu.ts';
 import { titleBarOverlayFor } from './window-titlebar.ts';
+import { activityRuntime } from './activity-service.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -31,6 +32,7 @@ function prepareToQuit(): void {
   git.detachWindow();
   git.unwatchAll();
   ptyManager.killAll();
+  void activityRuntime.close();
 }
 
 function getIconPath(name: string): string {

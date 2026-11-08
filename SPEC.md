@@ -128,7 +128,34 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Empty-session rows have no **Start session** button. Keep existing project/open-dialog launch paths.
 - Gemini filenames may differ from session IDs; deletion must match native session metadata.
 
-### 5.3 Agent picker
+### 5.3 Hook-reported session activity
+
+- Display the approved legend beside session names: 🏃‍♂️ processing, ❓ waiting for input/permission,
+  ✅ current turn finished, ❔ not running/status unknown, ❌ agent failure/abnormal exit.
+- Enlarge the running glyph slightly and animate a repeating running-like bob; gently wiggle the
+  waiting question mark. Animate only the icon, not row geometry or text.
+- Completion pulses until an explicit click on that completion icon or session title. Keep ✅ and
+  completed status after acknowledgement; do not treat active-tab changes, hover, checkbox selection,
+  rename/delete, or repeated Stop events as acknowledgement. A later completed turn re-arms attention;
+  stale clicks cannot acknowledge a newer completion. This is local UI state, not CLI permission approval.
+- Honor reduced-motion preferences with static status and an unread-completion cue; avoid rapid flashing.
+  Unknown and error states remain static.
+- Preserve active-session yellow highlighting, arrows, explicit native-session linking and batch selection.
+  Shared history aliases use the same provider/session state; unbound or unmanaged histories remain unknown.
+- Observe documented lifecycle hooks for app-managed Claude Code, Copilot CLI and configured Codex.
+  Do not infer completion from output silence or claim the shell/CLI exited because a turn stopped.
+  Later documented work events can return a finished turn to running.
+- Observe only: no permission decisions, tool rewrites, prompt/context injection, authentication changes,
+  sandbox bypass or hook-trust bypass. Unsupported/disabled/untrusted hooks degrade to unknown.
+- Claude/Copilot observation is launch-only and preserves existing configuration. Codex setup requires
+  an explicit in-app confirmation for additive hooks, an original-byte backup and native CLI trust.
+  Malformed/conflicting files stay intact; removal preserves unrelated hook entries.
+- Reports stay on a private local endpoint and carry only bounded event/session metadata. No prompt,
+  transcript, tool output or credential collection; no tracking of arbitrary external sessions.
+- Closing/restarting invalidates the old launch generation. Activity does not persist across restart.
+  No completion popup, new model API, automatic retry or Gemini/Aider activity adapter in this scope.
+
+### 5.4 Agent picker
 
 - "+ New Project" 按钮点开 AgentPicker 弹层，选择 agent 和目录；未安装的 CLI 会提供安装提示
 - 自动 remember 上一次这个 project 用的是哪个 agent（`lastAgentByProject`）

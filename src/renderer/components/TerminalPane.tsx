@@ -133,6 +133,8 @@ export function TerminalPane({
         initialCommand,
         extraPath,
         shellProfile,
+        activitySessionId:
+          useAppStore.getState().tabSessionId?.[terminalKey.replace(/::agent$/, '')] ?? null,
       })
       .then(() => {
         spawnedRef.current = true;

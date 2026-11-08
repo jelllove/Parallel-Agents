@@ -5,7 +5,13 @@ import { resolveAvailableShell, resolveShellLaunch } from './shell-profiles.ts';
 import { sendToWindow } from './window-messenger.ts';
 import type { SessionShellProfile } from '../shared/session-terminals.ts';
 
+export interface PreparedPtyCommand {
+  command: string | undefined;
+  environment: Record<string, string>;
+  end: (state: 'unknown' | 'failed') => void;
+}
 interface Entry {
+  observer?: PreparedPtyCommand;
   pty: IPty;
   cwd: string;
   commandTimer?: ReturnType<typeof setTimeout>;
@@ -45,14 +51,24 @@ export class PtyManager {
     initialCommand?: string,
     extraPath?: string[],
     shellProfile?: SessionShellProfile,
-    prepareCommand?: (command: string | undefined) => Promise<string | undefined>,
+    prepareCommand?: (
+      command: string | undefined,
+    ) => Promise<string | undefined | PreparedPtyCommand>,
   ): Promise<boolean> {
     if (this.ptys.has(projectId) || this.starting.has(projectId)) return false;
     const token = Symbol();
     this.starting.set(projectId, token);
 
+    let observer: PreparedPtyCommand | undefined;
+    let attached = false;
     try {
-      if (prepareCommand) initialCommand = await prepareCommand(initialCommand);
+      if (prepareCommand) {
+        const prepared = await prepareCommand(initialCommand);
+        if (prepared && typeof prepared === 'object') {
+          observer = prepared;
+          initialCommand = prepared.command;
+        } else initialCommand = prepared;
+      }
       if (this.starting.get(projectId) !== token) return false;
       const launch = shellProfile
         ? await resolveAvailableShell(shellProfile)
@@ -64,6 +80,9 @@ export class PtyManager {
           (entry): entry is [string, string] => typeof entry[1] === 'string',
         ),
       );
+      delete env.PA_ACTIVITY_ENDPOINT;
+      delete env.PA_ACTIVITY_TOKEN;
+      Object.assign(env, observer?.environment);
       if (extraPath && extraPath.length > 0) {
         const sep = this.environment.platform === 'win32' ? ';' : ':';
         const pathKey =
@@ -80,8 +99,9 @@ export class PtyManager {
         cwd,
         env,
       });
-      const entry: Entry = { pty: p, cwd };
+      const entry: Entry = { pty: p, cwd, observer };
       this.ptys.set(projectId, entry);
+      attached = true;
 
       p.onData((data) => {
         if (this.ptys.get(projectId) !== entry) return;
@@ -91,6 +111,7 @@ export class PtyManager {
         if (this.ptys.get(projectId) !== entry) return;
         clearTimeout(entry.commandTimer);
         this.ptys.delete(projectId);
+        entry.observer?.end(exitCode === 0 ? 'unknown' : 'failed');
         sendToWindow(this.win, 'pty:exit', projectId, exitCode);
       });
 
@@ -114,6 +135,7 @@ export class PtyManager {
       }
       return true;
     } finally {
+      if (!attached) observer?.end(this.starting.get(projectId) === token ? 'failed' : 'unknown');
       if (this.starting.get(projectId) === token) this.starting.delete(projectId);
     }
   }
@@ -138,6 +160,7 @@ export class PtyManager {
     if (!e) return;
     clearTimeout(e.commandTimer);
     this.ptys.delete(projectId);
+    e.observer?.end('unknown');
     try {
       e.pty.kill();
     } catch (error) {

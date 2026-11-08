@@ -55,6 +55,35 @@ function setup(t) {
   return { manager, spawned, messages };
 }
 
+test('prepared observer environment belongs only to its PTY and releases on kill or cancellation', async (t) => {
+  const { manager, spawned } = setup(t);
+  const ended = [];
+  await manager.spawn('observed', '.', 80, 24, 'claude', [], undefined, async () => ({
+    command: 'claude --settings fixture',
+    environment: { PA_ACTIVITY_TOKEN: 'fixture' },
+    end: (state) => ended.push(state),
+  }));
+  assert.equal(spawned[0].options.env.PA_ACTIVITY_TOKEN, 'fixture');
+  manager.kill('observed');
+  assert.deepEqual(ended, ['unknown']);
+  const pending = Promise.withResolvers();
+  const starting = manager.spawn(
+    'cancelled',
+    '.',
+    80,
+    24,
+    'claude',
+    [],
+    undefined,
+    () => pending.promise,
+  );
+  manager.kill('cancelled');
+  pending.resolve({ command: 'claude', environment: {}, end: (state) => ended.push(state) });
+  assert.equal(await starting, false);
+  assert.equal(ended.length, 2);
+  assert.equal(spawned.length, 1);
+});
+
 test('a late exit from a replaced PTY cannot remove the current terminal', (t) => {
   const { manager, spawned, messages } = setup(t);
   manager.spawn('tab', '.', 80, 24);

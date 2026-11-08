@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { AgentStatusHooksDialog } from './AgentStatusHooksDialog';
 import { useAppStore } from '../store/app-store';
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export function SettingsPicker({ anchorRect, onClose }: Props) {
+  const [hooksOpen, setHooksOpen] = useState(false);
   const showAgentLaunchSettings = useAppStore((s) => s.showAgentLaunchSettings);
   const clipboardKeys =
     window.api.platform === 'darwin'
@@ -23,11 +25,11 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !hooksOpen) onClose();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, hooksOpen]);
 
   const top = Math.max(8, anchorRect.top - 200);
   const right = Math.max(8, window.innerWidth - anchorRect.right);
@@ -50,6 +52,9 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
           }}
         >
           Agent approval modes and models...
+        </button>
+        <button type="button" className="btn-secondary" onClick={() => setHooksOpen(true)}>
+          Agent status hooks...
         </button>
         <label className="settings-row">
           <input
@@ -79,6 +84,14 @@ export function SettingsPicker({ anchorRect, onClose }: Props) {
           <span>{clipboardKeys} copy/paste + right-click menu in terminal</span>
         </label>
       </div>
+      {hooksOpen && (
+        <AgentStatusHooksDialog
+          onClose={() => {
+            setHooksOpen(false);
+            onClose();
+          }}
+        />
+      )}
     </>
   );
 }

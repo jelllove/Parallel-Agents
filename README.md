@@ -25,6 +25,9 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   their parent project with branch labels, while resuming in their own checkout.
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
   choices, session rename/link flows, and optional attached shell panes.
+- **Hook-reported session activity** for managed Claude Code, Copilot and configured Codex launches:
+  🏃‍♂️ processing, ❓ waiting for input/permission, ✅ current turn finished, ❔ unavailable/not running,
+  ❌ failure. These passive observers do not approve tools or change CLI authentication.
 - **Provider-specific launch settings** for approval modes and model IDs, saved independently
   per agent and applied to managed new/resumed launches without restarting running terminals.
 - **Non-blocking project workflows** for opening folders, creating branches/worktrees, and deleting
@@ -94,6 +97,35 @@ shows individual project histories so deletion selection stays explicit. Hidden 
 hidden unless **show hidden** is enabled; dragging a project moves its worktree group together.
 Pinning a project-tree row pins its visible checkout histories together. A group with any pinned
 checkout appears in the pinned partition; a checkout's context menu still targets that history.
+
+### Agent status icons
+
+Managed Claude Code launches receive an additional hooks-only settings file; Copilot receives a
+launch-only observer plugin when its CLI supports local plugins. Existing user/project hooks and
+approval/model choices remain intact. Hover the icon beside a session for its status description.
+The running icon (🏃‍♂️) is slightly larger and bobs continuously; waiting (❓) gently wiggles.
+A completed turn (✅) pulses until you click its icon or the session title to acknowledge it.
+Acknowledgement stops the animation but leaves the checkmark and completed state visible. A later
+turn completing starts the pulse again; repeated completion events do not reset an acknowledgement.
+Hovering, automatic tab activity, and deletion checkboxes do not acknowledge completion. This is
+only a UI acknowledgement, not an answer to a CLI permission prompt.
+
+A completed turn does not mean the CLI exited; another request/tool/model event returns to running.
+System reduced-motion preferences disable these animations and retain a static unread-completion cue.
+Unsupported, disabled, untrusted or external sessions show ❔ rather than guessed activity.
+
+Use **Settings → Agent status hooks... → Add Codex status hooks** for Codex. Confirm the displayed
+hooks.json path; installation preserves existing entries and creates a backup before changes.
+Codex may require reviewing/trusting the added hooks with `/hooks`. Removal deletes only exact
+app-owned additions, not another tool's hooks. Malformed or concurrently modified configuration is
+preserved and reported. Installation does not edit authentication or approval/sandbox configuration.
+
+Activity is local and in-memory. The reporter sends only event categories and session identity,
+not prompts, transcripts, tool input/output or credentials. Only app-managed launches receive the
+private reporting token. New sessions need their normal explicit session link before activity can
+be projected onto a history row. Closing/restarting a terminal invalidates old reports. No completion
+popup or timing-based inference is used; without a real exit/failure event, abnormal CLI exit may
+remain unknown while its shell stays open. Gemini/Aider activity adapters are not yet supported.
 
 ## Quick start
 

@@ -8,6 +8,8 @@ import type { ProjectSession } from '../../shared/project-tree';
 import { RenameSessionDialog } from './RenameSessionDialog';
 import { ActionIcon } from './ActionIcon';
 import { queueSessionDeletion } from '../store/workspace-operations';
+import { useActivityStore, sessionActivityRecord } from '../store/activity-store';
+import { SessionActivityIcon } from './SessionActivityIcon';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -26,6 +28,12 @@ interface Props {
 }
 
 export function SessionList({ projects, onProjectContext, selection }: Props) {
+  const activity = useActivityStore((state) => state.records);
+  const completions = useActivityStore((state) => state.completions);
+  const acknowledge = useActivityStore((state) => state.acknowledge);
+  const openTabs = useAppStore((s) => s.openTabs);
+  const tabAgent = useAppStore((s) => s.tabAgent);
+  const tabSessionId = useAppStore((s) => s.tabSessionId);
   const sessions = useAppStore((s) => s.sessions);
   const loadSessions = useAppStore((s) => s.loadSessions);
   const selectProject = useAppStore((s) => s.selectProject);
@@ -102,6 +110,16 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           : null;
         const active = Boolean(activeTabId && activeSessionId === s.id && activeAgent === s.agent);
         const selected = selection?.selectedKeys.includes(`${s.agent}:${s.id}`);
+        const record = sessionActivityRecord(activity, s.agent, s.id, {
+          openTabs,
+          tabAgent,
+          tabSessionId,
+        });
+        const completion =
+          record?.state === 'completed' ? completions[record.terminalKey] : undefined;
+        const acknowledgeCompletion = () => {
+          if (completion) acknowledge(completion.token);
+        };
         return (
           <div
             key={`${s.agent}:${s.id}`}
@@ -118,16 +136,24 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
                 onChange={(event) => selection.onToggle(`${s.agent}:${s.id}`, event.target.checked)}
               />
             )}
+            <span className={`session-marker${active ? ' active' : ''}`} aria-hidden="true">
+              {active ? '▶' : undefined}
+            </span>
+            <SessionActivityIcon
+              state={record?.state ?? 'unknown'}
+              attention={Boolean(completion && !completion.acknowledged)}
+              onAcknowledge={acknowledgeCompletion}
+            />
             <button
               className="session-open"
               disabled={!enabled}
-              onClick={() => void resume(row)}
+              onClick={() => {
+                acknowledgeCompletion();
+                void resume(row);
+              }}
               title={`${s.title}\n${project.realPath}\n${!project.exists ? 'Directory not found' : cmd || `No resume available for ${s.agent}`}`}
               aria-current={active ? 'true' : undefined}
             >
-              <span className={`session-marker${active ? ' active' : ''}`} aria-hidden="true">
-                {active ? '▶' : undefined}
-              </span>
               <span className="session-text">
                 <span className="list-item-title">{s.title || '(empty)'}</span>
                 <span className="list-item-sub session-meta">

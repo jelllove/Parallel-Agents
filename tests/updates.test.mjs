@@ -302,6 +302,7 @@ async function quitHarness({
             },
           },
         };
+      if (id === './activity-service.ts') return { activityRuntime: { close: async () => {} } };
       if (id === './pty-manager.ts')
         return {
           ptyManager: {

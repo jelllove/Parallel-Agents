@@ -180,6 +180,13 @@ The fixture checks:
 - Git IPC comparing the index to later working-tree content, and filesystem IPC reading only
   the fixture's visible entries.
 - A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
+- Hook-aware inert Claude fixture commands execute the real silent reporter, with completion distinct
+  from CLI exit. Focused activity tests cover state mapping, root/session identity, token revocation,
+  bounded payloads, launch-only configuration and additive Codex installation in disposable paths.
+  Synthetic follow-up events verify enlarged running motion, waiting wiggle, unread completion pulses,
+  explicit acknowledgement and re-arming. The fixture emulates both motion preferences rather than
+  changing host accessibility settings; reduced motion retains a static completion-attention cue.
+  Do not enable hooks in real user configuration to make a regression pass.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
 - Keyboard-accessible project agent groups without the global CLI banner, and controlled update

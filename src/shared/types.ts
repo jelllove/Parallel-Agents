@@ -86,6 +86,7 @@ export interface PtySpawnOptions {
   initialCommand?: string;
   extraPath?: string[];
   shellProfile?: SessionShellProfile;
+  activitySessionId?: string | null;
 }
 
 export type PaneId = 'sidebar' | 'middle' | 'right';
@@ -184,6 +185,28 @@ export interface Api {
     rename(projectId: string, sessionId: string, title: string): Promise<string>;
     listForProject(projectId: string): Promise<Session[]>;
     delete(projectId: string, sessionId: string): Promise<void>;
+  };
+  activity: {
+    snapshot(): Promise<{
+      revision: number;
+      records: import('./session-activity').SessionActivity[];
+    }>;
+    onChange(
+      callback: (snapshot: {
+        revision: number;
+        records: import('./session-activity').SessionActivity[];
+      }) => void,
+    ): () => void;
+    codexStatus(): Promise<{
+      path: string;
+      digest: string;
+      installed: boolean;
+      backupPath?: string;
+    }>;
+    configureCodex(
+      install: boolean,
+      digest: string,
+    ): Promise<{ path: string; digest: string; installed: boolean; backupPath?: string }>;
   };
   pty: {
     spawn(opts: PtySpawnOptions): Promise<void>;

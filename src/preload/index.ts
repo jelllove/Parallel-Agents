@@ -38,6 +38,20 @@ const api: Api = {
     listForProject: (projectId) => ipcRenderer.invoke('sessions:listForProject', projectId),
     delete: (projectId, sessionId) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),
   },
+  activity: {
+    snapshot: () => ipcRenderer.invoke('activity:snapshot'),
+    codexStatus: () => ipcRenderer.invoke('activity:codexStatus'),
+    configureCodex: (install, digest) =>
+      ipcRenderer.invoke('activity:configureCodex', install, digest),
+    onChange: (callback) => {
+      const listener = (
+        _event: unknown,
+        snapshot: Awaited<ReturnType<Api['activity']['snapshot']>>,
+      ) => callback(snapshot);
+      ipcRenderer.on('activity:changed', listener);
+      return () => ipcRenderer.off('activity:changed', listener);
+    },
+  },
   pty: {
     spawn: (opts) => ipcRenderer.invoke('pty:spawn', opts),
     write: (projectId, data) => ipcRenderer.invoke('pty:write', projectId, data),

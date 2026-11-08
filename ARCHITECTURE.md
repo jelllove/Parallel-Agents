@@ -306,6 +306,40 @@ and preserved session IDs. This is argument/UX verification, not live-provider c
 proof that a particular CLI/model/account supports a flag. CLI default permissions, managed
 policies, version differences and provider-specific sandbox semantics remain authoritative.
 
+### Passive managed-agent status hooks
+
+The main-process activity runtime creates a private named pipe (Windows) or mode-0600 Unix socket,
+registers a random per-launch token and accepts bounded event frames only for active managed launches.
+Provider-specific hooks normalize running/waiting/turn-finished/unknown/error without reading terminal
+text or transcript files. Root/subagent filtering, expected native-session identity and token revocation
+prevent a child Stop or a prior PTY from changing the current session. A Stop event is not a CLI exit.
+
+A small `resources/activity-reporter.cjs` reads hook stdin, strips everything except allowed event
+categories/session identity and reports silently with exit zero. Electron's Node mode supplies its
+runtime; the application copies this bundled script to stable app-owned storage. No global Node
+installation or provider credentials are needed. Tokens are confined to managed agent environments,
+and plain shells/custom commands receive no observer context. Closed terminals revoke registration
+and clean their launch-only settings/plugin directories.
+
+Claude receives additional hooks-only `--settings`; Copilot receives a local hooks-only `--plugin-dir`.
+A bounded help probe avoids adding flags an installed CLI does not advertise. Codex instead uses an
+explicitly confirmed additive user hooks.json installer with byte backups, path checks, own-write
+serialization and before-replacement digest checks. The CLI still owns hook trust/managed policy.
+Exact-owned-entry removal preserves third-party hooks; changing the app executable path may require
+reviewing/reinstalling status hooks. Filesystem replacement has no cross-process locking guarantee.
+
+Read-only typed IPC supplies revisioned activity snapshots/events to an App-level renderer subscription.
+The session icon projects records onto open, explicitly linked provider/native sessions; initial stale
+reads cannot overwrite live events. Closing a tab removes row association. Unknown history and unsupported
+providers retain ❔. Icons are independent of workspace-operation notices and yellow active-row selection.
+Renderer-only completion attention is keyed to the terminal/generation/native identity and the revision
+entering completed. Repeated completed snapshots preserve the acknowledgement; a new turn/generation
+creates a new token, so a stale click cannot dismiss it. The completion icon is a sibling button to the
+session-open button; icon clicks acknowledge without launching, while title clicks also preserve resume.
+CSS animates only glyph transforms/opacity, with static reduced-motion cues and no animation timers.
+Feature fixtures inject disposable homes/configuration and synthetic reporter payloads; they do not
+establish compatibility with every installed CLI version or guarantee abnormal child-process exit detection.
+
 ### Recent workspace folders
 
 [PreferencesStore](src/main/preferences-store.ts) persists a shared `recentFolders` array beside

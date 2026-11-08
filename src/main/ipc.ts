@@ -48,7 +48,8 @@ import type {
 } from '../shared/types.ts';
 import { preferences } from './preferences-store.ts';
 import { prepareAgentLaunch } from './agent-launcher.ts';
-import { AGENT_LAUNCH } from '../shared/agent-launch.ts';
+import { AGENT_LAUNCH, commandAgent } from '../shared/agent-launch.ts';
+import { activityRuntime, ensureActivityReporter } from './activity-service.ts';
 import type { AgentLaunchOptions } from '../shared/agent-launch.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
@@ -119,9 +120,46 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('workspace:setMode', (_e, mode: WorkspaceMode) =>
     preferences.setWorkspaceMode(mode),
   );
+  ipcMain.handle('activity:snapshot', () => activityRuntime.snapshot());
+  ipcMain.handle('activity:codexStatus', () => activityRuntime.codex.inspect());
+  ipcMain.handle('activity:configureCodex', async (_event, install: boolean, digest: string) => {
+    if (
+      typeof install !== 'boolean' ||
+      typeof digest !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(digest)
+    )
+      throw new Error('Invalid hook configuration request');
+    const status = await activityRuntime.codex.inspect();
+    const result = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: 'Codex activity hooks',
+      message: install
+        ? 'Add passive status hooks for Parallel Agents?'
+        : 'Remove Parallel Agents status hooks?',
+      detail: `${status.path}\nExisting hooks and approvals are retained. A backup is made before changes. Codex may require trusting these hooks through /hooks.`,
+      buttons: ['Apply', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (result.response !== 0) return status;
+    if (install) await ensureActivityReporter();
+    return activityRuntime.codex.apply(install, digest);
+  });
+  const offActivity = activityRuntime.bridge.subscribe((snapshot) => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed())
+      win.webContents.send('activity:changed', snapshot);
+  });
+  win.once('closed', offActivity);
   ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
-    const prepareCommand = (command: string | undefined) =>
-      prepareAgentLaunch(command, {
+    const agent = commandAgent(opts.initialCommand);
+    if (
+      opts.activitySessionId !== undefined &&
+      opts.activitySessionId !== null &&
+      !/^[a-zA-Z0-9_.:-]{1,200}$/.test(opts.activitySessionId)
+    )
+      throw new Error('Invalid activity session identity');
+    const prepareCommand = async (command: string | undefined) => {
+      const configured = await prepareAgentLaunch(command, {
         load: async () => (await preferences.read()).agentLaunchOptions,
         confirm: async (agent, mode, command) => {
           const result = await dialog.showMessageBox(win, {
@@ -137,6 +175,23 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
           return result.response === 0;
         },
       });
+      if (!agent || !configured || opts.shellProfile || !opts.projectId.endsWith('::agent'))
+        return configured;
+      try {
+        return await activityRuntime.prepare(
+          agent,
+          opts.projectId,
+          opts.activitySessionId ?? null,
+          configured,
+        );
+      } catch (error) {
+        console.warn(
+          'Agent status hooks unavailable:',
+          error instanceof Error ? error.message : String(error),
+        );
+        return configured;
+      }
+    };
     const opened = await ptyManager.spawn(
       opts.projectId,
       opts.cwd,
