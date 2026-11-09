@@ -23,7 +23,9 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
   const refreshing = useAppStore((s) => s.inventoryRefreshing);
   const inventoryError = useAppStore((s) => s.inventoryError);
   const selectedId = useAppStore((s) => s.selectedProjectId);
-  const openProjectFromList = useAppStore((s) => s.openProjectFromList);
+  const startProjectSession = useAppStore((s) => s.startProjectSession);
+  const [startingProjects, setStartingProjects] = useState<string[]>([]);
+  const pendingProjectStarts = useRef(new Set<string>());
   const selectProject = useAppStore((s) => s.selectProject);
   const sessionGuideProjectId = useAppStore((s) => s.sessionGuideProjectId);
   const sessionGuideSeq = useAppStore((s) => s.sessionGuideSeq);
@@ -243,10 +245,24 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
     void setProjectExpanded(tree.id, true);
     setOpenError('');
     try {
-      if (tree.projects.length > 1) await selectProject(tree.project.id);
-      else await openProjectFromList(tree.project.id);
+      await selectProject(tree.project.id);
     } catch (error) {
       setOpenError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function startSession(project: Project) {
+    if (pendingProjectStarts.current.has(project.id)) return;
+    pendingProjectStarts.current.add(project.id);
+    setStartingProjects((ids) => [...ids, project.id]);
+    setOpenError('');
+    try {
+      await startProjectSession(project.id);
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingProjectStarts.current.delete(project.id);
+      setStartingProjects((ids) => ids.filter((id) => id !== project.id));
     }
   }
 
@@ -735,6 +751,33 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
                         >
                           <ActionIcon name="pin" />
                         </button>
+                        <button
+                          type="button"
+                          className="project-new-session"
+                          aria-label={`New session for ${tree.name}`}
+                          title={
+                            startingProjects.includes(p.id)
+                              ? 'Preparing new session...'
+                              : `New session · ${agentName(p.agent)} · ${p.realPath}`
+                          }
+                          disabled={
+                            !sidebarTreeLoaded ||
+                            !p.exists ||
+                            !status[p.agent]?.available ||
+                            startingProjects.includes(p.id)
+                          }
+                          draggable={false}
+                          onDragStart={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void startSession(p);
+                          }}
+                        >
+                          +
+                        </button>
                       </div>
                       {expanded && (
                         <div
@@ -889,7 +932,8 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
             <>
               <p>
                 This permanently deletes the selected session histories. This cannot be undone.
-                Working folders are not deleted.
+                Working folders are not deleted. Open tabs and terminals for these sessions will
+                close.
               </p>
               <ul className="session-delete-review" aria-label="Sessions to delete">
                 {confirmSessions.map(({ project, session }) => (

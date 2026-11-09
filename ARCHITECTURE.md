@@ -383,16 +383,19 @@ Copilot projects are grouped by the project path recorded in session metadata. D
 projects can use an `adhoc:` prefix. The `realPath` field is the filesystem location; do not derive
 every real path by splitting the project ID or decoding a provider directory name.
 
-`openTabs` uses tab IDs. Plain project tabs use the project ID; resumed sessions use
-`<projectId>::session:<sessionId>`. PTY keys add `::agent` or `::shell:<profile>` so an agent and an
+`openTabs` uses tab IDs. Existing plain project tabs use the project ID; per-project **+** creates
+an independent unbound `<projectId>::new:<local-id>` tab. Resumed sessions use
+`<projectId>::session:<sessionId>`. The explicit tabProjectId/tabAgent/tabSessionId mappings remain
+identity authority; a local new-tab suffix is not a native session ID. PTY keys add `::agent` or
+`::shell:<profile>` so an agent and an
 attached shell can share one tab without colliding. Reopening an already-open native session focuses
 its tab; a newly launched tab can be linked to the native session it creates before renaming.
 
 1. Selecting a project loads its sessions and requests Git status/watch for an existing directory.
-2. The sidebar is one expandable project/session list. For a standalone project, opening it
-   resumes a single known session, expands inline selection when there are multiple sessions,
-   or starts the project's agent when there is no resumable session. A group containing multiple
-   checkouts selects the project and expands the combined session list instead of choosing a checkout.
+2. The sidebar is one expandable project/session list. Project-name clicks only select/expand history.
+   The adjacent **+** explicitly starts that row's provider in its representative checkout with an
+   independent tab, baseline and pending command. Concurrent preparation for the same project is
+   shared; later navigation is not overridden. Session-row clicks retain explicit resume behavior.
 3. The store remembers the selected agent, records the tab/project/session mapping, and holds a
    pending command plus PATH hints.
    [TerminalPane](src/renderer/components/TerminalPane.tsx) consumes this pending launch and requests a PTY.
@@ -469,7 +472,10 @@ IPC succeeds, without removing identical IDs from other providers. Batch deletio
 failures and reports counts plus named failures. Single and batch paths share post-delete refresh of
 affected loaded aliases and project counts. A mutation generation and per-list read versions reject
 stale pre-delete responses, preventing removed history from reappearing during asynchronous refresh.
-Refresh failures are warnings about follow-up work; local successful removals are retained.
+Refresh failures are warnings about follow-up work; local successful removals are retained. Successful
+session deletion uses provider/native identity to close matching open tabs through closeTabs, cleaning
+attached shells, pending commands and hook registrations. Partial failures retain their tabs; unrelated
+provider collisions and unbound tabs remain open. The same deletion review warns about terminal closure.
 
 [OperationNotices](src/renderer/components/OperationNotices.tsx) stays mounted at App level so pending
 work and result/error notices survive closing a dialog or collapsing a project. It exposes accessible

@@ -395,10 +395,14 @@ async function checkRenderer(projectPath, createPath) {
       document.querySelectorAll('.project-item').length === 1,
       'worktree is grouped under its project',
     );
-    document.querySelector('.project-caret').click();
+    document.querySelector('.project-open').click();
     await waitFor(
       () => document.querySelectorAll('.project-sessions .session-open').length === 2,
       'Both main and worktree sessions did not appear inline',
+    );
+    check(
+      !document.querySelector('.tab-bar .tab') && uiPtys.size === 0,
+      'project-name click selects and expands history without launching a session',
     );
     check(
       document.querySelector('.session-branch')?.textContent === 'feature/sidebar',
@@ -1130,6 +1134,49 @@ async function checkRenderer(projectPath, createPath) {
       (await window.api.sessions.listForProject(projectId)).length === 0,
       'background deletion removes only the confirmed fixture history',
     );
+    await waitFor(() => !baseTab.isConnected, 'Deleting history did not close its open tab');
+    check(worktreeTab.isConnected, 'deleting a session keeps an unrelated worktree tab open');
+    const explicitPlus = () => document.querySelector('.project-new-session');
+    const tabCount = () => document.querySelectorAll('.tab-bar .tab').length;
+    const beforePlus = tabCount();
+    explicitPlus().click();
+    await waitFor(
+      () => tabCount() === beforePlus + 1 && !explicitPlus().disabled,
+      'Project plus did not start a fresh session',
+    );
+    const firstFresh = document.querySelector('.tab-bar .tab.active');
+    explicitPlus().click();
+    await waitFor(
+      () => tabCount() === beforePlus + 2 && !explicitPlus().disabled,
+      'Second project plus reused the first session',
+    );
+    const secondFresh = document.querySelector('.tab-bar .tab.active');
+    check(
+      firstFresh !== secondFresh && firstFresh.textContent.includes('New session'),
+      'project plus creates independent new-session tabs',
+    );
+    for (const tab of [firstFresh, secondFresh]) {
+      tab.querySelector('.close').click();
+      await waitFor(
+        () => !tab.isConnected || document.querySelector('.modal-backdrop'),
+        'Close-tab action did not settle',
+      );
+      const confirmation = document.querySelector('.modal-backdrop');
+      if (confirmation) confirmation.querySelector('.btn-primary').click();
+      await waitFor(
+        () => !tab.isConnected,
+        () =>
+          `Disposable new-session tab did not close: ${tab.textContent}; open=${[...document.querySelectorAll('.tab-bar .tab')].map((item) => item.textContent).join('|')}; modal=${document.querySelector('.modal-backdrop')?.textContent ?? 'none'}`,
+      );
+    }
+    await waitFor(() => tabCount() === beforePlus, 'Disposable new-session tabs did not close');
+    const beforeNameClick = tabCount();
+    document.querySelector('.project-open').click();
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    check(
+      tabCount() === beforeNameClick,
+      'empty project-name click does not start a replacement session',
+    );
     check(
       ![...document.querySelectorAll('button')].some(
         (button) => button.textContent.trim() === 'Start session',
@@ -1137,6 +1184,16 @@ async function checkRenderer(projectPath, createPath) {
       'empty checkout has no Start session button',
     );
     checks.push('session confirmation closes immediately and background completion is announced');
+    [...document.querySelectorAll('.session-open')]
+      .find((button) => button.textContent.includes('Isolated worktree session'))
+      .click();
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const beforeNavigationFixture = tabCount();
+    explicitPlus().click();
+    await waitFor(
+      () => tabCount() === beforeNavigationFixture + 1 && !explicitPlus().disabled,
+      'Navigation fixture session did not open',
+    );
     await openNewDialog();
     const createDialog = document.querySelector('dialog[open]');
     await waitFor(
@@ -1167,13 +1224,16 @@ async function checkRenderer(projectPath, createPath) {
       noticeText()?.classList.contains('running'),
       'create dialog closes while slow registration is still running',
     );
-    baseTab.click();
+    const worktreeAfterRerender = [...document.querySelectorAll('.tab-bar .tab')].find((tab) =>
+      tab.textContent.includes('Isolated worktree session'),
+    );
+    worktreeAfterRerender.click();
     await waitFor(
       () => noticeText()?.classList.contains('succeeded'),
       'Create completion was not announced',
     );
     check(
-      baseTab.classList.contains('active'),
+      worktreeAfterRerender.classList.contains('active'),
       'background creation does not steal focus after navigation',
     );
     const createdProject = (await window.api.projects.list()).find(
@@ -1393,10 +1453,16 @@ async function checkRestoredSidebar(expanded) {
       'Restored project did not load its inline sessions',
     );
   }
+  await waitFor(
+    () => !document.querySelector('.project-caret').disabled,
+    'Restored tree is not hydrated',
+  );
+  const expandedBeforeToggle = (await window.api.config.getSidebarTree()).expandedProjects.length;
   document.querySelector('.project-caret').click();
   await waitFor(
     async () =>
-      (await window.api.config.getSidebarTree()).expandedProjects.length === (expanded ? 0 : 1),
+      (await window.api.config.getSidebarTree()).expandedProjects.length ===
+      expandedBeforeToggle + (expanded ? -1 : 1),
     'Toggling a restored project did not persist',
   );
   if (!expanded) {

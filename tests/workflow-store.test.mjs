@@ -434,6 +434,57 @@ test('batch deletion deduplicates native history, continues failures and refresh
   assert.match(result.message, /Bad.*Access denied/);
 });
 
+test('partial batch deletion closes successful tabs but keeps the failed target open', async () => {
+  const killed = [];
+  const project = { id: 'claude:repo', agent: 'claude' };
+  const store = await createStore({
+    sessions: {
+      delete: async (_project, id) => {
+        if (id === 'bad') throw new Error('Denied');
+      },
+      listForProject: async () => [{ id: 'bad', agent: 'claude' }],
+    },
+    projects: { list: async () => [] },
+    pty: { kill: async (id) => killed.push(id) },
+  });
+  store.setState({
+    openTabs: ['one', 'bad', 'two'],
+    activeTabId: 'one',
+    tabAgent: { one: 'claude', bad: 'claude', two: 'claude' },
+    tabSessionId: { one: 'one', bad: 'bad', two: 'two' },
+  });
+  const result = await store
+    .getState()
+    .deleteSessions(
+      ['one', 'bad', 'two'].map((id) => ({ project, session: { id, agent: 'claude', title: id } })),
+    );
+  assert.deepEqual(store.getState().openTabs, ['bad']);
+  assert.deepEqual(killed, ['one::agent', 'two::agent']);
+  assert.equal(result.warning, true);
+});
+
+test('new session preparation does not steal later project/tab selection', async () => {
+  const baseline = Promise.withResolvers();
+  const project = { id: 'claude:repo', agent: 'claude', exists: true };
+  const store = await createStore({
+    sessions: { listForProject: () => baseline.promise },
+    config: { setLastAgent: async () => {} },
+  });
+  store.setState({
+    projects: [project],
+    agentStatus: { ...store.getState().agentStatus, claude: { available: true } },
+    selectedProjectId: 'old',
+    activeTabId: 'old-tab',
+  });
+  const starting = store.getState().startProjectSession(project.id);
+  store.setState({ selectedProjectId: 'other', activeTabId: 'other-tab' });
+  baseline.resolve([]);
+  await starting;
+  assert.equal(store.getState().activeTabId, 'other-tab');
+  assert.equal(store.getState().selectedProjectId, 'other');
+  assert.equal(store.getState().openTabs.length, 1);
+});
+
 test('old session and inventory reads cannot restore deleted history or outdated counts', async () => {
   const staleSessions = Promise.withResolvers();
   const staleProjects = Promise.withResolvers();
@@ -462,6 +513,111 @@ test('old session and inventory reads cannot restore deleted history or outdated
   await Promise.all([oldHistory, oldInventory]);
   assert.deepEqual(store.getState().sessions[project.id], []);
   assert.equal(store.getState().projects[0].sessionCount, 0);
+});
+
+test('project plus starts independent unbound tabs and shares duplicate in-flight preparation', async () => {
+  const baseline = Promise.withResolvers();
+  let reads = 0;
+  const project = {
+    id: 'claude:repo',
+    agent: 'claude',
+    dirName: 'repo',
+    realPath: 'C:\\repo',
+    exists: true,
+  };
+  const store = await createStore({
+    sessions: {
+      listForProject: () => {
+        reads++;
+        return reads === 1 ? baseline.promise : Promise.resolve([{ id: 'old' }]);
+      },
+    },
+    config: { setLastAgent: async () => {} },
+  });
+  store.setState({
+    projects: [project],
+    agentStatus: { ...store.getState().agentStatus, claude: { available: true, path: null } },
+  });
+  assert.equal(typeof store.getState().startProjectSession, 'function');
+  const first = store.getState().startProjectSession(project.id);
+  const duplicate = store.getState().startProjectSession(project.id);
+  assert.equal(reads, 1);
+  baseline.resolve([{ id: 'old' }]);
+  await Promise.all([first, duplicate]);
+  const firstTab = store.getState().activeTabId;
+  assert.equal(store.getState().openTabs.length, 1);
+  await store.getState().startProjectSession(project.id);
+  const secondTab = store.getState().activeTabId;
+  assert.notEqual(secondTab, firstTab);
+  assert.equal(store.getState().openTabs.length, 2);
+  for (const tab of [firstTab, secondTab]) {
+    assert.equal(store.getState().tabProjectId[tab], project.id);
+    assert.equal(store.getState().tabSessionId[tab], null);
+    assert.deepEqual(store.getState().tabSessionBaseline[tab], ['old']);
+    assert.equal(store.getState().pendingInitialCommand[tab].command, 'claude');
+  }
+});
+
+test('deletion closes only matching provider/session tabs and attached shells after IPC succeeds', async () => {
+  const deletion = Promise.withResolvers();
+  const killed = [];
+  const store = await createStore({
+    sessions: { delete: () => deletion.promise, listForProject: async () => [] },
+    projects: { list: async () => [] },
+    pty: { kill: async (id) => killed.push(id) },
+  });
+  store.setState({
+    openTabs: ['matching', 'alias', 'other-provider', 'unbound'],
+    activeTabId: 'matching',
+    tabProjectId: {
+      matching: 'claude:repo',
+      alias: 'claude:other',
+      'other-provider': 'codex:repo',
+      unbound: 'claude:repo',
+    },
+    tabAgent: { matching: 'claude', alias: 'claude', 'other-provider': 'codex', unbound: 'claude' },
+    tabSessionId: { matching: 'one', alias: 'one', 'other-provider': 'one', unbound: null },
+    tabShellOpened: { matching: true },
+    tabShellProfile: { matching: 'default' },
+    pendingInitialCommand: { matching: { command: 'claude' }, unbound: { command: 'claude' } },
+    sessions: { 'claude:repo': [{ id: 'one', agent: 'claude' }] },
+  });
+  const removing = store.getState().deleteSession('claude:repo', 'one');
+  assert.deepEqual(killed, []);
+  deletion.resolve();
+  await removing;
+  assert.deepEqual(store.getState().openTabs, ['other-provider', 'unbound']);
+  assert.deepEqual(
+    killed.sort(),
+    ['matching::agent', 'matching::shell:default', 'alias::agent'].sort(),
+  );
+  assert.equal(store.getState().pendingInitialCommand.matching, undefined);
+  assert.ok(store.getState().pendingInitialCommand.unbound);
+  assert.equal(store.getState().activeTabId, 'other-provider');
+});
+
+test('failed session deletion keeps its open tab and terminal untouched', async () => {
+  const killed = [];
+  const store = await createStore({
+    sessions: {
+      delete: async () => {
+        throw new Error('Denied');
+      },
+      listForProject: async () => [{ id: 'one', agent: 'claude' }],
+    },
+    projects: { list: async () => [] },
+    pty: { kill: async (id) => killed.push(id) },
+  });
+  store.setState({
+    openTabs: ['tab'],
+    activeTabId: 'tab',
+    tabAgent: { tab: 'claude' },
+    tabSessionId: { tab: 'one' },
+    sessions: { repo: [{ id: 'one', agent: 'claude' }] },
+  });
+  await assert.rejects(store.getState().deleteSession('repo', 'one'), /Denied/);
+  assert.deepEqual(store.getState().openTabs, ['tab']);
+  assert.deepEqual(killed, []);
 });
 
 test('new project requires explicit session association and avoids duplicate resume', async () => {

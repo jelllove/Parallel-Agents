@@ -224,7 +224,7 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
       {confirmDelete && (
         <ConfirmDialog
           title="Delete session?"
-          message={`This will permanently delete the session file for "${confirmDelete.session.title || '(empty)'}". This cannot be undone.`}
+          message={`This will permanently delete the session file for "${confirmDelete.session.title || '(empty)'}". This cannot be undone. Its open tabs and terminals will also close.`}
           confirmText="Delete forever"
           warning={error}
           destructive

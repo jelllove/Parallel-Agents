@@ -198,6 +198,9 @@ The fixture checks:
   maximum app font size, or when maximized. Minimize/restore and fullscreen preserve the action
   and correct caption spacing. No update is downloaded or installed by this fixture.
 - Windows has no application menu, and pressing Alt does not reveal a menu bar.
+- Project-name selection launches no terminal. The adjacent project **+** creates independent sessions;
+  deleting a fixture history closes only its matching tab and retains an unrelated worktree tab.
+  Unit tests additionally cover aliases/provider collisions, failed deletion and attached-shell cleanup.
 - Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
   pin buttons persist both agent and project ordering without recreating the running terminal.
   Extra project folders and configuration writes belong only to the disposable fixture.

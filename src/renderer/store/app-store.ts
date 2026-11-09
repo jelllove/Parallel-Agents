@@ -109,6 +109,7 @@ interface AppState {
   refreshProjectsAndAgents: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
   openProjectFromList: (id: string) => Promise<void>;
+  startProjectSession: (id: string) => Promise<void>;
   requestSessionSelection: (projectId: string) => void;
   openTabWithAgent: (
     projectId: string,
@@ -116,6 +117,7 @@ interface AppState {
     startCommand: string,
     extraPath?: string[],
     shouldFocus?: () => boolean,
+    tabId?: string,
   ) => Promise<void>;
   openSessionTab: (projectId: string, session: Session, separate?: boolean) => Promise<void>;
   requestSessionLink: (request: SessionLinkRequest | null) => void;
@@ -180,6 +182,8 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
   copilot: { available: false, path: null },
 });
 
+const projectSessionStarts = new Map<string, Promise<void>>();
+let nextNewSessionTab = 0;
 let historyMutationVersion = 0;
 let projectReadVersion = 0;
 const sessionReadVersions = new Map<string, number>();
@@ -337,14 +341,48 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
   },
 
+  startProjectSession(projectId) {
+    const existing = projectSessionStarts.get(projectId);
+    if (existing) return existing;
+    const project = get().findProject(projectId);
+    if (!project?.exists) return Promise.reject(new Error('Project directory is unavailable.'));
+    if (!get().agentStatus[project.agent]?.available)
+      return Promise.reject(new Error('Project CLI is not installed.'));
+    let navigated = false;
+    const selected = get().selectedProjectId;
+    const active = get().activeTabId;
+    const off = useAppStore.subscribe((state) => {
+      if (state.selectedProjectId !== selected || state.activeTabId !== active) navigated = true;
+    });
+    const tabId = `${projectId}::new:${++nextNewSessionTab}`;
+    const starting = get()
+      .openTabWithAgent(
+        projectId,
+        project.agent,
+        startCommandFor(project.agent),
+        extraPathFor(get().agentStatus[project.agent]?.path),
+        () => !navigated,
+        tabId,
+      )
+      .then(() => {
+        if (get().activeTabId === tabId) set({ selectedProjectId: projectId });
+      })
+      .finally(() => {
+        off();
+        projectSessionStarts.delete(projectId);
+      });
+    projectSessionStarts.set(projectId, starting);
+    return starting;
+  },
+
   async openTabWithAgent(
     projectId,
     agentId,
     startCommand,
     extraPath = [],
     shouldFocus = () => true,
+    tabId = projectId,
   ) {
-    const tabId = projectId;
     if (get().openTabs.includes(tabId)) {
       if (shouldFocus()) set({ activeTabId: tabId });
       return;
@@ -779,6 +817,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         await window.api.sessions.delete(target.projectId, target.id);
         historyMutationVersion++;
         deleted++;
+        const matchingTabs = get().openTabs.filter(
+          (tab) => get().tabAgent[tab] === target.agent && get().tabSessionId[tab] === target.id,
+        );
+        if (matchingTabs.length) get().closeTabs(matchingTabs);
         set((state) => ({
           sessions: Object.fromEntries(
             Object.entries(state.sessions).map(([id, sessions]) => [

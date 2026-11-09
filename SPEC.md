@@ -102,6 +102,11 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 ### 5.2 Inline sessions and background operations
 
 - Sessions are nested under expandable projects, ordered newest first, with worktree branch metadata.
+- Project-name clicks only select/expand history, without auto-starting or resuming a CLI. Add **+**
+  beside each project's pin for explicit new-session creation in that row's provider/checkout. A new
+  session has its own unbound tab and retains explicit native-session linking. Repeated completed +
+  actions create independent tabs; duplicate pending preparations are shared. Disable unavailable
+  directories/CLIs and avoid overriding navigation while preparation is pending.
 - The active native session uses a visible yellow background (pale yellow in light mode, warm amber
   in dark mode) and an arrow. Terminal tab switches update selection, including shared worktree
   histories; hovering does not obscure the active indication. Project highlighting is unchanged.
@@ -116,6 +121,10 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Session deletion requires an initially unchecked acknowledgement followed by **Delete forever**,
   without typing `delete`. Cancel, Escape, and backdrop dismissal perform no deletion. Explorer's
   filename-typing confirmation is unchanged.
+- After successful session deletion, close all tabs/attached terminals matching its provider and native
+  session ID, including aliases across projects. Failed or cancelled deletion closes nothing; partial
+  batches close only successful targets. Leave unrelated-provider IDs and unbound tabs untouched.
+  Warn about terminal closure in the same deletion review, without a second blocking dialog.
 - Valid folder/worktree creation and acknowledged project/session deletion close their dialogs as
   soon as accepted. Work continues in the background, with non-modal queued/running/result notices.
   Project deletion still requires reviewing the affected histories before acknowledgement.

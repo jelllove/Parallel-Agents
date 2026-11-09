@@ -54,9 +54,11 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 
 Projects remain grouped by agent. Use the folder icon beside a project (an arrow on hover/focus)
 to expand or collapse its sessions without launching a terminal. Sessions are ordered newest
-first; multiple projects can stay expanded. Opening a project with multiple worktree entries
-selects it and lets you choose the desired session. Empty checkouts show a message without a
-**Start session** button; project opening and the New Project workflow remain available.
+first; multiple projects can stay expanded. Clicking a project name only selects it and expands
+its history; it never starts or automatically resumes an agent. Use the **+** beside that project's
+pin to start a new session in its checkout. Each accepted + opens an independent new-session tab,
+without restarting or resuming an existing one. Empty checkouts show a message without a **Start
+session** button; the per-project + and New Project workflow are the explicit launch paths.
 
 Project rows show just the name; hover for the full path. Sessions use indented, two-line rows
 with muted branch/time metadata and a yellow active-session background (pale yellow in light mode,
@@ -67,7 +69,9 @@ with an ellipsis rather than overlap the buttons. Widening the sidebar reveals m
 Use **Select sessions** in the sidebar toolbar to reveal checkboxes across expanded projects.
 Check the histories to remove, then **Delete selected (N)**. Review the listed titles and checkout
 paths, acknowledge permanent deletion, and confirm once. The operation runs in the background;
-rows and project counts refresh automatically. Partial failures identify the histories not deleted.
+rows and project counts refresh automatically. Successful deletion also closes that native session's
+open tabs and attached terminals, including shared-history aliases. Failed targets remain open;
+unrelated sessions are not stopped. Partial failures identify the histories not deleted.
 Collapsed/hidden sessions leave the selection; checkbox selection does not switch the active terminal.
 
 Agent headings are separate background blocks with consistently sized icons rather than another

@@ -737,6 +737,28 @@ button.ctx-menu-item {
   text-align: left;
   padding: 0;
 }
+.project-new-session {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 3px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+.project-new-session:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+.project-new-session:focus-visible {
+  outline: 1px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+.project-new-session:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .project-caret {
   display: grid;
   place-items: center;

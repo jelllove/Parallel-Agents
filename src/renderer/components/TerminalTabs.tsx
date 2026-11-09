@@ -73,7 +73,8 @@ export function TerminalTabs() {
             tabId,
             project,
             sessionId: null,
-            label: project.displayName,
+            label:
+              tabId === projectId ? project.displayName : `${project.displayName} · New session`,
           },
         ];
       }

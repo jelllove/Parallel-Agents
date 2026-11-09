@@ -180,6 +180,28 @@ async function harness({ config = {}, projects = [] } = {}) {
   return { render, calls, state, unmount: () => slots.forEach((slot) => slot.cleanup?.()) };
 }
 
+test('project name selects without launch and adjacent plus explicitly starts a session', async () => {
+  const p = project('repo');
+  const h = await harness({ projects: [p] });
+  h.state.selectProject = async (id) => h.calls.push(['select', id]);
+  h.state.setProjectExpanded = async () => {};
+  h.state.openProjectFromList = async (id) => h.calls.push(['auto-launch', id]);
+  h.state.startProjectSession = async (id) => h.calls.push(['start-session', id]);
+  const open = nodes(row(h.render(), p.id), (node) => node.props.className === 'project-open')[0];
+  await open.props.onClick();
+  await flush();
+  assert.deepEqual(h.calls, [['select', p.id]]);
+  const plus = byLabel(h.render(), 'New session for repo');
+  assert.ok(plus);
+  const click = event();
+  await plus.props.onClick(click);
+  await flush();
+  assert.equal(click.stopped, true);
+  assert.deepEqual(h.calls.at(-1), ['start-session', p.id]);
+  h.state.agentStatus.claude.available = false;
+  assert.equal(byLabel(h.render(), 'New session for repo').props.disabled, true);
+});
+
 test('project deletion acceptance queues captured targets and closes immediately', async () => {
   const project = {
     id: 'claude:delete',
