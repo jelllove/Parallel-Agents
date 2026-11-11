@@ -255,6 +255,9 @@ The fixture checks:
 - Native fixture teardown tracks both repository and app.asar-resolved PTYs and waits for actual
   exit callbacks before Electron exits; asynchronous
   selection assertions wait for the intended session, not merely any previously active row.
+  Batch deletion compares exact provider/native identities before and after the operation; newly
+  discovered histories may add rows during refresh and must not be mistaken for lost histories.
+  Picker scroll checks await modal focus restoration and scroll the complete action group into view.
   Background throttling is disabled only on the fixture webContents so animation-frame waits do not
   suspend when another window covers it; the application runtime and smoke deadlines are unchanged.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer

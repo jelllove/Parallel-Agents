@@ -86,10 +86,15 @@ async function inspectPicker(theme, enlarged) {
       .click();
     await waitFor(() => !document.querySelector('.agent-launch-dialog[open]'));
   }
-  rows.at(-1).querySelector('button').scrollIntoView({ block: 'nearest' });
-  const last = rows.at(-1).querySelector('.agent-picker-actions').getBoundingClientRect();
-  if (last.bottom > rect.bottom || last.top < rect.top)
-    throw new Error('Last agent actions are unreachable');
+  const lastActions = rows.at(-1).querySelector('.agent-picker-actions');
+  // Closing a native modal restores focus/scroll asynchronously; inspect the settled action group.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  lastActions.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  await waitFor(() => {
+    const viewport = picker.getBoundingClientRect();
+    const last = lastActions.getBoundingClientRect();
+    return last.bottom <= viewport.bottom && last.top >= viewport.top;
+  });
   picker.scrollTop = 0;
   return { theme, enlarged, scrollable: picker.scrollHeight > picker.clientHeight };
 }

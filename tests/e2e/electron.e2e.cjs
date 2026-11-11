@@ -14,6 +14,7 @@ const { execFileSync } = require('node:child_process');
 const { app, shell, Menu, ipcMain } = require('electron');
 const { trackNativePtys } = require('../helpers/native-pty-lifecycle.cjs');
 const { verifyAgentPicker } = require('../helpers/agent-picker-layout.cjs');
+const { assertSessionPreservation } = require('../helpers/session-preservation.cjs');
 const nativePtys = trackNativePtys();
 const nativePty = require('node-pty');
 const nativeSpawn = nativePty.spawn;
@@ -1762,9 +1763,6 @@ async function checkBatchSelection(confirm = false) {
     );
     document.querySelector('[aria-label="Select sessions"]').click();
     await waitFor(() => document.querySelector('.session-selection-check'));
-    window.__unselectedSmokeSessions = [...document.querySelectorAll('.session-item')]
-      .filter((row) => !row.textContent.includes('Batch fixture'))
-      .map((row) => row.querySelector('.list-item-title')?.textContent);
     const selected = [...document.querySelectorAll('.session-item')].filter((row) =>
       row.textContent.includes('Batch fixture'),
     );
@@ -1809,10 +1807,10 @@ async function checkBatchSelection(confirm = false) {
   const remaining = [...document.querySelectorAll('.session-item .list-item-title')].map(
     (node) => node.textContent,
   );
-  const expected = window.__unselectedSmokeSessions;
-  if (remaining.length !== expected.length || expected.some((title) => !remaining.includes(title)))
+  const missing = window.__unselectedSmokeSessions.filter((title) => !remaining.includes(title));
+  if (missing.length)
     throw new Error(
-      `Batch deletion removed unselected history: ${JSON.stringify({ expected, remaining })}`,
+      `Batch deletion removed unselected rows: ${JSON.stringify({ missing, remaining })}`,
     );
   return 'acknowledged batch deletion refreshes rows automatically without manually refreshing';
 }
@@ -2022,15 +2020,34 @@ app.on('browser-window-created', (_event, win) => {
         await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
         win.webContents.debugger.detach();
       }
+      const nativeInventory = () =>
+        win.webContents.executeJavaScript(`(async () => {
+        const projects = await window.api.projects.list();
+        const sessions = (await Promise.all(projects.map(project => window.api.sessions.listForProject(project.id)))).flat();
+        return sessions.map(({ agent, id, title }) => ({ agent, id, title }));
+      })()`);
+      const historiesBeforeBatch = await nativeInventory();
       checks.push(
         await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(false)`),
       );
+      // Capture after refresh/selection settles, not a transient pre-refresh subset of rows.
+      await win.webContents
+        .executeJavaScript(`window.__unselectedSmokeSessions = [...document.querySelectorAll('.session-item')]
+        .filter(row => !row.textContent.includes('Batch fixture'))
+        .map(row => row.querySelector('.list-item-title')?.textContent)`);
       writeFileSync(
         join(reports, `${reportName}-selection.png`),
         (await win.capturePage()).toPNG(),
       );
       checks.push(
         await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(true)`),
+      );
+      assertSessionPreservation(historiesBeforeBatch, await nativeInventory(), [
+        { agent: 'claude', id: 'batch-one' },
+        { agent: 'claude', id: 'batch-two' },
+      ]);
+      checks.push(
+        'batch deletion preserves every unselected native identity even when histories arrive during refresh',
       );
       // Completed notices use a plain fifteen-second timer, even when the app is hidden.
       win.hide();
