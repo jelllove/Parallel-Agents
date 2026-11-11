@@ -242,6 +242,8 @@ The fixture checks:
   placeholders are hidden without removing inventory. Optional cleanup tests use disposable Git repos:
   explicitly reviewed additional sessions, no-force removal, branches retained, dirty/locked/ambiguous
   histories and pending/running/closing PTY safety. Never run cleanup fixtures against user checkouts.
+  Await the guard callback's explicit entry signal before testing contention: one setImmediate turn
+  does not guarantee asynchronous realpath has completed, particularly on native macOS runners.
 - Notification expiry tests use fake timers to check the exact 15-second boundary for all completed
   outcomes, including errors/warnings, without focus/visibility/hover prerequisites. Keep pending jobs
   and Dismiss; verify rerenders do not restart expiry and unmount cancels timers. The native smoke

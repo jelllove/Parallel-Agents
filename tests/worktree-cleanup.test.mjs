@@ -106,8 +106,12 @@ test('recent folders exclude linked checkouts and subdirectories without changin
 test('checkout guard blocks overlapping starts and releases after failure', async (t) => {
   const f = await fixture(t);
   const wait = Promise.withResolvers();
-  const held = guardCheckout(f.wt, () => wait.promise);
-  await new Promise((resolve) => setImmediate(resolve));
+  const entered = Promise.withResolvers();
+  const held = guardCheckout(f.wt, () => {
+    entered.resolve();
+    return wait.promise;
+  });
+  await entered.promise;
   await assert.rejects(
     guardCheckout(f.wt, async () => {}),
     /busy/,
@@ -116,8 +120,16 @@ test('checkout guard blocks overlapping starts and releases after failure', asyn
   await held;
   await guardCheckout(f.wt, async () => {});
   const shared = Promise.withResolvers();
-  const first = guardCheckout(f.wt, () => shared.promise, false);
-  await new Promise((resolve) => setImmediate(resolve));
+  const sharedEntered = Promise.withResolvers();
+  const first = guardCheckout(
+    f.wt,
+    () => {
+      sharedEntered.resolve();
+      return shared.promise;
+    },
+    false,
+  );
+  await sharedEntered.promise;
   await guardCheckout(f.wt, async () => {}, false);
   await assert.rejects(
     guardCheckout(f.wt, async () => {}),
