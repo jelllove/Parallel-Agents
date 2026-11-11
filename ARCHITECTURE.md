@@ -54,6 +54,11 @@ Electron's default menu bar. macOS/Linux retain their native application menus.
 Preload adds a read-only `platform` identifier alongside the existing typed API for renderer
 shortcuts. Command+C/V on macOS
 and Ctrl+Shift+C/V on Linux leave Ctrl+C available to interrupt POSIX terminals.
+Custom clipboard paste cancels the browser key default as well as xterm's key handler; returning
+false to xterm alone does not suppress Chromium's separate native paste event. Clipboard text enters
+through Terminal.paste so newline normalization and bracketed-paste framing stay owned by xterm,
+then the single onData listener writes to the PTY. Context-menu paste reuses this path; late clipboard
+reads are discarded if the terminal was disposed or replaced.
 
 Packaging uses upstream node-pty prebuilds and real app.asar smoke checks for each target,
 with generated homes and inert executable provider shims. CI must require native checks
@@ -182,7 +187,7 @@ The table lists suffixes under each namespace; main-to-renderer event names are 
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
 | `updates`  | `getStatus`, `check`, `install`                                                                                                                                                                                                                                                                                                            | `updates:status`         |
 | `projects` | `list`, `create`, `pin`, `hide`, `delete`, `deleteMissing`, `setOrder`                                                                                                                                                                                                                                                                     | —                        |
-| `sessions` | `listForProject`, `delete`, `rename`                                                                                                                                                                                                                                                                                                       | —                        |
+| `sessions` | `listForProject`, `inspectManaged`, `order`, `move`, `promoteDraft`, `delete`, `rename`                                                                                                                                                                                                                                                    | —                        |
 | `pty`      | `spawn`, `write`, `resize`, `kill`                                                                                                                                                                                                                                                                                                         | `pty:data`, `pty:exit`   |
 | `fs`       | `readDir`, `createFile`, `createDir`, `rename`, `copy`, `move`, `trash`, `reveal`, `openDefault`                                                                                                                                                                                                                                           | —                        |
 | `git`      | `status`, `diff`, `stage`, `unstage`, `discard`, `commit`, `watch`                                                                                                                                                                                                                                                                         | `git:changed`            |
@@ -254,10 +259,52 @@ operations; independent field mutations use the same serialized atomic store as 
 [Sidebar ordering](src/shared/sidebar-order.ts) keeps pinned groups first while preserving saved
 order inside each section. Projects reuse their existing pin/order APIs. Drag/drop and the
 up/down menus are limited to the same pin section, and projects stay within their own agent.
-Project listing sorts by agent first, then project pin/manual order and activity, so interleaved
-provider discovery or registration cannot defeat a saved within-agent order.
+Project listing sorts by agent, pin partition and persisted project rank. Versioned sidebar arrangement
+metadata seeds oldest-created-first ranks once, retaining immutable creation dates separately from
+activity timestamps (including Codex index updated_at). Project-tree path anchors prevent a later
+worktree from moving its parent. Default groups insert by creation time; manually arranged groups
+append new IDs and retain temporarily absent entries. Unknown creation dates use fixed first-observed
+fallbacks. Serialized config deltas preserve concurrent ordering/pin writes and unrelated preferences.
+
+Session history and managed drafts share a single ordered projection, with native provider/session
+keys or temporary launch UUID keys. Main resolves current group membership before read/move requests;
+exact managed or explicit linking promotes draft rank/date in place, rather than recreating the row at
+an activity-dependent position. Session grip drag and keyboard/context-menu moves do not resume,
+acknowledge or transfer a session to another checkout. Stale reads, failed writes, closed drafts and
+successful deletions retain the same lifecycle/identity guards as the session store.
 Cancelled drags clear highlights; writes are guarded against duplicate clicks and failures remain
 visible with reload recovery. Reordering never changes project/session IDs, tab identity, or PTYs.
+
+### Scoped creation, draft sessions and manual titles
+
+Project-row + passes a source-project snapshot through Sidebar to the existing NewProjectDialog,
+prefilling only its provider/folder. The original folder/worktree modes, remembered selection and Git
+worktree implementation remain unchanged; no same-folder branch-switch path is added. Successful
+creation replaces project metadata in place and opens a unique fresh tab. Registration/launch failure
+is reported separately from an already-completed Git mutation.
+
+Managed tab metadata records launch ID, creation time and optional initial manual title. The creation
+dialog requires that name; other existing launch paths can retain a generic draft label. SessionList
+projects an unbound row without inventing a native history or deletion target. The identity-only main
+registry correlates terminal/provider/generation/native ID and checkout before non-focusing binding;
+ambiguous launches retain explicit linking. Draft promotion handles both proof-based and explicit
+links, atomically setting the initial manual name only if no later rename exists. Cancellation guards
+prevent stale writes; native names refresh after persistence. Existing order promotion stays in place.
+
+Automatic title subprocesses, prompt extraction and retry/status plumbing are removed. Validated
+legacy generatedTitles are inert display-only preference data, preserving existing names without new
+requests. No naming operation invokes a model or reads a first-prompt excerpt.
+
+NewProjectDialog uses scoped local CSS matching the supplied provider-header/repository/isolation/
+branch-card/title/footer design in both themes. The repository hook rejects stale path responses.
+The main workspace repository reader exposes bounded read-only full refs, verified HEAD and current
+branch with main/master/develop preference, using isolated Git environment and execFile rather than
+shell interpolation. Current Folder never checks out branches; worktree mutation still uses the
+original validation and outside-working-tree target policy. The destination remains manually editable.
+A renderer-only name helper formats feat/YYYYMMDD_title from the dialog's frozen local calendar date
+and existing title slug/stable suffix. Explicit branch/directory overrides stay authoritative.
+The agent picker measures its actual wrapped rows with ResizeObserver and clamps to viewport gutters;
+New/Options retain separate creation/settings callbacks without implicit row-click launch behavior.
 
 ### Persistent side-pane visibility
 
@@ -330,8 +377,11 @@ reviewing/reinstalling status hooks. Filesystem replacement has no cross-process
 
 Read-only typed IPC supplies revisioned activity snapshots/events to an App-level renderer subscription.
 The session icon projects records onto open, explicitly linked provider/native sessions; initial stale
-reads cannot overwrite live events. Closing a tab removes row association. Unknown history and unsupported
-providers retain ❔. Icons are independent of workspace-operation notices and yellow active-row selection.
+reads cannot overwrite live events. Closing a tab removes row association and displays the renderer-only
+not-open indicator ○; open/inactive linked tabs retain activity, and open sessions without usable hooks
+retain ❔. Openness is provider/native-session membership in openTabs, not the selected tab or existence
+of a historical activity record. This does not claim that a session is not running outside this window.
+Icons are independent of workspace-operation notices and yellow active-row selection.
 Renderer-only completion attention is keyed to the terminal/generation/native identity and the revision
 entering completed. Repeated completed snapshots preserve the acknowledgement; a new turn/generation
 creates a new token, so a stale click cannot dismiss it. The completion icon is a sibling button to the
@@ -344,19 +394,20 @@ establish compatibility with every installed CLI version or guarantee abnormal c
 
 [PreferencesStore](src/main/preferences-store.ts) persists a shared `recentFolders` array beside
 registered projects. Legacy preferences seed normalized unique paths from registered projects;
-reads do not write migration data. Successful registration updates project and folder history in
-one serialized atomic write, including the base for a worktree. Successful `pty:spawn` records
-its cwd after native spawn resolves; native failure does not add a history item, and a subsequent
+reads do not write migration data. The main-owned workspace-history policy uses verified Git linked
+checkout metadata to filter insertion and legacy reads, including worktree subfolders. Registration
+atomically records only eligible folders (the base, not target, for worktree creation). Successful
+`pty:spawn` records its eligible cwd after native spawn resolves; native failure adds nothing, and a subsequent
 history-write error is explicitly reported as "Terminal opened, but saving folder history failed".
 Windows path identities ignore case, POSIX identities retain case, and paths must be absolute.
 There is no fixed history-count cap; duplicate opens move a path to the front.
 
 The typed `workspace.getRecentFolders` preload/IPC method feeds
-[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its bounded-height, icon-labeled
-list lives inside the existing modal for both open-folder and worktree modes; selection fills
-the path but never submits. Async loads are guarded on unmount and errors are visible rather
-than converted to an empty-history success. Missing paths stay in history and normal open
-validation reports the failure. Generated target paths update on selection while explicit targets
+[NewProjectDialog](src/renderer/components/NewProjectDialog.tsx). Its compact RecentFolderDropdown
+opens a bounded-height icon-labeled listbox inside the modal for both workspace modes; selection fills
+the path but never submits. Keyboard navigation, Escape/outside dismissal and focus restoration are local.
+Async loads are guarded on unmount and errors are visible rather than converted to empty success.
+Missing paths stay in saved data but are omitted from choices. Generated targets update while explicit targets
 remain untouched. The native fixture verifies real persistence, list rendering, path selection,
 and dialog reopening with generated provider data only.
 
@@ -365,8 +416,8 @@ The same preferences store persists `workspaceMode` (`folder` or `worktree`) thr
 project creation, and defaults to `folder` for legacy files without rewriting them on read.
 Invalid stored modes are reported and preserved. The modal blocks submission until mode loading
 or saving finishes, retains the previous mode on write failure, and provides an explicit retry.
-The native select keeps keyboard behavior and uses folder/branch symbols in both option labels;
-recent folders use existing local icon assets with no search field. Async mode responses are ignored
+The segmented Current Folder/Git Worktree controls use accessible pressed states and local icons;
+recent repositories use a keyboard-accessible dropdown with no search field. Async mode responses are ignored
 after unmount, and duplicate writes are guarded.
 
 The production [src/main/pty-manager.ts](src/main/pty-manager.ts) module is the thin native adapter:
@@ -393,9 +444,9 @@ its tab; a newly launched tab can be linked to the native session it creates bef
 
 1. Selecting a project loads its sessions and requests Git status/watch for an existing directory.
 2. The sidebar is one expandable project/session list. Project-name clicks only select/expand history.
-   The adjacent **+** explicitly starts that row's provider in its representative checkout with an
-   independent tab, baseline and pending command. Concurrent preparation for the same project is
-   shared; later navigation is not overridden. Session-row clicks retain explicit resume behavior.
+   The adjacent **+** opens the original New Project dialog with the provider/folder prefilled; submission creates an independent tab,
+   baseline, draft row and pending command. Concurrent duplicate workspace requests are rejected and
+   later navigation is not overridden. Native session-row clicks retain explicit resume behavior.
 3. The store remembers the selected agent, records the tab/project/session mapping, and holds a
    pending command plus PATH hints.
    [TerminalPane](src/renderer/components/TerminalPane.tsx) consumes this pending launch and requests a PTY.
@@ -418,7 +469,8 @@ applies only to optional grouping metadata; explicit Git actions and worktree cr
 their errors.
 
 [Project tree helpers](src/shared/project-tree.ts) group visible records within each agent,
-preserve source project/session identities, and sort the combined sessions newest first.
+preserve source project/session identities, and supply oldest-created-first defaults to the persisted
+session arrangement; explicit manual ranks override chronological presentation.
 [SessionList](src/renderer/components/SessionList.tsx) receives explicit group members rather than
 reading the globally selected project. Expanded groups load their members' histories, report
 loading/errors with retry, and refresh when the inventory changes. Resume, rename, and deletion
@@ -477,9 +529,27 @@ session deletion uses provider/native identity to close matching open tabs throu
 attached shells, pending commands and hook registrations. Partial failures retain their tabs; unrelated
 provider collisions and unbound tabs remain open. The same deletion review warns about terminal closure.
 
+SessionDeleteDialog shares single/batch review with optional linked-worktree cleanup. A bounded,
+main-owned preview token captures native identities and additional checkout histories; checking cleanup
+explicitly includes the displayed extra sessions. A dependency-injected deletion service reports each
+history outcome before the renderer closes successful tabs. A separate finish phase waits for actual
+native PTY exit, then revalidates histories and Git identity under a canonical-checkout guard. The guard
+excludes concurrent app launches/mutations during removal; normal parallel PTY starts share leases.
+Only non-force `git worktree remove` is used. Branches remain; dirty/ignored/untracked data, locks,
+ambiguous histories or other app terminals retain the checkout with a warning. External processes are
+not reliably detectable. History success never implies checkout success or rollback.
+
+Ctrl+W/Cmd+W and tab buttons share TerminalTabs.requestClose and the existing confirmation/preference;
+modal guards prevent closing an underlying terminal, and close never removes native history.
+
 [OperationNotices](src/renderer/components/OperationNotices.tsx) stays mounted at App level so pending
 work and result/error notices survive closing a dialog or collapsing a project. It exposes accessible
 status/alert messages and dismissible results, with an explicit **Open project** action for creation.
+Each completed notice, including failures and warning results, gets a single 15-second timeout.
+Expiry is independent of window focus/visibility and pointer/keyboard interaction. Only terminal
+operation states expire; queued/running jobs remain. Stable per-card effects avoid resetting expiry on
+unrelated rerenders and cancel timers on unmount. The former foreground subscription/IPC is removed;
+notification dismissal does not cancel jobs or change their outcomes.
 Terminal readiness/provider compatibility remains a separate PTY concern; a queued launch is not a
 verified live agent response. Quitting or reloading can interrupt renderer-managed queued work.
 

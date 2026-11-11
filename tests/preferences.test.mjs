@@ -103,6 +103,24 @@ test('legacy preferences default typography options and preserve existing settin
   });
 });
 
+test('removed local-test branch mode reads as folder without changing saved data or other preferences', async (t) => {
+  const dir = await mkdtemp(join(process.cwd(), '.pa-preferences-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'preferences.json');
+  const original = JSON.stringify({
+    sessionNames: { 'claude:one': 'Keep title' },
+    fontSize: 14,
+    projects: [],
+    workspaceMode: 'branch',
+  });
+  await writeFile(path, original);
+  const store = new PreferencesStore(path);
+  assert.equal((await store.read()).workspaceMode, 'folder');
+  assert.equal((await store.read()).sessionNames['claude:one'], 'Keep title');
+  assert.equal(await readFile(path, 'utf8'), original);
+  await assert.rejects(store.setWorkspaceMode('branch'), /folder or worktree/);
+});
+
 test('invalid font families reject without overwriting preferences or poisoning later writes', async (t) => {
   const dir = await mkdtemp(join(process.cwd(), '.pa-preferences-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

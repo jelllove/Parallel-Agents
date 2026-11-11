@@ -13,9 +13,13 @@ export function validateSessionName(name: string): string {
 export function applySessionNames<T extends { agent: AgentId; id: string; title: string }>(
   sessions: T[],
   names: Record<string, string>,
+  generated: Record<string, { title?: string }> = {},
 ): T[] {
   return sessions.map((session) => ({
     ...session,
-    title: names[`${session.agent}:${session.id}`] ?? session.title,
+    title:
+      names[`${session.agent}:${session.id}`] ??
+      generated[`${session.agent}:${session.id}`]?.title ??
+      session.title,
   }));
 }

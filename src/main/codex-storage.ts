@@ -12,6 +12,7 @@ export interface CodexStoredSession {
   cwd: string;
   title: string;
   timestamp: number;
+  createdAt?: number;
   version: string | null;
   filePath: string;
 }
@@ -20,6 +21,7 @@ export interface CodexProjectGroup {
   realPath: string;
   sessionCount: number;
   lastActivity: number;
+  createdAt?: number;
 }
 
 interface CodexSessionIndexEntry {
@@ -32,6 +34,7 @@ interface ParsedRollout {
   cwd: string;
   fallbackTitle: string | null;
   timestamp: number;
+  createdAt?: number;
   version: string | null;
   filePath: string;
 }
@@ -156,6 +159,8 @@ async function readRollout(filePath: string): Promise<ParsedRollout | null> {
             parseTimestamp(payload.timestamp) ??
             parseTimestamp(record.timestamp) ??
             fallbackTimestamp,
+          createdAt:
+            parseTimestamp(payload.timestamp) ?? parseTimestamp(record.timestamp) ?? undefined,
           version: typeof payload.cli_version === 'string' ? payload.cli_version : null,
           filePath,
         };
@@ -198,6 +203,7 @@ export async function listCodexSessions(
         cwd: session.cwd,
         title: indexed?.title ?? session.fallbackTitle ?? '(no user message)',
         timestamp: indexed?.timestamp ?? session.timestamp,
+        createdAt: session.createdAt,
         version: session.version,
         filePath: session.filePath,
       },
@@ -217,11 +223,14 @@ export function groupCodexSessionsByProject(sessions: CodexStoredSession[]): Cod
         realPath: session.cwd,
         sessionCount: 1,
         lastActivity: session.timestamp,
+        ...(session.createdAt === undefined ? {} : { createdAt: session.createdAt }),
       });
       continue;
     }
     existing.sessionCount += 1;
     existing.lastActivity = Math.max(existing.lastActivity, session.timestamp);
+    if (session.createdAt !== undefined)
+      existing.createdAt = Math.min(existing.createdAt ?? session.createdAt, session.createdAt);
   }
   return [...groups.values()];
 }

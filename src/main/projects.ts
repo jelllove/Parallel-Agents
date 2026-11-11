@@ -1,8 +1,12 @@
 import { readdir, stat, readFile, rm } from 'fs/promises';
 import { join, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
-import { loadConfig, forgetProject } from './config.ts';
-import { readCopilotSessionStart } from './session-metadata.ts';
+import { loadConfig, forgetProject, reconcileProjectOrder } from './config.ts';
+import {
+  readCopilotSessionStart,
+  readClaudeSessionMeta,
+  readGeminiSessionMeta,
+} from './session-metadata.ts';
 import {
   deleteCodexProject,
   groupCodexSessionsByProject,
@@ -24,6 +28,8 @@ import {
 } from './worktrees.ts';
 import { AGENT_IDS } from './agent-providers.ts';
 import { orderedAgents } from '../shared/sidebar-order.ts';
+import { eligibleRecentFolders } from './workspace-history.ts';
+import { validateSessionName } from '../shared/session-presentation.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -104,6 +110,7 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
     return [];
   }
 
+  const knownCreation = (await loadConfig()).sidebarArrangement?.projects.claude?.createdAt ?? {};
   const out: Project[] = [];
   for (const dirName of entries) {
     const full = join(CLAUDE_ROOT, dirName);
@@ -119,13 +126,17 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
 
     let sessionCount = 0;
     let lastActivity: number | null = null;
+    let createdAt: number | undefined;
     try {
       const files = await readdir(full);
       for (const f of files) {
         if (!f.endsWith('.jsonl')) continue;
         sessionCount++;
         try {
-          const s = await stat(join(full, f));
+          const file = join(full, f);
+          const s = await stat(file);
+          const creation = knownCreation[id] ?? (await readClaudeSessionMeta(file))?.createdAt;
+          if (creation !== undefined) createdAt = Math.min(createdAt ?? creation, creation);
           if (lastActivity === null || s.mtimeMs > lastActivity) lastActivity = s.mtimeMs;
         } catch {}
       }
@@ -142,6 +153,7 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
       hidden: hidden.has(id),
       sessionCount,
       lastActivity,
+      createdAt,
     });
   }
   return out;
@@ -155,6 +167,7 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
     return [];
   }
 
+  const knownCreation = (await loadConfig()).sidebarArrangement?.projects.gemini?.createdAt ?? {};
   const out: Project[] = [];
   for (const dirName of entries) {
     const full = join(GEMINI_TMP_ROOT, dirName);
@@ -177,13 +190,17 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
 
     let sessionCount = 0;
     let lastActivity: number | null = null;
+    let createdAt: number | undefined;
     try {
       const chatFiles = await readdir(join(full, 'chats'));
       for (const f of chatFiles) {
         if (!f.endsWith('.jsonl')) continue;
         sessionCount++;
         try {
-          const s = await stat(join(full, 'chats', f));
+          const file = join(full, 'chats', f);
+          const s = await stat(file);
+          const creation = knownCreation[id] ?? (await readGeminiSessionMeta(file))?.createdAt;
+          if (creation !== undefined) createdAt = Math.min(createdAt ?? creation, creation);
           if (lastActivity === null || s.mtimeMs > lastActivity) lastActivity = s.mtimeMs;
         } catch {}
       }
@@ -200,6 +217,7 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
       hidden: hidden.has(id),
       sessionCount,
       lastActivity,
+      createdAt,
     });
   }
   return out;
@@ -225,6 +243,7 @@ async function listCopilotProjects(
       realPath: string;
       sessionCount: number;
       lastActivity: number | null;
+      createdAt?: number;
     }
   >();
 
@@ -259,11 +278,14 @@ async function listCopilotProjects(
         realPath: meta.projectPath,
         sessionCount: 1,
         lastActivity: activityTs || null,
+        createdAt: meta.createdAt,
       });
       continue;
     }
 
     existing.sessionCount += 1;
+    if (meta.createdAt !== undefined)
+      existing.createdAt = Math.min(existing.createdAt ?? meta.createdAt, meta.createdAt);
     if (activityTs && (existing.lastActivity === null || activityTs > existing.lastActivity)) {
       existing.lastActivity = activityTs;
     }
@@ -284,6 +306,7 @@ async function listCopilotProjects(
       hidden: hidden.has(id),
       sessionCount: agg.sessionCount,
       lastActivity: agg.lastActivity,
+      createdAt: agg.createdAt,
     });
   }
   return { projects: out, valid: true, candidateCount, parsedCount };
@@ -305,6 +328,7 @@ async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Prom
         hidden: hidden.has(id),
         sessionCount: group.sessionCount,
         lastActivity: group.lastActivity,
+        createdAt: group.createdAt,
       };
     }),
   );
@@ -344,7 +368,10 @@ async function listDiscoveredProjects(): Promise<Project[]> {
       const bi = orderIndex(b);
       if (ai !== bi) return ai - bi;
     }
-    return (b.lastActivity ?? 0) - (a.lastActivity ?? 0);
+    return (
+      (a.createdAt ?? Number.MAX_SAFE_INTEGER) - (b.createdAt ?? Number.MAX_SAFE_INTEGER) ||
+      a.id.localeCompare(b.id)
+    );
   });
   return out;
 }
@@ -369,6 +396,7 @@ export async function listProjects(): Promise<Project[]> {
         id: registered.id,
         realPath: registered.realPath,
         historyProjectId: match.id,
+        createdAt: match.createdAt ?? registered.createdAt,
         displayName: displayNameFor(registered.realPath),
         exists: await pathExists(registered.realPath),
         pinned: cfg.pinned.includes(registered.id),
@@ -390,26 +418,31 @@ export async function listProjects(): Promise<Project[]> {
       lastActivity: null,
     });
   }
-  const agentOrder = orderedAgents(cfg);
-  return addProjectWorktreeMetadata(
-    out.sort((a, b) => {
+  const decorated = await addProjectWorktreeMetadata(out);
+  const arranged = await reconcileProjectOrder(decorated);
+  const agentOrder = orderedAgents(arranged);
+  return decorated
+    .map((project) => ({
+      ...project,
+      pinned: arranged.pinned.includes(project.id),
+      hidden: arranged.hidden.includes(project.id),
+      createdAt:
+        arranged.sidebarArrangement?.projects[project.agent]?.createdAt[project.id] ??
+        project.createdAt,
+    }))
+    .sort((a, b) => {
       if (a.agent !== b.agent) return agentOrder.indexOf(a.agent) - agentOrder.indexOf(b.agent);
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      if (a.agent === b.agent) {
-        const order = cfg.projectOrder[a.agent] ?? [];
-        const ai = order.indexOf(a.id);
-        const bi = order.indexOf(b.id);
-        if (ai !== bi) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
-      }
-      return (b.lastActivity ?? 0) - (a.lastActivity ?? 0);
-    }),
-  );
+      const order = arranged.projectOrder[a.agent] ?? [];
+      return order.indexOf(a.id) - order.indexOf(b.id);
+    });
 }
 
 export async function createProject(options: NewProjectOptions): Promise<Project> {
   if (!options || !AGENT_IDS.includes(options.agent)) throw new Error('Choose a valid agent.');
   if (options.mode !== 'folder' && options.mode !== 'worktree')
     throw new Error('Invalid project mode.');
+  validateSessionName(options.sessionTitle);
   if (
     typeof options.basePath !== 'string' ||
     !isAbsolute(options.basePath) ||
@@ -440,7 +473,7 @@ export async function createProject(options: NewProjectOptions): Promise<Project
   try {
     await preferences.registerProject(
       { id, agent: options.agent, realPath, historyPath },
-      options.mode === 'worktree' ? [options.basePath] : [],
+      await eligibleRecentFolders([options.mode === 'worktree' ? options.basePath : realPath]),
     );
   } catch (error) {
     throw new Error(
@@ -453,6 +486,7 @@ export async function createProject(options: NewProjectOptions): Promise<Project
     existing ?? {
       id,
       agent: options.agent,
+      createdAt: Date.now(),
       realPath,
       dirName: `manual:${realPath}`,
       displayName: displayNameFor(realPath),

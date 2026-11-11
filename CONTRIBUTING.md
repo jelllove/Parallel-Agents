@@ -180,6 +180,10 @@ The fixture checks:
 - Git IPC comparing the index to later working-tree content, and filesystem IPC reading only
   the fixture's visible entries.
 - A real native `cmd.exe` (Windows) or POSIX shell PTY executing an echo and exiting successfully.
+- Clipboard regressions cancel the native key default before custom paste; returning false from
+  xterm's custom handler alone does not prevent a second browser paste. Assert exactly one PTY write
+  and use Terminal.paste for newline/bracketed-paste behavior. Use generated text and an injected
+  clipboard, not the user's real clipboard; late reads after terminal disposal must be ignored.
 - Hook-aware inert Claude fixture commands execute the real silent reporter, with completion distinct
   from CLI exit. Focused activity tests cover state mapping, root/session identity, token revocation,
   bounded payloads, launch-only configuration and additive Codex installation in disposable paths.
@@ -189,7 +193,9 @@ The fixture checks:
   Canonicalize disposable hook-fixture roots before testing strict link rejection: macOS temporary
   roots can themselves be system symlinks. Missing reporter commands may close stdin immediately;
   fixture writers tolerate only EPIPE while still verifying silent successful command exit.
-  Do not enable hooks in real user configuration to make a regression pass.
+  Do not enable hooks in real user configuration to make a regression pass. Unopened history rows
+  show ○ regardless of stale activity; inactive linked tabs retain their status. Provider collisions,
+  unbound draft tabs and shared-history aliases must not confuse this window-membership distinction.
 - The initial inert agent command reaching the mounted terminal and both staged/working fixture
   revisions appearing in the Monaco diff with HTTP(S) blocked.
 - Keyboard-accessible project agent groups without the global CLI banner, and controlled update
@@ -198,26 +204,59 @@ The fixture checks:
   maximum app font size, or when maximized. Minimize/restore and fullscreen preserve the action
   and correct caption spacing. No update is downloaded or installed by this fixture.
 - Windows has no application menu, and pressing Alt does not reveal a menu bar.
-- Project-name selection launches no terminal. The adjacent project **+** creates independent sessions;
-  deleting a fixture history closes only its matching tab and retains an unrelated worktree tab.
+- Project-name selection launches no terminal. Project **+** opens the original New Project dialog with provider/folder prefilled;
+  accepted creation requires a manual title and produces independent tabs with immediately named draft
+  rows. Exact launch identity merges draft/native rows and persists the name without guessing histories
+  or calling a title model. The inert CLI rejects unexpected print/title requests.
+  Deleting a fixture history closes only its matching tab and retains an unrelated worktree tab.
   Unit tests additionally cover aliases/provider collisions, failed deletion and attached-shell cleanup.
 - Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
   pin buttons persist both agent and project ordering without recreating the running terminal.
-  Extra project folders and configuration writes belong only to the disposable fixture.
+  Extra project folders and configuration writes belong only to the disposable fixture. Stable-order
+  regressions distinguish immutable creation dates from activity/mtime and verify oldest-first
+  migration once, manual Project/session moves, concurrent persistence and draft-to-native slot
+  promotion. The native fixture checks session grip Alt+Up/Down without opening a terminal.
+  Refresh, title updates and restart preserve existing positions; temporary scan absence is not deletion.
+  The original worktree fixtures retain Git/path validation and preserve dirty base checkout data;
+  dialog routing must not introduce same-folder branch switching or change worktree creation.
+- Manual-title tests use disposable preferences and exact launch proofs. Preserve existing legacy
+  names without resuming generation; initial names cannot overwrite later pencil renames or stale
+  closed/deleted launches. No title CLI/helper/model requests are allowed.
+- Repository selection tests use local Git refs only, including main/master/develop priority, tags,
+  remotes, detached/unborn HEAD and custom commits. Never fetch or checkout to populate the selector.
+  Validate session names before Git creation; test Unicode, blank, multiline and overlong titles.
 - Yellow/amber active-session backgrounds and arrows follow tab switches in both themes. Batch
   checkboxes do not change the active terminal; captured acknowledgement deletes only checked fixture
   histories and refreshes rows automatically. Unit tests cover partial failures, alias/count refresh,
   selection pruning and stale reads. Session deletion uses acknowledgement
   without typed text, preserves cancellation, and publishes background completion. Slow fixture project
   creation/deletion close their dialogs before IPC settles; later navigation retains focus.
-- New Project displays settings/workspace/folder icons without a recent-folder search field.
+- New Project uses a collapsed recent-folder dropdown with local icons, full paths and no search field.
+  Linked worktrees/subfolders are excluded using Git metadata; do not filter by folder spelling.
   Changing workspace mode persists even after cancelling and opening another agent's dialog.
+  Agent-picker fixtures exercise separate New/Options actions and capture both themes, plus long
+  Windows/POSIX paths at minimum window size and maximum font. All Options buttons must retain the
+  correct provider without creating tabs. Date-default tests freeze the dialog's local day across
+  midnight, check a non-UTC timezone, and preserve explicit branch/destination/start-point requests.
+- Ctrl+W/Cmd+W must use the tab-close confirmation, not delete history or close the app. Empty worktree
+  placeholders are hidden without removing inventory. Optional cleanup tests use disposable Git repos:
+  explicitly reviewed additional sessions, no-force removal, branches retained, dirty/locked/ambiguous
+  histories and pending/running/closing PTY safety. Never run cleanup fixtures against user checkouts.
+- Notification expiry tests use fake timers to check the exact 15-second boundary for all completed
+  outcomes, including errors/warnings, without focus/visibility/hover prerequisites. Keep pending jobs
+  and Dismiss; verify rerenders do not restart expiry and unmount cancels timers. The native smoke
+  checks completed deletion notices expire while hidden. Call browser timers normally rather than
+  rebinding them as helper-object methods, which can produce “Illegal invocation”.
+  Run secret scanning after Git-worktree fixture tests finish; scanning while they create temporary
+  nested repositories can report an invalid Git source path rather than a secret finding.
 - The original compact **About** entry (without a status badge) opening the installed-version/update controls and the exact
   author website/latest-release links crossing IPC. The fixture replaces Electron's external
   browser opener with an in-memory recorder; it does not open a browser or contact those sites.
 - Native fixture teardown tracks both repository and app.asar-resolved PTYs and waits for actual
   exit callbacks before Electron exits; asynchronous
   selection assertions wait for the intended session, not merely any previously active row.
+  Background throttling is disabled only on the fixture webContents so animation-frame waits do not
+  suspend when another window covers it; the application runtime and smoke deadlines are unchanged.
 - Safe handling of the `window-all-closed` tray lifecycle event. This is not a full tray/installer
   end-to-end test.
 

@@ -9,23 +9,23 @@ import { ActionIcon } from './ActionIcon';
 import { SessionList } from './SessionList';
 import { groupProjectTrees, collectProjectSessions } from '../../shared/project-tree';
 import type { ProjectTree, ProjectSession } from '../../shared/project-tree';
-import { queueProjectDeletion, queueSessionsDeletion } from '../store/workspace-operations';
-import { ConfirmDialog } from './ConfirmDialog';
+import { queueProjectDeletion } from '../store/workspace-operations';
+import { SessionDeleteDialog } from './SessionDeleteDialog';
 
-export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) => void }) {
+export function ProjectList({
+  onNewProject,
+}: {
+  onNewProject: (agent: AgentId, project?: Project) => void;
+}) {
   const projects = useAppStore((s) => s.projects);
   const sessions = useAppStore((s) => s.sessions);
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<string[]>([]);
   const [confirmSessions, setConfirmSessions] = useState<ProjectSession[] | null>(null);
-  const [sessionDeleteError, setSessionDeleteError] = useState('');
   const refresh = useAppStore((s) => s.refreshProjectsAndAgents);
   const refreshing = useAppStore((s) => s.inventoryRefreshing);
   const inventoryError = useAppStore((s) => s.inventoryError);
   const selectedId = useAppStore((s) => s.selectedProjectId);
-  const startProjectSession = useAppStore((s) => s.startProjectSession);
-  const [startingProjects, setStartingProjects] = useState<string[]>([]);
-  const pendingProjectStarts = useRef(new Set<string>());
   const selectProject = useAppStore((s) => s.selectProject);
   const sessionGuideProjectId = useAppStore((s) => s.sessionGuideProjectId);
   const sessionGuideSeq = useAppStore((s) => s.sessionGuideSeq);
@@ -251,21 +251,6 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
     }
   }
 
-  async function startSession(project: Project) {
-    if (pendingProjectStarts.current.has(project.id)) return;
-    pendingProjectStarts.current.add(project.id);
-    setStartingProjects((ids) => [...ids, project.id]);
-    setOpenError('');
-    try {
-      await startProjectSession(project.id);
-    } catch (error) {
-      setOpenError(error instanceof Error ? error.message : String(error));
-    } finally {
-      pendingProjectStarts.current.delete(project.id);
-      setStartingProjects((ids) => ids.filter((id) => id !== project.id));
-    }
-  }
-
   function handleContext(e: React.MouseEvent, p: Project) {
     e.preventDefault();
     setAgentMenu(null);
@@ -382,7 +367,6 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
             aria-label="Delete selected sessions"
             disabled={!selectedSessionRows.length}
             onClick={() => {
-              setSessionDeleteError('');
               setConfirmSessions(
                 selectedSessionRows.map(({ project, session }) => ({
                   project: { ...project },
@@ -755,17 +739,8 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
                           type="button"
                           className="project-new-session"
                           aria-label={`New session for ${tree.name}`}
-                          title={
-                            startingProjects.includes(p.id)
-                              ? 'Preparing new session...'
-                              : `New session · ${agentName(p.agent)} · ${p.realPath}`
-                          }
-                          disabled={
-                            !sidebarTreeLoaded ||
-                            !p.exists ||
-                            !status[p.agent]?.available ||
-                            startingProjects.includes(p.id)
-                          }
+                          title={`Create branch or worktree · ${agentName(p.agent)} · ${p.realPath}`}
+                          disabled={!sidebarTreeLoaded || !p.exists || !status[p.agent]?.available}
                           draggable={false}
                           onDragStart={(event) => {
                             event.preventDefault();
@@ -773,7 +748,7 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
                           }}
                           onClick={(event) => {
                             event.stopPropagation();
-                            void startSession(p);
+                            onNewProject(p.agent, p);
                           }}
                         >
                           +
@@ -926,45 +901,15 @@ export function ProjectList({ onNewProject }: { onNewProject: (agent: AgentId) =
         </div>
       )}
       {confirmSessions && (
-        <ConfirmDialog
-          title={`Delete ${confirmSessions.length} sessions?`}
-          message={
-            <>
-              <p>
-                This permanently deletes the selected session histories. This cannot be undone.
-                Working folders are not deleted. Open tabs and terminals for these sessions will
-                close.
-              </p>
-              <ul className="session-delete-review" aria-label="Sessions to delete">
-                {confirmSessions.map(({ project, session }) => (
-                  <li key={`${session.agent}:${session.id}`}>
-                    <strong>{session.title || '(empty)'}</strong>
-                    <div>
-                      {session.agent} · {project.displayName}
-                    </div>
-                    <div>{project.realPath}</div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          }
-          confirmText="Delete forever"
-          destructive
-          warning={sessionDeleteError}
-          onConfirm={() => {
-            if (queueSessionsDeletion(confirmSessions) === null) {
-              setSessionDeleteError(
-                'One or more selected sessions already have a pending deletion.',
-              );
-              return;
-            }
+        <SessionDeleteDialog
+          targets={confirmSessions}
+          onAccepted={() => {
             setConfirmSessions(null);
             setSelectedSessionKeys([]);
             setSessionSelectionMode(false);
           }}
           onCancel={() => {
             setConfirmSessions(null);
-            setSessionDeleteError('');
           }}
         />
       )}

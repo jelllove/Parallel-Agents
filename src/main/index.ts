@@ -18,6 +18,7 @@ import { loadLoginPath } from './login-path.ts';
 import { applicationMenu, hidesOnClose } from './application-menu.ts';
 import { titleBarOverlayFor } from './window-titlebar.ts';
 import { activityRuntime } from './activity-service.ts';
+import { managedSessions } from './managed-session-runtime.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -32,6 +33,7 @@ function prepareToQuit(): void {
   git.detachWindow();
   git.unwatchAll();
   ptyManager.killAll();
+  managedSessions.close();
   void activityRuntime.close();
 }
 

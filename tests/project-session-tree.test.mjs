@@ -126,7 +126,7 @@ test('inline sessions use their explicit project group, not the selected project
   assert.match(html, /feature\/list/);
   assert.match(html, /class="session-branch-icon"/);
   assert.doesNotMatch(html, /unrelated session/);
-  assert.ok(html.indexOf('worktree session') < html.indexOf('base session'));
+  assert.ok(html.indexOf('base session') < html.indexOf('worktree session'));
 });
 
 test('grouping preserves source identities, hidden filtering and absent parents', async () => {
@@ -148,9 +148,9 @@ test('grouping preserves source identities, hidden filtering and absent parents'
   });
   assert.deepEqual(
     rows.map((row) => row.project.id),
-    [child.id, root.id],
+    [root.id, child.id],
   );
-  assert.equal(rows[0].session.projectId, child.id);
+  assert.equal(rows[1].session.projectId, child.id);
   const duplicate = session(child, 'same-history', 3);
   assert.deepEqual(
     collectProjectSessions([root, child], {

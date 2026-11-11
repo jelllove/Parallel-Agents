@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { OperationResult } from './background-operations.ts';
+import type { ManagedTab } from '../../shared/managed-session.ts';
 import { DEFAULT_AGENT_ORDER } from '../../shared/types.ts';
 import type {
   Project,
@@ -72,6 +73,7 @@ interface AppState {
   tabProjectId: Record<string, string>;
   tabSessionId: Record<string, string | null>;
   tabSessionBaseline: Record<string, string[]>;
+  managedTabs: Record<string, ManagedTab>;
   sessionLinkRequest: SessionLinkRequest | null;
   pendingInitialCommand: Record<string, PendingLaunch>;
   tabAgent: Record<string, AgentId>;
@@ -118,6 +120,7 @@ interface AppState {
     extraPath?: string[],
     shouldFocus?: () => boolean,
     tabId?: string,
+    sessionTitle?: string,
   ) => Promise<void>;
   openSessionTab: (projectId: string, session: Session, separate?: boolean) => Promise<void>;
   requestSessionLink: (request: SessionLinkRequest | null) => void;
@@ -140,6 +143,9 @@ interface AppState {
   deleteMissingProjects: (ids: string[]) => Promise<OperationResult>;
   reorderProjects: (agent: AgentId, fromId: string, toId: string) => Promise<void>;
   loadSessions: (projectId: string) => Promise<void>;
+  applyDeletedSessions: (
+    targets: import('../../shared/session-deletion').ReviewedSession[],
+  ) => void;
   deleteSession: (projectId: string, sessionId: string) => Promise<OperationResult>;
   deleteSessions: (targets: ProjectSession[], stopOnError?: boolean) => Promise<OperationResult>;
   renameSession: (projectId: string, sessionId: string, title: string) => Promise<void>;
@@ -185,6 +191,7 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
 const projectSessionStarts = new Map<string, Promise<void>>();
 let nextNewSessionTab = 0;
 let historyMutationVersion = 0;
+export const sessionHistoryRevision = () => historyMutationVersion;
 let projectReadVersion = 0;
 const sessionReadVersions = new Map<string, number>();
 let layoutWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -218,6 +225,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tabProjectId: {},
   tabSessionId: {},
   tabSessionBaseline: {},
+  managedTabs: {},
   sessionLinkRequest: null,
   pendingInitialCommand: {},
   tabAgent: {},
@@ -382,6 +390,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     extraPath = [],
     shouldFocus = () => true,
     tabId = projectId,
+    sessionTitle,
   ) {
     if (get().openTabs.includes(tabId)) {
       if (shouldFocus()) set({ activeTabId: tabId });
@@ -399,6 +408,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? get().tabShellProfile
       : { ...get().tabShellProfile, [tabId]: 'default' as SessionShellProfile };
     const next: Partial<AppState> = {
+      managedTabs: {
+        ...get().managedTabs,
+        [tabId]: { createdAt: Date.now(), sessionTitle, launchId: crypto.randomUUID() },
+      },
       tabProjectId: { ...get().tabProjectId, [tabId]: projectId },
       tabSessionId: { ...get().tabSessionId, [tabId]: null },
       tabSessionBaseline:
@@ -496,6 +509,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().tabSessionId[id] === sessionId,
     );
     if (duplicate) throw new Error('This session is already linked to another tab.');
+    const launchId = get().managedTabs[tabId]?.launchId;
+    if (launchId)
+      void window.api.sessions
+        .promoteDraft?.(projectId, launchId, sessionId)
+        .then(() => get().loadSessions(projectId))
+        .catch(() => {
+          set({
+            inventoryError:
+              'Session linked, but saving its name/position or refreshing history failed. Refresh to retry.',
+          });
+        });
     set({
       tabSessionId: { ...get().tabSessionId, [tabId]: sessionId },
       tabSessionBaseline: omitRecordKeys(get().tabSessionBaseline, [tabId]),
@@ -533,6 +557,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tabProjectId: omitRecordKeys(tabProjectId, uniqueIds),
       tabSessionId: omitRecordKeys(tabSessionId, uniqueIds),
       tabSessionBaseline: omitRecordKeys(get().tabSessionBaseline, uniqueIds),
+      managedTabs: omitRecordKeys(get().managedTabs, uniqueIds),
       sessionLinkRequest: uniqueIds.includes(get().sessionLinkRequest?.tabId ?? '')
         ? null
         : get().sessionLinkRequest,
@@ -779,6 +804,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  applyDeletedSessions(targets) {
+    if (!targets.length) return;
+    historyMutationVersion++;
+    const keys = new Set(targets.map((target) => `${target.agent}:${target.sessionId}`));
+    const tabs = get().openTabs.filter((tab) =>
+      keys.has(`${get().tabAgent[tab]}:${get().tabSessionId[tab]}`),
+    );
+    if (tabs.length) get().closeTabs(tabs);
+    set((state) => ({
+      sessions: Object.fromEntries(
+        Object.entries(state.sessions).map(([id, sessions]) => [
+          id,
+          sessions.filter((session) => !keys.has(`${session.agent}:${session.id}`)),
+        ]),
+      ),
+    }));
+  },
+
   async deleteSession(projectId, sessionId) {
     const project = get().findProject(projectId) ?? ({ id: projectId } as Project);
     const session =
@@ -892,8 +935,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     const focus =
       shouldFocus ?? (() => get().selectedProjectId === selected && get().activeTabId === active);
     const project = await window.api.projects.create(options);
-    set({ projects: [...get().projects.filter((p) => p.id !== project.id), project] });
+    set((state) => ({
+      projects: state.projects.some((item) => item.id === project.id)
+        ? state.projects.map((item) => (item.id === project.id ? project : item))
+        : [...state.projects, project],
+    }));
     try {
+      const tabId = `${project.id}::new:${++nextNewSessionTab}`;
       let focused = false;
       await get().openTabWithAgent(
         project.id,
@@ -901,8 +949,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         startCommandFor(options.agent),
         extraPathFor(get().agentStatus[options.agent]?.path),
         () => (focused = focus()),
+        tabId,
+        options.sessionTitle,
       );
-      if (focused && get().activeTabId === project.id) set({ selectedProjectId: project.id });
+      if (focused && get().activeTabId === tabId) set({ selectedProjectId: project.id });
+      const tree = groupProjectTrees(get().projects, true).find((item) =>
+        item.projects.some((item) => item.id === project.id),
+      );
+      if (tree && get().sidebarTreeLoaded) {
+        if (get().collapsedAgents.includes(project.agent))
+          await get().toggleAgentGroup(project.agent);
+        await get().setProjectExpanded(tree.id, true);
+      }
       return { projectId: project.id, message: `Project ready: ${project.displayName}` };
     } catch (error) {
       return {

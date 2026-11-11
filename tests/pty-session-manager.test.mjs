@@ -134,6 +134,49 @@ test('the current PTY forwards output and exit and removes its own entry', (t) =
   assert.equal(manager.has('tab'), false);
 });
 
+test('checkout removal waits for killed native PTYs and rejects active or starting terminals', async (t) => {
+  const { manager, spawned } = setup(t);
+  await manager.spawn('tab', '/checkout', 80, 24);
+  const contains = async (cwd) => cwd === '/checkout';
+  await assert.rejects(manager.waitForCheckoutIdle(contains), /open or starting/);
+  manager.kill('tab');
+  let done = false;
+  const waiting = manager.waitForCheckoutIdle(contains).then(() => {
+    done = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(done, false);
+  spawned[0].emitExit();
+  await waiting;
+  assert.equal(done, true);
+  const pending = Promise.withResolvers();
+  const starting = manager.spawn(
+    'pending',
+    '/checkout',
+    80,
+    24,
+    'claude',
+    [],
+    undefined,
+    () => pending.promise,
+  );
+  await assert.rejects(manager.waitForCheckoutIdle(contains), /open or starting/);
+  manager.kill('pending');
+  pending.resolve(undefined);
+  await starting;
+});
+
+test('checkout removal times out if a killed PTY never emits its exit callback', async (t) => {
+  const { manager } = setup(t);
+  await manager.spawn('tab', '/checkout', 80, 24);
+  manager.kill('tab');
+  const waiting = manager.waitForCheckoutIdle(async () => true, 100);
+  const rejected = assert.rejects(waiting, /Timed out/);
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(100);
+  await rejected;
+});
+
 test('terminal dimensions retain their existing minimum bounds', (t) => {
   const { manager, spawned } = setup(t);
   manager.spawn('tab', '.', 1, 1);

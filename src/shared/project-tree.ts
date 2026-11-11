@@ -9,7 +9,7 @@ export interface ProjectTree {
   pinned: boolean;
 }
 
-function pathKey(path: string): string {
+export function pathKey(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
   return /^(?:[a-z]:|\/\/)/i.test(normalized) ? normalized.toLowerCase() : normalized;
 }
@@ -64,5 +64,9 @@ export function collectProjectSessions(
       }
     }
   }
-  return [...rows.values()].sort((a, b) => b.session.timestamp - a.session.timestamp);
+  return [...rows.values()].sort(
+    (a, b) =>
+      (a.session.createdAt ?? a.session.timestamp) - (b.session.createdAt ?? b.session.timestamp) ||
+      `${a.session.agent}:${a.session.id}`.localeCompare(`${b.session.agent}:${b.session.id}`),
+  );
 }

@@ -13,6 +13,7 @@ import {
 import { ShellPicker } from './ShellPicker';
 import { RenameSessionDialog } from './RenameSessionDialog';
 import { SessionLinkDialog } from './SessionLinkDialog';
+import { handleSessionCloseShortcut } from '../session-shortcuts';
 
 interface TabEntry {
   tabId: string;
@@ -26,6 +27,7 @@ export function TerminalTabs() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const tabProjectId = useAppStore((s) => s.tabProjectId);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
+  const managedTabs = useAppStore((s) => s.managedTabs);
   const findProject = useAppStore((s) => s.findProject);
   const sessionsByProject = useAppStore((s) => s.sessions);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
@@ -74,7 +76,8 @@ export function TerminalTabs() {
             project,
             sessionId: null,
             label:
-              tabId === projectId ? project.displayName : `${project.displayName} · New session`,
+              managedTabs[tabId]?.sessionTitle ||
+              (tabId === projectId ? project.displayName : `${project.displayName} · New session`),
           },
         ];
       }
@@ -90,7 +93,7 @@ export function TerminalTabs() {
         },
       ];
     });
-  }, [openTabs, tabProjectId, findProject, tabSessionId, sessionsByProject, projects]);
+  }, [openTabs, tabProjectId, findProject, tabSessionId, sessionsByProject, projects, managedTabs]);
   const tabEntryById = useMemo(
     () => new Map(tabEntries.map((entry) => [entry.tabId, entry])),
     [tabEntries],
@@ -143,6 +146,23 @@ export function TerminalTabs() {
       confirmText: 'Close tabs',
     });
   }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      handleSessionCloseShortcut(
+        event,
+        window.api.platform,
+        openTabs,
+        activeTabId,
+        (id) => requestClose([id]),
+        Boolean(
+          document.querySelector('dialog[open], .modal-backdrop, .modal-overlay, .diff-backdrop'),
+        ),
+      );
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   function handleCloseClick(tabId: string, e: React.MouseEvent) {
     e.stopPropagation();

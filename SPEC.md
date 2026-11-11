@@ -101,12 +101,25 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 
 ### 5.2 Inline sessions and background operations
 
-- Sessions are nested under expandable projects, ordered newest first, with worktree branch metadata.
-- Project-name clicks only select/expand history, without auto-starting or resuming a CLI. Add **+**
-  beside each project's pin for explicit new-session creation in that row's provider/checkout. A new
-  session has its own unbound tab and retains explicit native-session linking. Repeated completed +
-  actions create independent tabs; duplicate pending preparations are shared. Disable unavailable
-  directories/CLIs and avoid overriding navigation while preparation is pending.
+- Projects and nested sessions default to creation time ascending (oldest first), within existing Agent
+  and pinned partitions, with worktree branch metadata. Reset prior automatic/project ranks once on
+  upgrade, then preserve fixed positions across activity, selection, title changes, refresh and restart.
+- Project-name clicks only select/expand history, without auto-starting or resuming a CLI. Project **+**
+  only opens the existing New Project dialog, prefilled with its provider/folder. Preserve the original
+  open-folder/worktree options, remembered mode, validation and Git creation behavior. Do not add a
+  same-folder branch-switch mode or automatically initialize Git. Cancel changes nothing.
+- Accepted creation produces an independent tab even in an already registered project, with an immediate
+  inline draft row with its entered manual title before native history exists. Draft rows focus their own tab and are excluded
+  from permanent-history deletion. Link only with exact managed launch/native/checkout proof, or explicit
+  user confirmation; never guess identity from timestamps or a single new history.
+- Allow persistent manual Project and session ordering through drag and Move up/down; session grips
+  also support Alt+Up/Down. Session moves stay within their visible parent/worktree group and preserve
+  provider/native/checkout identity. New rows append to manually arranged groups; late historical rows
+  use immutable creation times in default groups. Exact draft-to-native linking retains the same slot.
+- Creation metadata is separate from mutable activity time; unknown historical creation dates use a
+  fixed first-observed fallback. Temporary missing histories do not erase ranks; failed saves remain
+  visible without claiming persistence. Pin/disclosure and batch deletion behavior stay intact.
+  Disable unavailable directories/CLIs and avoid overriding later navigation during preparation.
 - The active native session uses a visible yellow background (pale yellow in light mode, warm amber
   in dark mode) and an arrow. Terminal tab switches update selection, including shared worktree
   histories; hovering does not obscure the active indication. Project highlighting is unchanged.
@@ -128,18 +141,62 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Valid folder/worktree creation and acknowledged project/session deletion close their dialogs as
   soon as accepted. Work continues in the background, with non-modal queued/running/result notices.
   Project deletion still requires reviewing the affected histories before acknowledgement.
-- Serialize workspace mutations, reject duplicate pending targets, and retain errors until dismissed.
+- Serialize workspace mutations, reject duplicate pending targets, and report errors in operation notices.
   Refresh/launch failures after a successful mutation must not imply the mutation was undone; do not
   retry automatically. Navigation while waiting must not be overridden on completion.
 - Creation preserves the existing launch flow and offers **Open project** on completion. Operations
   are in-process only, not a persistent queue across application restart. Quit does not promise to
   finish pending work. This feature does not reduce the actual time required by Git or storage.
 - Empty-session rows have no **Start session** button. Keep existing project/open-dialog launch paths.
+  Hide empty linked-worktree placeholders without deleting inventory or disk data; retain real drafts,
+  native histories, parent empty messaging and history-load failures.
+- Session deletion is history-only by default. Verified linked worktrees expose an unchecked optional
+  removal choice. If other sessions share that checkout, show their identities and explicitly include
+  them only with user consent; declining deletes only the original selection and retains the worktree.
+  Changed scope requires fresh acknowledgement. Preserve branches and the primary repository; never
+  force removal of dirty/locked worktrees. Remaining/new/ambiguous histories or open app terminals block
+  removal. Report successful histories and failed cleanup separately, without retry or rollback claims.
+- All completed notices, including failures/warnings, expire after 15 seconds without foreground,
+  visibility, hover or keyboard-focus gating. Keep manual Dismiss and never expire queued/running jobs.
+  Unrelated rerenders must not reset expiry; manual dismissal/unmount cancels its timer.
+- New Project recent folders use a compact accessible dropdown. Exclude linked worktrees/subfolders
+  using Git identity at insertion and legacy read boundaries; retain base/non-Git folders, full paths,
+  keyboard selection and manual Browse without changing worktree creation.
 - Gemini filenames may differ from session IDs; deletion must match native session metadata.
+
+### Manual session titles and creation dialog
+
+- Require a trimmed, single-line manual Session Title of 1–120 characters before folder registration,
+  worktree creation or launch. Allow Unicode names. No automatic title generation, first-prompt
+  extraction, helper model/CLI requests or retry control.
+- Show the chosen name immediately on each distinct draft/tab. Persist it only for exact managed or
+  explicitly confirmed native identity, never the newest guessed history. Later manual rename wins;
+  cancelled/deleted/replaced launches cannot write late names. Keep draft-to-native order and focus.
+- Retain existing saved manual and legacy-generated names, with legacy pending/failed generation inert.
+  Do not rewrite provider histories or initiate a migration that discards user data.
+- Match the supplied compact creation design: provider header/settings, repository dropdown/Browse,
+  Current Folder / Git Worktree segmented choice, conditional Base Branch selector and branch/path
+  details, required title, scrollable body and persistent action footer. Support light/dark themes,
+  keyboard focus and application font sizing without external scripts/fonts. Keep essential labels,
+  selected values and destination details; omit redundant helper captions/badges and ready-state copy.
+  Preserve loading, validation failures and recovery actions rather than hiding operational feedback.
+- List actual local/remote refs and tags read-only; prefer existing local main/master/develop, otherwise
+  verified HEAD. Keep custom start-point and destination input. Stale repository reads cannot change a
+  new folder's choices. Non-Git folders work in place, but worktree mode requires a committed Git repo.
+  Current Folder must not switch branches; original safe worktree creation remains unchanged.
+- Agent-selection rows expose separate New/Options buttons, wrap long provider names/executable paths,
+  and show dividers between rows. Missing CLIs disable New, not Options. The measured scrollable popup
+  stays inside viewport gutters at enlarged fonts and after resize; actions do not overlap readable text.
+- Suggested worktree branch names use feat/YYYYMMDD_xxx for every provider, with the local date frozen
+  when the dialog opens. The suffix follows the manual title's ASCII slug or a stable session suffix;
+  later title/path/mode changes never overwrite a manually edited branch or custom destination.
 
 ### 5.3 Hook-reported session activity
 
-- Display the approved legend beside session names: 🏃‍♂️ processing, ❓ waiting for input/permission,
+- History sessions without an open linked provider/native-session tab in this window show a static
+  muted ○ with an accessible "Not open in this window" description, even if an old hook record remains.
+  Do not label existing history as New. Inactive open tabs retain normal activity icons.
+- Display the approved legend for open sessions: 🏃‍♂️ processing, ❓ waiting for input/permission,
   ✅ current turn finished, ❔ not running/status unknown, ❌ agent failure/abnormal exit.
 - Enlarge the running glyph slightly and animate a repeating running-like bob; gently wiggle the
   waiting question mark. Animate only the icon, not row geometry or text.
@@ -150,7 +207,8 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Honor reduced-motion preferences with static status and an unread-completion cue; avoid rapid flashing.
   Unknown and error states remain static.
 - Preserve active-session yellow highlighting, arrows, explicit native-session linking and batch selection.
-  Shared history aliases use the same provider/session state; unbound or unmanaged histories remain unknown.
+  Shared history aliases use the same provider/session state. Open unbound tabs or linked sessions without
+  managed hooks remain unknown; unlinked native histories use the not-open indicator.
 - Observe documented lifecycle hooks for app-managed Claude Code, Copilot CLI and configured Codex.
   Do not infer completion from output silence or claim the shell/CLI exited because a turn stopped.
   Later documented work events can return a finished turn to running.
@@ -170,6 +228,10 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - 自动 remember 上一次这个 project 用的是哪个 agent（`lastAgentByProject`）
 
 ## 6. Middle — TerminalTabs
+
+- Ctrl+W (Cmd+W on macOS) closes only the current session tab through the existing close-confirmation
+  preference; it never deletes history, Project or worktree. Suppress repeats/composition/modal/no-active
+  closure and preserve Ctrl+Tab cycling. Ctrl+T is not a close shortcut.
 
 - 顶部 tab bar，每个 tab 显示 agent 图标 + project displayName
 - 关 tab 时按设置确认，然后终止对应 PTY；不删除 agent 已写入的会话历史

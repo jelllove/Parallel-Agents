@@ -55,6 +55,18 @@ export function TerminalPane({
   const copyPasteRef = useRef(copyPaste);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
+  async function pasteFromClipboard(term: Terminal) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && termRef.current === term) term.paste(text);
+    } catch (error) {
+      if (termRef.current === term)
+        term.write(
+          `\r\n[Clipboard paste failed: ${error instanceof Error ? error.message : String(error)}]\r\n`,
+        );
+    }
+  }
+
   useEffect(() => {
     multilineRef.current = multilineEnter;
   }, [multilineEnter]);
@@ -98,9 +110,10 @@ export function TerminalPane({
         return false;
       }
       if (shortcut === 'paste') {
-        void navigator.clipboard.readText().then((txt) => {
-          if (txt) window.api.pty.write(terminalKey, txt);
-        });
+        // xterm's false return skips its key handler, not Chromium's default paste event.
+        e.preventDefault();
+        e.stopPropagation();
+        void pasteFromClipboard(term);
         return false;
       }
       return true;
@@ -135,6 +148,20 @@ export function TerminalPane({
         shellProfile,
         activitySessionId:
           useAppStore.getState().tabSessionId?.[terminalKey.replace(/::agent$/, '')] ?? null,
+        managedLaunch:
+          terminalKey.endsWith('::agent') &&
+          useAppStore.getState().managedTabs[terminalKey.replace(/::agent$/, '')]
+            ? {
+                projectId: useAppStore.getState().tabProjectId[terminalKey.replace(/::agent$/, '')],
+                createdAt:
+                  useAppStore.getState().managedTabs[terminalKey.replace(/::agent$/, '')].createdAt,
+                launchId:
+                  useAppStore.getState().managedTabs[terminalKey.replace(/::agent$/, '')].launchId,
+                sessionTitle:
+                  useAppStore.getState().managedTabs[terminalKey.replace(/::agent$/, '')]
+                    .sessionTitle,
+              }
+            : undefined,
       })
       .then(() => {
         spawnedRef.current = true;
@@ -209,8 +236,8 @@ export function TerminalPane({
   }
 
   async function doPaste() {
-    const txt = await navigator.clipboard.readText();
-    if (txt) window.api.pty.write(terminalKey, txt);
+    const term = termRef.current;
+    if (term) await pasteFromClipboard(term);
     setMenu(null);
   }
 

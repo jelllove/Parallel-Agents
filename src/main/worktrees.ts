@@ -15,7 +15,7 @@ const repositoryGitEnvironmentKeys = [
   'GIT_NAMESPACE',
 ];
 
-function gitEnvironment(): NodeJS.ProcessEnv {
+export function gitEnvironment(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of repositoryGitEnvironmentKeys) delete env[key];
   return env;
@@ -107,6 +107,82 @@ export async function findProjectRepositoryRoot(basePath: string): Promise<strin
     if (parent === directory) return null;
     directory = parent;
   }
+}
+
+export interface LinkedWorktree {
+  root: string;
+  parentPath: string;
+  gitDir: string;
+  branch: string | null;
+  locked: boolean;
+  identity: string;
+}
+
+/** Git metadata, not folder naming, establishes linked-checkout identity. */
+export async function inspectLinkedWorktree(path: string): Promise<LinkedWorktree | null> {
+  const root = await findProjectRepositoryRoot(path);
+  if (!root) return null;
+  const key = (value: string) =>
+    process.platform === 'win32' ? normalize(value).toLowerCase() : normalize(value);
+  const records = (
+    await git(root, ['worktree', 'list', '--porcelain', '-z'], 'Cannot inspect worktrees')
+  )
+    .split('\0\0')
+    .map((record) => record.split('\0'));
+  const parent = records[0]?.find((field) => field.startsWith('worktree '))?.slice(9);
+  const current = records.find((fields) =>
+    fields.some((field) => field.startsWith('worktree ') && key(field.slice(9)) === key(root)),
+  );
+  if (!parent || !current) throw new Error('Git did not identify this checkout.');
+  if (key(parent) === key(root)) return null;
+  const canonicalRoot = await realpath(root);
+  const parentPath = await realpath(parent);
+  const gitDir = await realpath(
+    await git(root, ['rev-parse', '--absolute-git-dir'], 'Cannot inspect checkout metadata'),
+  );
+  const [info, parentInfo, gitInfo] = await Promise.all([
+    stat(canonicalRoot),
+    stat(parentPath),
+    stat(gitDir),
+  ]);
+  return {
+    root: canonicalRoot,
+    parentPath,
+    gitDir,
+    branch: current.find((field) => field.startsWith('branch refs/heads/'))?.slice(18) ?? null,
+    locked: current.some((field) => field === 'locked' || field.startsWith('locked ')),
+    identity: JSON.stringify([
+      key(canonicalRoot),
+      key(parentPath),
+      key(gitDir),
+      info.dev,
+      info.ino,
+      parentInfo.dev,
+      parentInfo.ino,
+      gitInfo.dev,
+      gitInfo.ino,
+    ]),
+  };
+}
+
+export async function removeLinkedWorktree(expected: LinkedWorktree): Promise<void> {
+  if ((await lstat(expected.root)).isSymbolicLink())
+    throw new Error('Worktree path was replaced by a link.');
+  const current = await inspectLinkedWorktree(expected.root);
+  if (!current || current.identity !== expected.identity)
+    throw new Error('Worktree identity changed; review again.');
+  if (current.locked) throw new Error('Worktree is locked.');
+  const dirty = await git(
+    current.root,
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching'],
+    'Cannot inspect worktree changes',
+  );
+  if (dirty) throw new Error('Worktree has uncommitted, untracked or ignored files.');
+  await git(
+    current.parentPath,
+    ['worktree', 'remove', '--', current.root],
+    'Cannot remove worktree',
+  );
 }
 
 export async function addProjectWorktreeMetadata(projects: Project[]): Promise<Project[]> {

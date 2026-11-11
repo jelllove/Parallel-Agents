@@ -73,6 +73,7 @@ async function listGeminiSessions(projectId: string, dirName: string): Promise<S
       agent: 'gemini',
       title: meta.title,
       timestamp: meta.timestamp,
+      createdAt: meta.createdAt,
       cwd: null,
       gitBranch: null,
       version: null,
@@ -103,6 +104,7 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
       agent: 'copilot',
       title: meta.title,
       timestamp: meta.timestamp,
+      createdAt: meta.createdAt,
       cwd: meta.cwd,
       gitBranch: meta.gitBranch,
       version: meta.version,
@@ -131,6 +133,7 @@ export async function listSessionsForProject(projectId: string): Promise<Session
       agent: 'codex',
       title: session.title,
       timestamp: session.timestamp,
+      createdAt: session.createdAt,
       cwd: session.cwd,
       gitBranch: null,
       version: session.version,
@@ -140,7 +143,8 @@ export async function listSessionsForProject(projectId: string): Promise<Session
   // aider: no session listing in v1
 
   out.sort((a, b) => b.timestamp - a.timestamp);
-  return applySessionNames(out, (await preferences.read()).sessionNames);
+  const saved = await preferences.read();
+  return applySessionNames(out, saved.sessionNames, saved.generatedTitles);
 }
 
 export async function renameSession(

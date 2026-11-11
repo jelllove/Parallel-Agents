@@ -20,6 +20,9 @@ interface Entry {
 export class PtyManager {
   private ptys = new Map<string, Entry>();
   private starting = new Map<string, symbol>();
+  private startingCwds = new Map<string, string>();
+  private closing = new Set<{ cwd: string; exited: Promise<void> }>();
+  private exits = new WeakMap<Entry, Promise<void>>();
   private win: BrowserWindow | null = null;
   private readonly createPty: typeof spawn;
   private readonly environment: { platform: NodeJS.Platform; env: NodeJS.ProcessEnv };
@@ -58,6 +61,7 @@ export class PtyManager {
     if (this.ptys.has(projectId) || this.starting.has(projectId)) return false;
     const token = Symbol();
     this.starting.set(projectId, token);
+    this.startingCwds.set(projectId, cwd);
 
     let observer: PreparedPtyCommand | undefined;
     let attached = false;
@@ -107,7 +111,16 @@ export class PtyManager {
         if (this.ptys.get(projectId) !== entry) return;
         sendToWindow(this.win, 'pty:data', projectId, data);
       });
+      let resolveExit!: () => void;
+      this.exits.set(
+        entry,
+        new Promise<void>((resolve) => {
+          resolveExit = resolve;
+        }),
+      );
       p.onExit(({ exitCode }) => {
+        this.exits.delete(entry);
+        resolveExit();
         if (this.ptys.get(projectId) !== entry) return;
         clearTimeout(entry.commandTimer);
         this.ptys.delete(projectId);
@@ -136,7 +149,10 @@ export class PtyManager {
       return true;
     } finally {
       if (!attached) observer?.end(this.starting.get(projectId) === token ? 'failed' : 'unknown');
-      if (this.starting.get(projectId) === token) this.starting.delete(projectId);
+      if (this.starting.get(projectId) === token) {
+        this.starting.delete(projectId);
+        this.startingCwds.delete(projectId);
+      }
     }
   }
 
@@ -156,11 +172,15 @@ export class PtyManager {
 
   kill(projectId: string): void {
     this.starting.delete(projectId);
+    this.startingCwds.delete(projectId);
     const e = this.ptys.get(projectId);
     if (!e) return;
     clearTimeout(e.commandTimer);
     this.ptys.delete(projectId);
     e.observer?.end('unknown');
+    const closing = { cwd: e.cwd, exited: this.exits.get(e) ?? Promise.resolve() };
+    this.closing.add(closing);
+    void closing.exited.then(() => this.closing.delete(closing));
     try {
       e.pty.kill();
     } catch (error) {
@@ -170,7 +190,35 @@ export class PtyManager {
 
   killAll(): void {
     this.starting.clear();
+    this.startingCwds.clear();
     for (const id of [...this.ptys.keys()]) this.kill(id);
+  }
+
+  async waitForCheckoutIdle(
+    contains: (cwd: string) => Promise<boolean>,
+    timeoutMs = 5000,
+  ): Promise<void> {
+    for (const cwd of [
+      ...this.startingCwds.values(),
+      ...[...this.ptys.values()].map((entry) => entry.cwd),
+    ])
+      if (await contains(cwd)) throw new Error('Worktree still has an open or starting terminal.');
+    const waits: Promise<void>[] = [];
+    for (const entry of this.closing) if (await contains(entry.cwd)) waits.push(entry.exited);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(waits),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Timed out waiting for worktree terminals to exit.')),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   has(projectId: string): boolean {

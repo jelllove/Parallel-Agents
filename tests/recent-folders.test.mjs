@@ -98,9 +98,9 @@ test('registration records folder/worktree paths atomically and forgetting a pro
   const data = await new PreferencesStore(path).read();
   assert.equal(data.projects[0].realPath, worktree);
   assert.equal(data.fontSize, 19);
-  assert.deepEqual(new Set(data.recentFolders), new Set([base, worktree]));
+  assert.deepEqual(new Set(data.recentFolders), new Set([base]));
   await store.forgetProject('p');
-  assert.deepEqual(new Set((await store.read()).recentFolders), new Set([base, worktree]));
+  assert.deepEqual(new Set((await store.read()).recentFolders), new Set([base]));
 });
 
 test('path identity is case-insensitive only on Windows and normalizes separators/trailing slashes', async (t) => {
@@ -136,6 +136,25 @@ test('POSIX history preserves backslash characters in folder names', async (t) =
   const { store } = await fixture(t, 'linux');
   await store.registerProject({ id: 'backslash', agent: 'codex', realPath: '/projects/repo\\' });
   assert.deepEqual((await store.read()).recentFolders, ['/projects/repo\\']);
+});
+
+test('removing a checkout clears only its registrations and history descendants', async (t) => {
+  const { root, store } = await fixture(t);
+  const checkout = join(root, 'checkout');
+  const sub = join(checkout, 'sub');
+  const other = join(root, 'checkout-other');
+  await mkdir(sub, { recursive: true });
+  await mkdir(other);
+  await store.registerProject({ id: 'wt', realPath: checkout, agent: 'claude' });
+  await store.registerProject({ id: 'sub', realPath: sub, agent: 'codex' });
+  await store.registerProject({ id: 'other', realPath: other, agent: 'claude' });
+  await store.forgetCheckout(checkout);
+  const data = await store.read();
+  assert.deepEqual(
+    data.projects.map((item) => item.id),
+    ['other'],
+  );
+  assert.deepEqual(data.recentFolders, [other]);
 });
 
 test('malformed stored history is surfaced and never overwritten', async (t) => {

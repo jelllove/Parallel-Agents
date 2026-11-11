@@ -30,6 +30,7 @@ export interface Project {
   hidden: boolean;
   sessionCount: number;
   lastActivity: number | null;
+  createdAt?: number;
   historyProjectId?: string;
   worktree?: {
     parentPath: string;
@@ -42,6 +43,7 @@ export interface RegisteredProject {
   agent: AgentId;
   realPath: string;
   historyPath?: string;
+  createdAt?: number;
 }
 
 export interface NewProjectOptions {
@@ -51,6 +53,7 @@ export interface NewProjectOptions {
   branch?: string;
   startPoint?: string;
   targetPath?: string;
+  sessionTitle: string;
 }
 
 export interface AvailableShell {
@@ -66,6 +69,7 @@ export interface Session {
   agent: AgentId;
   title: string;
   timestamp: number;
+  createdAt?: number;
   cwd: string | null;
   gitBranch: string | null;
   version: string | null;
@@ -87,6 +91,12 @@ export interface PtySpawnOptions {
   extraPath?: string[];
   shellProfile?: SessionShellProfile;
   activitySessionId?: string | null;
+  managedLaunch?: {
+    projectId: string;
+    launchId: string;
+    sessionTitle?: string;
+    createdAt?: number;
+  };
 }
 
 export type PaneId = 'sidebar' | 'middle' | 'right';
@@ -116,6 +126,7 @@ export interface AppConfig extends AgentLayout {
   hidden: string[];
   lastAgentByProject: Record<string, AgentId>;
   projectOrder: Record<AgentId, string[]>;
+  sidebarArrangement?: import('./sidebar-arrangement').SidebarArrangement;
   layout: LayoutConfig;
   theme: ThemeMode;
   confirmOnCloseTab: boolean;
@@ -182,8 +193,33 @@ export interface Api {
     setOrder(agent: AgentId, ids: string[]): Promise<void>;
   };
   sessions: {
+    previewDeletion(
+      targets: import('./session-deletion').DeleteTarget[],
+    ): Promise<import('./session-deletion').SessionDeletionPreview>;
+    deleteReviewed(
+      token: string,
+      worktreeKeys: string[],
+    ): Promise<import('./session-deletion').SessionDeletionResult>;
+    finishDeletion(token: string): Promise<import('./session-deletion').SessionDeletionResult>;
+    cancelDeletion(token: string): Promise<void>;
+    order(projectId: string): Promise<import('./sidebar-arrangement').SessionArrangement>;
+    move(
+      projectId: string,
+      from: string,
+      to: string,
+      placement: 'before' | 'after',
+    ): Promise<import('./sidebar-arrangement').SessionArrangement>;
+    promoteDraft(
+      projectId: string,
+      launchId: string,
+      sessionId: string,
+    ): Promise<import('./sidebar-arrangement').SessionArrangement>;
     rename(projectId: string, sessionId: string, title: string): Promise<string>;
     listForProject(projectId: string): Promise<Session[]>;
+    inspectManaged(
+      terminalKey: string,
+      launchId: string,
+    ): Promise<import('./managed-session').ManagedSessionResult>;
     delete(projectId: string, sessionId: string): Promise<void>;
   };
   activity: {
@@ -232,6 +268,7 @@ export interface Api {
   };
   workspace: {
     getRecentFolders(): Promise<string[]>;
+    repository(path: string): Promise<import('./workspace-repository').WorkspaceRepository>;
     getMode(): Promise<WorkspaceMode>;
     setMode(mode: WorkspaceMode): Promise<void>;
   };

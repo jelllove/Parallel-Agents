@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/app-store';
 import { resumeCommandFor } from '../icons/agentIcons';
-import { ConfirmDialog } from './ConfirmDialog';
+import { SessionDeleteDialog } from './SessionDeleteDialog';
 import type { Project } from '../../shared/types';
 import { collectProjectSessions } from '../../shared/project-tree';
 import type { ProjectSession } from '../../shared/project-tree';
+import { draftSessionRows } from '../../shared/managed-session';
 import { RenameSessionDialog } from './RenameSessionDialog';
 import { ActionIcon } from './ActionIcon';
-import { queueSessionDeletion } from '../store/workspace-operations';
 import { useActivityStore, sessionActivityRecord } from '../store/activity-store';
 import { SessionActivityIcon } from './SessionActivityIcon';
+import type { SidebarSessionRow } from '../../shared/managed-session';
+import { useSessionOrder, sessionRowKey } from '../hooks/use-session-order';
+import { SessionOrderControls, activeSessionDrag } from './SessionOrderControls';
+import { pathKey } from '../../shared/project-tree';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -33,6 +37,9 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
   const acknowledge = useActivityStore((state) => state.acknowledge);
   const openTabs = useAppStore((s) => s.openTabs);
   const tabAgent = useAppStore((s) => s.tabAgent);
+  const tabProjectId = useAppStore((s) => s.tabProjectId);
+  const managedTabs = useAppStore((s) => s.managedTabs);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
   const sessions = useAppStore((s) => s.sessions);
   const loadSessions = useAppStore((s) => s.loadSessions);
@@ -42,6 +49,80 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
   const activeSessionId = useAppStore((s) => s.tabSessionId[s.activeTabId ?? '']);
   const activeAgent = useAppStore((s) => s.tabAgent[s.activeTabId ?? '']);
   const rows = useMemo(() => collectProjectSessions(projects, sessions), [projects, sessions]);
+  const drafts = draftSessionRows(projects, {
+    openTabs,
+    tabProjectId,
+    tabSessionId,
+    tabAgent,
+    managedTabs,
+  });
+  const combined: SidebarSessionRow[] = [
+    ...rows.map((row) => ({ kind: 'history' as const, ...row })),
+    ...drafts,
+  ];
+  const order = useSessionOrder(projects, combined, managedTabs);
+  const scope = `${projects[0]?.agent}:${pathKey(projects[0]?.worktree?.parentPath ?? projects[0]?.realPath ?? '')}`;
+  const orderDisabled = !order.loaded || order.saving || Boolean(selection);
+  const [dropTarget, setDropTarget] = useState<{
+    key: string;
+    placement: 'before' | 'after';
+  } | null>(null);
+  const orderingProps = (rowKey: string) => ({
+    onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+      if (
+        orderDisabled ||
+        activeSessionDrag?.scope !== scope ||
+        activeSessionDrag.key === rowKey ||
+        !event.dataTransfer.types.includes('application/x-parallel-agents-session')
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      setDropTarget({
+        key: rowKey,
+        placement: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+      });
+    },
+    onDragLeave: () => setDropTarget(null),
+    onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = dropTarget;
+      setDropTarget(null);
+      if (orderDisabled || !target) return;
+      try {
+        const from = JSON.parse(
+          event.dataTransfer.getData('application/x-parallel-agents-session'),
+        );
+        if (
+          from.scope === scope &&
+          from.key !== rowKey &&
+          order.ordered.some((item) => sessionRowKey(item, managedTabs) === from.key)
+        )
+          void order.move(from.key, rowKey, target.placement);
+      } catch {
+        /* An unrelated drag has no ordering authority. */
+      }
+    },
+    onDragEnd: () => setDropTarget(null),
+  });
+  const controls = (rowKey: string, label: string) => {
+    const keys = order.ordered.map((row) => sessionRowKey(row, managedTabs));
+    const index = keys.indexOf(rowKey);
+    return (
+      <SessionOrderControls
+        rowKey={rowKey}
+        scope={scope}
+        label={label}
+        disabled={orderDisabled}
+        previous={keys[index - 1]}
+        next={keys[index + 1]}
+        onMove={order.move}
+        onDragFinished={() => setDropTarget(null)}
+      />
+    );
+  };
   const [loading, setLoading] = useState(false);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [retry, setRetry] = useState(0);
@@ -101,7 +182,45 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           {error}
         </div>
       )}
-      {rows.map((row) => {
+      {order.error && (
+        <div role="alert" className="inventory-error">
+          {order.error}
+          <button className="project-action" onClick={() => void order.reload()}>
+            Retry positions
+          </button>
+        </div>
+      )}
+      {order.ordered.map((row) => {
+        const rowKey = sessionRowKey(row, managedTabs);
+        const dropClass = dropTarget?.key === rowKey ? ` session-drop-${dropTarget.placement}` : '';
+        if (row.kind === 'draft')
+          return (
+            <div
+              key={rowKey}
+              {...orderingProps(rowKey)}
+              className={`list-item session-item session-draft${activeTabId === row.tabId ? ' active' : ''}${dropClass}`}
+            >
+              {controls(rowKey, row.title)}
+              <span
+                className={`session-marker${activeTabId === row.tabId ? ' active' : ''}`}
+                aria-hidden="true"
+              >
+                {activeTabId === row.tabId ? '▶' : undefined}
+              </span>
+              <SessionActivityIcon />
+              <button
+                className="session-open"
+                aria-current={activeTabId === row.tabId ? 'true' : undefined}
+                onClick={() => setActiveTab(row.tabId)}
+                title={`${row.title}\n${row.project.realPath}\nWaiting for native session history`}
+              >
+                <span className="session-text">
+                  <span className="list-item-title">{row.title}</span>
+                  <span className="list-item-sub session-meta">{formatTime(row.createdAt)}</span>
+                </span>
+              </button>
+            </div>
+          );
         const { project, session: s } = row;
         const cmd = resumeCommandFor(s.agent, s.id);
         const enabled = Boolean(cmd && project.exists);
@@ -110,6 +229,9 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           : null;
         const active = Boolean(activeTabId && activeSessionId === s.id && activeAgent === s.agent);
         const selected = selection?.selectedKeys.includes(`${s.agent}:${s.id}`);
+        const isOpen = openTabs.some(
+          (tab) => tabAgent[tab] === s.agent && tabSessionId[tab] === s.id,
+        );
         const record = sessionActivityRecord(activity, s.agent, s.id, {
           openTabs,
           tabAgent,
@@ -123,9 +245,11 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
         return (
           <div
             key={`${s.agent}:${s.id}`}
-            className={`list-item session-item${enabled ? '' : ' disabled'}${active ? ' active' : ''}${selected ? ' deletion-selected' : ''}`}
+            {...orderingProps(rowKey)}
+            className={`list-item session-item${enabled ? '' : ' disabled'}${active ? ' active' : ''}${selected ? ' deletion-selected' : ''}${dropClass}`}
             onContextMenu={(event) => onProjectContext?.(event, project)}
           >
+            {controls(rowKey, s.title || s.id)}
             {selection && (
               <input
                 type="checkbox"
@@ -140,6 +264,7 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
               {active ? '▶' : undefined}
             </span>
             <SessionActivityIcon
+              isOpen={isOpen}
               state={record?.state ?? 'unknown'}
               attention={Boolean(completion && !completion.acknowledged)}
               onAcknowledge={acknowledgeCompletion}
@@ -200,16 +325,15 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
         loadErrors.length === 0 &&
         projects.map(
           (project) =>
-            (sessions[project.id]?.length ?? 0) === 0 && (
+            !project.worktree &&
+            (sessions[project.id]?.length ?? 0) === 0 &&
+            !drafts.some((row) => row.project.id === project.id) && (
               <div
                 key={project.id}
                 className="session-notice"
                 onContextMenu={(event) => onProjectContext?.(event, project)}
               >
-                <span className="list-item-sub">
-                  {project.worktree ? `${project.worktree.branch || 'detached HEAD'}: ` : ''}No
-                  sessions yet.
-                </span>
+                <span className="list-item-sub">No sessions yet.</span>
               </div>
             ),
         )}
@@ -222,20 +346,9 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
         />
       )}
       {confirmDelete && (
-        <ConfirmDialog
-          title="Delete session?"
-          message={`This will permanently delete the session file for "${confirmDelete.session.title || '(empty)'}". This cannot be undone. Its open tabs and terminals will also close.`}
-          confirmText="Delete forever"
-          warning={error}
-          destructive
-          onConfirm={() => {
-            const accepted = queueSessionDeletion(confirmDelete.project, confirmDelete.session);
-            if (accepted === null) {
-              setError('This session already has a pending deletion.');
-              return;
-            }
-            setConfirmDelete(null);
-          }}
+        <SessionDeleteDialog
+          targets={[confirmDelete]}
+          onAccepted={() => setConfirmDelete(null)}
           onCancel={() => setConfirmDelete(null)}
         />
       )}

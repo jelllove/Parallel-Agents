@@ -308,9 +308,12 @@ test('background creation preserves navigation during registration and launch pr
     config: { setLastAgent: async () => {} },
   });
   store.setState({ selectedProjectId: 'old', activeTabId: 'old-tab' });
-  const creating = store
-    .getState()
-    .createProject({ agent: 'codex', mode: 'folder', basePath: project.realPath });
+  const creating = store.getState().createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'codex',
+    mode: 'folder',
+    basePath: project.realPath,
+  });
   store.setState({ selectedProjectId: 'elsewhere', activeTabId: 'other-tab' });
   registration.resolve(project);
   await new Promise((resolve) => setImmediate(resolve));
@@ -319,7 +322,44 @@ test('background creation preserves navigation during registration and launch pr
   assert.equal(result.projectId, project.id);
   assert.equal(store.getState().selectedProjectId, 'elsewhere');
   assert.equal(store.getState().activeTabId, 'other-tab');
-  assert.equal(store.getState().pendingInitialCommand[project.id].command, 'codex');
+  const tab = store
+    .getState()
+    .openTabs.find((id) => store.getState().tabProjectId[id] === project.id);
+  assert.equal(store.getState().pendingInitialCommand[tab].command, 'codex');
+});
+
+test('successful creation reveals its collapsed provider and keeps project ordering unchanged', async () => {
+  const project = {
+    id: 'claude:existing',
+    agent: 'claude',
+    realPath: 'C:\\repo',
+    displayName: 'Repo',
+    exists: true,
+  };
+  const other = { ...project, id: 'claude:other', realPath: 'C:\\other' };
+  const store = await createStore({
+    projects: { create: async () => project },
+    sessions: { listForProject: async () => [] },
+    config: { setLastAgent: async () => {}, setSidebarTree: async () => {} },
+  });
+  store.setState({
+    projects: [project, other],
+    sidebarTreeLoaded: true,
+    collapsedAgents: ['claude'],
+  });
+  await store.getState().createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'claude',
+    mode: 'folder',
+    basePath: project.realPath,
+  });
+  assert.deepEqual(
+    store.getState().projects.map((item) => item.id),
+    [project.id, other.id],
+  );
+  assert.equal(store.getState().collapsedAgents.includes('claude'), false);
+  assert.ok(store.getState().expandedProjects.length);
+  assert.ok(store.getState().managedTabs[store.getState().activeTabId]);
 });
 
 test('creation reports successful registration separately from failed launch preparation', async () => {
@@ -332,9 +372,12 @@ test('creation reports successful registration separately from failed launch pre
       },
     },
   });
-  const result = await store
-    .getState()
-    .createProject({ agent: 'codex', mode: 'folder', basePath: project.realPath });
+  const result = await store.getState().createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'codex',
+    mode: 'folder',
+    basePath: project.realPath,
+  });
   assert.equal(result.projectId, project.id);
   assert.match(result.message, /created.*launch.*History unavailable/i);
   assert.equal(store.getState().projects[0].id, project.id);
@@ -633,23 +676,36 @@ test('new project requires explicit session association and avoids duplicate res
   };
   const store = await createStore({
     projects: { create: async () => project },
-    sessions: { listForProject: async () => sessions },
+    sessions: {
+      listForProject: async () => sessions,
+      promoteDraft: async () => {
+        sessions = sessions.map((session) => ({ ...session, title: 'Fixture session' }));
+      },
+    },
     config: { setLastAgent: async () => {} },
   });
-  await store
-    .getState()
-    .createProject({ agent: 'codex', mode: 'folder', basePath: project.realPath });
-  assert.equal(store.getState().pendingInitialCommand[project.id].command, 'codex');
+  await store.getState().createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'codex',
+    mode: 'folder',
+    basePath: project.realPath,
+  });
+  const tab = store.getState().activeTabId;
+  assert.notEqual(tab, project.id);
+  assert.equal(store.getState().pendingInitialCommand[tab].command, 'codex');
   assert.equal(store.getState().selectedProjectId, project.id);
+  assert.equal(store.getState().managedTabs[tab].sessionTitle, 'Fixture session');
   sessions = [{ id: 'new-session', projectId: project.id, agent: 'codex', title: 'New task' }];
   await store.getState().loadSessions(project.id);
-  assert.equal(store.getState().tabSessionId[project.id], null);
+  assert.equal(store.getState().tabSessionId[tab], null);
   await store.getState().openSessionTab(project.id, sessions[0]);
   assert.equal(store.getState().sessionLinkRequest.sessionId, 'new-session');
   assert.equal(store.getState().openTabs.length, 1);
-  store.getState().linkSession(project.id, 'new-session');
-  assert.equal(store.getState().tabSessionId[project.id], 'new-session');
+  store.getState().linkSession(tab, 'new-session');
+  assert.equal(store.getState().tabSessionId[tab], 'new-session');
   assert.deepEqual(store.getState().tabSessionBaseline, {});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.getState().sessions[project.id][0].title, 'Fixture session');
   await store.getState().openSessionTab(project.id, sessions[0]);
   assert.equal(store.getState().openTabs.length, 1);
 });

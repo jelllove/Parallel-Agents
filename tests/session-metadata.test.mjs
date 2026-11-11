@@ -180,6 +180,7 @@ test('Copilot rejects malformed headers and guards every optional context field'
     projectPath: normalize(cwd),
     title: 'Valid request',
     timestamp: Date.parse(startTime),
+    createdAt: Date.parse(startTime),
     cwd,
     gitBranch: null,
     version: null,
@@ -206,6 +207,7 @@ test('Gemini skips non-string session IDs and malformed textual content', async 
     sessionId: 'valid-id',
     title: 'Valid request',
     timestamp: Date.parse(startTime),
+    createdAt: Date.parse(startTime),
   });
 });
 
@@ -308,6 +310,7 @@ test('shared Copilot header discovery stops at the header and closes its stream'
     sessionId: 'copilot-id',
     projectPath,
     timestamp: Date.parse(startTime),
+    createdAt: Date.parse(startTime),
   });
   assert.equal(streams[0].closed, true);
   assert.ok(streams[0].bytesRead < tail.length);

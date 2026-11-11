@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -14,7 +14,7 @@ async function backend(home) {
   const result = await build({
     stdin: {
       contents:
-        "export * from './src/main/projects.ts'; export * from './src/main/sessions.ts'; export { setProjectOrder, setProjectPinned } from './src/main/config.ts';",
+        "export * from './src/main/projects.ts'; export * from './src/main/sessions.ts'; export * from './src/main/session-arrangement-service.ts'; export { preferences } from './src/main/preferences-store.ts'; export { setProjectOrder, setProjectPinned } from './src/main/config.ts';",
       resolveDir: process.cwd(),
     },
     platform: 'node',
@@ -51,6 +51,74 @@ async function backend(home) {
     await rm(outputDirectory, { recursive: true, force: true });
   }
 }
+
+test('manual draft titles transfer only to explicitly linked native identities and persist without overwriting rename', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-title-link-'));
+  t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5 }));
+  const folder = join(home, 'repo');
+  await mkdir(folder);
+  const api = await backend(home);
+  const project = await api.createProject({
+    agent: 'codex',
+    mode: 'folder',
+    basePath: folder,
+    sessionTitle: 'Chosen title',
+  });
+  const histories = join(home, '.codex', 'sessions');
+  await mkdir(histories, { recursive: true });
+  for (const id of ['one', 'external'])
+    await writeFile(
+      join(histories, `${id}.jsonl`),
+      JSON.stringify({
+        type: 'session_meta',
+        payload: { id, cwd: folder, timestamp: '2026-01-01T00:00:00Z' },
+      }) + '\n',
+    );
+  api.registerSessionDraft({
+    launchId: '00000000-0000-4000-8000-000000000001',
+    terminalKey: 'tab::agent',
+    projectId: project.id,
+    agent: 'codex',
+    cwd: folder,
+    sessionTitle: 'Chosen title',
+    createdAt: 1,
+  });
+  await api.promoteSessionDraft('00000000-0000-4000-8000-000000000001', project.id, 'one', true);
+  let list = await api.listSessionsForProject(project.id);
+  assert.equal(list.find((item) => item.id === 'one').title, 'Chosen title');
+  assert.notEqual(list.find((item) => item.id === 'external').title, 'Chosen title');
+  await api.renameSession(project.id, 'one', 'Later name');
+  await api.promoteSessionDraft('00000000-0000-4000-8000-000000000001', project.id, 'one', true);
+  assert.equal(
+    (await api.listSessionsForProject(project.id)).find((item) => item.id === 'one').title,
+    'Later name',
+  );
+  const restarted = await backend(home);
+  assert.equal(
+    (await restarted.listSessionsForProject(project.id)).find((item) => item.id === 'one').title,
+    'Later name',
+  );
+  api.forgetSessionDraft('00000000-0000-4000-8000-000000000001');
+});
+
+test('invalid required names cannot create a worktree or register a folder', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-title-guard-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const api = await backend(home);
+  for (const title of [undefined, '', ' ', 'a\nb', 'x'.repeat(121)])
+    await assert.rejects(
+      api.createProject({
+        agent: 'codex',
+        mode: 'worktree',
+        basePath: home,
+        targetPath: join(home, 'must-not-exist'),
+        branch: 'feat/no',
+        sessionTitle: title,
+      }),
+      /name/i,
+    );
+  assert.deepEqual(await readdir(home), []);
+});
 
 test('legacy histories remain usable when one project has invalid Git metadata', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-legacy-repository-'));
@@ -130,8 +198,14 @@ test('created worktree metadata survives discovery without merging its session i
   await git('add', '.');
   await git('commit', '-m', 'Fixture');
   const api = await backend(home);
-  const parent = await api.createProject({ agent: 'codex', mode: 'folder', basePath: root });
+  const parent = await api.createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'codex',
+    mode: 'folder',
+    basePath: root,
+  });
   const child = await api.createProject({
+    sessionTitle: 'Fixture session',
     agent: 'codex',
     mode: 'worktree',
     basePath: root,
@@ -169,7 +243,9 @@ test('manual project ordering remains deterministic when different agents are in
   ]) {
     const basePath = join(home, name);
     await mkdir(basePath);
-    created.push(await api.createProject({ agent, mode: 'folder', basePath }));
+    created.push(
+      await api.createProject({ sessionTitle: 'Fixture session', agent, mode: 'folder', basePath }),
+    );
   }
   await api.setProjectOrder('claude', [created[2].id, created[0].id]);
   assert.deepEqual(
@@ -188,18 +264,56 @@ test('manual project ordering remains deterministic when different agents are in
   );
 });
 
+test('activity and title changes never reorder projects across refresh or restart', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-stable-inventory-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const api = await backend(home);
+  const files = [];
+  for (const [index, name] of ['alpha', 'beta', 'gamma'].entries()) {
+    const cwd = join(home, name);
+    const directory = join(home, '.claude', 'projects', name);
+    await mkdir(cwd);
+    await mkdir(directory, { recursive: true });
+    const file = join(directory, 'session.jsonl');
+    await writeFile(file, JSON.stringify({ type: 'user', cwd, message: { content: name } }));
+    await utimes(file, new Date(10000 + index * 1000), new Date(10000 + index * 1000));
+    files.push(file);
+  }
+  const before = (await api.listProjects()).map((project) => project.id);
+  await utimes(files[0], new Date(), new Date());
+  await api.renameSession('claude:beta', 'session', 'Rename must not move this project');
+  assert.deepEqual(
+    (await api.listProjects()).map((project) => project.id),
+    before,
+  );
+  assert.deepEqual(
+    (await (await backend(home)).listProjects()).map((project) => project.id),
+    before,
+  );
+});
+
 test('new project survives restart, discovers history under stable ID, and renames persist', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-project-integration-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const folder = join(home, 'workspace');
   await mkdir(folder);
   const api = await backend(home);
-  const created = await api.createProject({ agent: 'codex', mode: 'folder', basePath: folder });
+  const created = await api.createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'codex',
+    mode: 'folder',
+    basePath: folder,
+  });
   assert.equal(created.agent, 'codex');
   const preferencesPath = join(home, '.claude', 'parallel-agents-preferences.json');
   assert.deepEqual(JSON.parse(await readFile(preferencesPath, 'utf8')).recentFolders, [folder]);
   await assert.rejects(
-    api.createProject({ agent: 'codex', mode: 'folder', basePath: join(home, 'missing') }),
+    api.createProject({
+      sessionTitle: 'Fixture session',
+      agent: 'codex',
+      mode: 'folder',
+      basePath: join(home, 'missing'),
+    }),
     /existing absolute/,
   );
   assert.deepEqual(JSON.parse(await readFile(preferencesPath, 'utf8')).recentFolders, [folder]);
@@ -238,10 +352,18 @@ test('new project survives restart, discovers history under stable ID, and renam
     'Implement workspace picker',
   );
   assert.equal(
-    (await restarted.createProject({ agent: 'codex', mode: 'folder', basePath: folder })).id,
+    (
+      await restarted.createProject({
+        sessionTitle: 'Fixture session',
+        agent: 'codex',
+        mode: 'folder',
+        basePath: folder,
+      })
+    ).id,
     created.id,
   );
   const copilot = await restarted.createProject({
+    sessionTitle: 'Fixture session',
     agent: 'copilot',
     mode: 'folder',
     basePath: folder,
@@ -273,8 +395,18 @@ test('Copilot subfolder projects share repository history while preserving launc
     await promisify(execFile)('git', ['-C', root, 'rev-parse', '--show-toplevel'])
   ).stdout.trim();
   const api = await backend(home);
-  const app = await api.createProject({ agent: 'copilot', mode: 'folder', basePath: folder });
-  const lib = await api.createProject({ agent: 'copilot', mode: 'folder', basePath: sibling });
+  const app = await api.createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'copilot',
+    mode: 'folder',
+    basePath: folder,
+  });
+  const lib = await api.createProject({
+    sessionTitle: 'Fixture session',
+    agent: 'copilot',
+    mode: 'folder',
+    basePath: sibling,
+  });
   const history = join(home, '.copilot', 'session-state', 'copilot-one');
   await mkdir(history, { recursive: true });
   await writeFile(
@@ -299,7 +431,7 @@ test('Copilot subfolder projects share repository history while preserving launc
   assert.equal((await restarted.listSessionsForProject(lib.id))[0].id, 'copilot-one');
 });
 
-test('successful worktree creation remembers both base and generated folders across restart', async (t) => {
+test('successful worktree creation remembers only the base folder across restart', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-history-worktree-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const base = join(home, 'base');
@@ -324,7 +456,8 @@ test('successful worktree creation remembers both base and generated folders acr
     'Fixture',
   ]);
   const api = await backend(home);
-  const created = await api.createProject({
+  await api.createProject({
+    sessionTitle: 'Fixture session',
     agent: 'codex',
     mode: 'worktree',
     basePath: base,
@@ -335,11 +468,11 @@ test('successful worktree creation remembers both base and generated folders acr
   const data = JSON.parse(
     await readFile(join(home, '.claude', 'parallel-agents-preferences.json'), 'utf8'),
   );
-  assert.deepEqual(data.recentFolders, [created.realPath, base]);
+  assert.deepEqual(data.recentFolders, [base]);
   await api.deleteProject(data.projects[0].id);
   assert.deepEqual(
     JSON.parse(await readFile(join(home, '.claude', 'parallel-agents-preferences.json'), 'utf8'))
       .recentFolders,
-    [created.realPath, base],
+    [base],
   );
 });

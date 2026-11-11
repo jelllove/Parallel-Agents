@@ -50,10 +50,23 @@ import { preferences } from './preferences-store.ts';
 import { prepareAgentLaunch } from './agent-launcher.ts';
 import { AGENT_LAUNCH, commandAgent } from '../shared/agent-launch.ts';
 import { activityRuntime, ensureActivityReporter } from './activity-service.ts';
+import { managedSessions } from './managed-session-runtime.ts';
+import {
+  inspectSessionOrder,
+  moveSessionRow,
+  promoteSessionDraft,
+} from './session-arrangement-service.ts';
+import { removeSessionOrder } from './config.ts';
 import type { AgentLaunchOptions } from '../shared/agent-launch.ts';
 import { discoverShells } from './shell-profiles.ts';
 import type { UpdateController } from './update-controller.ts';
 import { titleBarOverlayFor } from './window-titlebar.ts';
+import { readRecentFolders, recordRecentFolder } from './workspace-history.ts';
+import { sessionDeletion } from './session-deletion-runtime.ts';
+import { guardCheckout } from './checkout-guard.ts';
+import type { DeleteTarget } from '../shared/session-deletion.ts';
+import { validateSessionName } from '../shared/session-presentation.ts';
+import { inspectWorkspaceRepository } from './workspace-repository.ts';
 
 export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ptyManager.attachWindow(win);
@@ -76,7 +89,21 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('projects:list', () => listProjects());
   ipcMain.handle('config:getSidebarTree', () => getSidebarTree());
   ipcMain.handle('config:setSidebarTree', (_e, tree: SidebarTreeState) => setSidebarTree(tree));
-  ipcMain.handle('projects:create', (_e, options: NewProjectOptions) => createProject(options));
+  ipcMain.handle('projects:create', (_e, options: NewProjectOptions) =>
+    guardCheckout(options.basePath, () => createProject(options)),
+  );
+  ipcMain.handle('sessions:previewDeletion', (_event, targets: DeleteTarget[]) =>
+    sessionDeletion.preview(targets),
+  );
+  ipcMain.handle('sessions:deleteReviewed', (_event, token: string, keys: string[]) =>
+    sessionDeletion.deleteReviewed(token, keys),
+  );
+  ipcMain.handle('sessions:finishDeletion', (_event, token: string) =>
+    sessionDeletion.finish(token),
+  );
+  ipcMain.handle('sessions:cancelDeletion', (_event, token: string) =>
+    sessionDeletion.cancel(token),
+  );
 
   ipcMain.handle('projects:pin', (_e, id: string, pinned: boolean) => setProjectPinned(id, pinned));
 
@@ -90,12 +117,41 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     setProjectOrder(agent, ids),
   );
 
+  ipcMain.handle('sessions:order', (_event, projectId: string) => inspectSessionOrder(projectId));
+  ipcMain.handle(
+    'sessions:move',
+    (_event, projectId: string, from: string, to: string, placement: 'before' | 'after') =>
+      moveSessionRow(projectId, from, to, placement),
+  );
+  ipcMain.handle(
+    'sessions:promoteDraft',
+    (_event, projectId: string, launchId: string, sessionId: string) =>
+      promoteSessionDraft(launchId, projectId, sessionId, true),
+  );
   ipcMain.handle('sessions:listForProject', (_e, projectId: string) =>
     listSessionsForProject(projectId),
   );
-  ipcMain.handle('sessions:delete', (_e, projectId: string, sessionId: string) =>
-    deleteSession(projectId, sessionId),
-  );
+  ipcMain.handle('sessions:inspectManaged', (_event, terminalKey: string, launchId: string) => {
+    if (
+      typeof terminalKey !== 'string' ||
+      terminalKey.length > 2000 ||
+      typeof launchId !== 'string' ||
+      !/^[a-f0-9-]{36}$/.test(launchId)
+    )
+      throw new Error('Invalid managed session request.');
+    return managedSessions.inspect(terminalKey, launchId);
+  });
+  ipcMain.handle('sessions:delete', async (_e, projectId: string, sessionId: string) => {
+    await deleteSession(projectId, sessionId);
+    const agent = projectId.slice(0, projectId.indexOf(':')) as AgentId;
+    managedSessions.cancelSession(agent, sessionId);
+    void removeSessionOrder(`${agent}:${sessionId}`).catch(() =>
+      console.warn('Could not clear deleted session ordering metadata.'),
+    );
+    void preferences.forgetSessionTitle(agent, sessionId).catch(() => {
+      console.warn('Session history was deleted, but clearing its local title metadata failed.');
+    });
+  });
   ipcMain.handle('sessions:rename', (_e, projectId: string, sessionId: string, title: string) =>
     renameSession(projectId, sessionId, title),
   );
@@ -112,9 +168,9 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('fs:reveal', (_e, path: string) => revealInExplorer(path));
   ipcMain.handle('fs:openDefault', (_e, path: string) => openWithDefault(path));
 
-  ipcMain.handle(
-    'workspace:getRecentFolders',
-    async () => (await preferences.read()).recentFolders,
+  ipcMain.handle('workspace:getRecentFolders', () => readRecentFolders(preferences));
+  ipcMain.handle('workspace:repository', (_event, path: string) =>
+    inspectWorkspaceRepository(path),
   );
   ipcMain.handle('workspace:getMode', async () => (await preferences.read()).workspaceMode);
   ipcMain.handle('workspace:setMode', (_e, mode: WorkspaceMode) =>
@@ -152,6 +208,24 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   win.once('closed', offActivity);
   ipcMain.handle('pty:spawn', async (_e, opts: PtySpawnOptions) => {
     const agent = commandAgent(opts.initialCommand);
+    if (opts.managedLaunch) {
+      const launch = opts.managedLaunch;
+      if (
+        !agent ||
+        opts.activitySessionId ||
+        opts.shellProfile ||
+        !opts.projectId.endsWith('::agent') ||
+        typeof launch.projectId !== 'string' ||
+        typeof launch.launchId !== 'string' ||
+        !/^[a-f0-9-]{36}$/.test(launch.launchId) ||
+        (launch.createdAt !== undefined &&
+          (!Number.isFinite(launch.createdAt) || launch.createdAt < 0))
+      )
+        throw new Error('Invalid managed launch.');
+      if (launch.sessionTitle !== undefined)
+        launch.sessionTitle = validateSessionName(launch.sessionTitle);
+    }
+    let generation: string | undefined;
     if (
       opts.activitySessionId !== undefined &&
       opts.activitySessionId !== null &&
@@ -159,6 +233,14 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     )
       throw new Error('Invalid activity session identity');
     const prepareCommand = async (command: string | undefined) => {
+      const launch = opts.managedLaunch;
+      if (launch) {
+        const project = (await listProjects()).find(
+          (item) => item.id === launch.projectId && item.agent === agent,
+        );
+        if (!project || project.realPath !== opts.cwd)
+          throw new Error('Managed launch checkout is unavailable.');
+      }
       const configured = await prepareAgentLaunch(command, {
         load: async () => (await preferences.read()).agentLaunchOptions,
         confirm: async (agent, mode, command) => {
@@ -178,12 +260,24 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       if (!agent || !configured || opts.shellProfile || !opts.projectId.endsWith('::agent'))
         return configured;
       try {
-        return await activityRuntime.prepare(
+        const prepared = await activityRuntime.prepare(
           agent,
           opts.projectId,
           opts.activitySessionId ?? null,
           configured,
         );
+        generation = prepared.environment.PA_ACTIVITY_TOKEN
+          ? activityRuntime
+              .snapshot()
+              .records.find((record) => record.terminalKey === opts.projectId)?.generation
+          : undefined;
+        return {
+          ...prepared,
+          end: (state: 'unknown' | 'failed') => {
+            managedSessions.cancel(opts.projectId);
+            prepared.end(state);
+          },
+        };
       } catch (error) {
         console.warn(
           'Agent status hooks unavailable:',
@@ -192,19 +286,32 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
         return configured;
       }
     };
-    const opened = await ptyManager.spawn(
-      opts.projectId,
+    const opened = await guardCheckout(
       opts.cwd,
-      opts.cols,
-      opts.rows,
-      opts.initialCommand,
-      opts.extraPath,
-      opts.shellProfile,
-      prepareCommand,
+      () =>
+        ptyManager.spawn(
+          opts.projectId,
+          opts.cwd,
+          opts.cols,
+          opts.rows,
+          opts.initialCommand,
+          opts.extraPath,
+          opts.shellProfile,
+          prepareCommand,
+        ),
+      false,
     );
     if (!opened) return;
+    if (opts.managedLaunch && agent)
+      managedSessions.register({
+        ...opts.managedLaunch,
+        terminalKey: opts.projectId,
+        agent,
+        cwd: opts.cwd,
+        generation,
+      });
     try {
-      await preferences.addRecentFolder(opts.cwd);
+      await recordRecentFolder(preferences, opts.cwd);
     } catch (error) {
       throw new Error(
         `Terminal opened, but saving folder history failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -219,6 +326,7 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     ptyManager.resize(projectId, cols, rows);
   });
   ipcMain.handle('pty:kill', (_e, projectId: string) => {
+    managedSessions.cancel(projectId);
     ptyManager.kill(projectId);
   });
 

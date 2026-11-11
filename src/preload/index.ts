@@ -4,6 +4,7 @@ import type { Api, UpdateStatus } from '../shared/types';
 const api: Api = {
   workspace: {
     getRecentFolders: () => ipcRenderer.invoke('workspace:getRecentFolders'),
+    repository: (path) => ipcRenderer.invoke('workspace:repository', path),
     getMode: () => ipcRenderer.invoke('workspace:getMode'),
     setMode: (mode) => ipcRenderer.invoke('workspace:setMode', mode),
   },
@@ -33,9 +34,21 @@ const api: Api = {
     setOrder: (agent, ids) => ipcRenderer.invoke('projects:setOrder', agent, ids),
   },
   sessions: {
+    previewDeletion: (targets) => ipcRenderer.invoke('sessions:previewDeletion', targets),
+    deleteReviewed: (token, worktreeKeys) =>
+      ipcRenderer.invoke('sessions:deleteReviewed', token, worktreeKeys),
+    finishDeletion: (token) => ipcRenderer.invoke('sessions:finishDeletion', token),
+    cancelDeletion: (token) => ipcRenderer.invoke('sessions:cancelDeletion', token),
+    order: (projectId) => ipcRenderer.invoke('sessions:order', projectId),
+    move: (projectId, from, to, placement) =>
+      ipcRenderer.invoke('sessions:move', projectId, from, to, placement),
+    promoteDraft: (projectId, launchId, sessionId) =>
+      ipcRenderer.invoke('sessions:promoteDraft', projectId, launchId, sessionId),
     rename: (projectId, sessionId, title) =>
       ipcRenderer.invoke('sessions:rename', projectId, sessionId, title),
     listForProject: (projectId) => ipcRenderer.invoke('sessions:listForProject', projectId),
+    inspectManaged: (terminalKey, launchId) =>
+      ipcRenderer.invoke('sessions:inspectManaged', terminalKey, launchId),
     delete: (projectId, sessionId) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),
   },
   activity: {

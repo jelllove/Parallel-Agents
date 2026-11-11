@@ -18,8 +18,17 @@ import {
 } from '../shared/agent-launch.ts';
 import type { AgentLaunchOptions, AgentLaunchSettings } from '../shared/agent-launch.ts';
 
+// Inert compatibility metadata from older local builds; never schedules generation.
+interface LegacyGeneratedTitle {
+  attempt: string;
+  status: 'pending' | 'complete' | 'failed';
+  title?: string;
+  error?: string;
+}
+
 interface Preferences {
   sessionNames: Record<string, string>;
+  generatedTitles?: Record<string, LegacyGeneratedTitle>;
   fontSize: number;
   fontFamily: FontFamilyId;
   fontBold: boolean;
@@ -56,11 +65,17 @@ function validateRegisteredProject(value: unknown): RegisteredProject {
   if (project.historyPath !== undefined && typeof project.historyPath !== 'string') {
     throw new Error('Invalid registered project.');
   }
+  if (
+    project.createdAt !== undefined &&
+    (!Number.isFinite(project.createdAt) || project.createdAt < 0)
+  )
+    throw new Error('Invalid project creation time.');
   return {
     id: project.id,
     agent: project.agent,
     realPath: project.realPath,
     ...(project.historyPath ? { historyPath: project.historyPath } : {}),
+    ...(project.createdAt === undefined ? {} : { createdAt: project.createdAt }),
   };
 }
 
@@ -139,28 +154,55 @@ export class PreferencesStore {
     if (!Object.hasOwn(data, 'fontBold')) data.fontBold = false;
     if (typeof data.fontBold !== 'boolean') throw new Error('Font bold must be a boolean.');
     for (const name of Object.values(data.sessionNames)) validateSessionName(name);
+    if (data.generatedTitles !== undefined) {
+      if (
+        !data.generatedTitles ||
+        typeof data.generatedTitles !== 'object' ||
+        Array.isArray(data.generatedTitles)
+      )
+        throw new Error('Invalid generated titles.');
+      for (const value of Object.values(data.generatedTitles)) {
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          typeof value.attempt !== 'string' ||
+          !['pending', 'complete', 'failed'].includes(value.status) ||
+          (value.error !== undefined && typeof value.error !== 'string')
+        )
+          throw new Error('Invalid generated title.');
+        if (value.title !== undefined) validateSessionName(value.title);
+      }
+    }
     const projects = data.projects.map(validateRegisteredProject);
     if (Object.hasOwn(data, 'recentFolders') && !Array.isArray(data.recentFolders))
       throw new Error('Invalid recent folders.');
     const recentFolders = this.uniqueFolders([
       ...(data.recentFolders ?? []),
-      ...projects
-        .map((project) => project.realPath)
-        .reverse()
-        .filter((path) => this.paths.isAbsolute(path)),
+      ...(Object.hasOwn(data, 'recentFolders')
+        ? []
+        : projects
+            .map((project) => project.realPath)
+            .reverse()
+            .filter((path) => this.paths.isAbsolute(path))),
     ]);
     const agentLaunchOptions = Object.hasOwn(data, 'agentLaunchOptions')
       ? validateLaunchSettings(data.agentLaunchOptions)
       : {};
-    const workspaceMode = Object.hasOwn(data, 'workspaceMode')
-      ? validateWorkspaceMode(data.workspaceMode)
-      : 'folder';
+    // A previous local test build introduced same-folder branch mode; it is now removed.
+    const workspaceMode =
+      (data.workspaceMode as unknown) === 'branch'
+        ? 'folder'
+        : Object.hasOwn(data, 'workspaceMode')
+          ? validateWorkspaceMode(data.workspaceMode)
+          : 'folder';
     return { ...data, projects, recentFolders, agentLaunchOptions, workspaceMode };
   }
 
   private update(change: (data: Preferences) => Preferences): Promise<void> {
     const operation = this.pending.then(async () => {
-      const next = change(await this.readDisk());
+      const current = await this.readDisk();
+      const next = change(current);
+      if (next === current) return;
       await mkdir(dirname(this.path), { recursive: true });
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {
@@ -186,6 +228,32 @@ export class PreferencesStore {
       sessionNames: { ...data.sessionNames, [`${agent}:${id}`]: name },
     }));
     return name;
+  }
+
+  async setInitialSessionName(
+    agent: AgentId,
+    id: string,
+    title: string,
+    isCurrent: () => boolean,
+  ): Promise<void> {
+    const name = validateSessionName(title);
+    if (!id) throw new Error('Session ID is required.');
+    const key = `${agent}:${id}`;
+    await this.update((data) => {
+      if (!isCurrent() || data.sessionNames[key]) return data;
+      return { ...data, sessionNames: { ...data.sessionNames, [key]: name } };
+    });
+  }
+
+  async forgetSessionTitle(agent: AgentId, id: string): Promise<void> {
+    const key = `${agent}:${id}`;
+    await this.update((data) => {
+      const generatedTitles = { ...data.generatedTitles };
+      delete generatedTitles[key];
+      const sessionNames = { ...data.sessionNames };
+      delete sessionNames[key];
+      return { ...data, generatedTitles, sessionNames };
+    });
   }
 
   async setFontSize(size: number): Promise<void> {
@@ -233,13 +301,45 @@ export class PreferencesStore {
     }));
   }
 
-  registerProject(project: RegisteredProject, baseFolders: string[] = []): Promise<void> {
+  registerProject(
+    project: RegisteredProject,
+    baseFolders: string[] = [project.realPath],
+  ): Promise<void> {
     const registered = validateRegisteredProject(project);
-    const folders = this.uniqueFolders([registered.realPath, ...baseFolders]);
+    const folders = this.uniqueFolders(baseFolders);
+    return this.update((data) => {
+      const existing = data.projects.find((item) => item.id === registered.id);
+      const next = {
+        ...registered,
+        createdAt: existing?.createdAt ?? registered.createdAt ?? Date.now(),
+      };
+      return {
+        ...data,
+        projects: existing
+          ? data.projects.map((item) => (item.id === next.id ? next : item))
+          : [...data.projects, next],
+        recentFolders: this.uniqueFolders([...folders, ...data.recentFolders]),
+      };
+    });
+  }
+
+  forgetCheckout(path: string): Promise<void> {
+    const key = (value: string) => {
+      const normalized = this.normalizeFolder(value);
+      return this.paths === win32 ? normalized.toLowerCase() : normalized;
+    };
+    const target = key(path);
+    const inside = (value: string) => {
+      const part = this.paths.relative(target, key(value));
+      return (
+        part === '' ||
+        (!this.paths.isAbsolute(part) && part !== '..' && !part.startsWith(`..${this.paths.sep}`))
+      );
+    };
     return this.update((data) => ({
       ...data,
-      projects: [...data.projects.filter((p) => p.id !== registered.id), registered],
-      recentFolders: this.uniqueFolders([...folders, ...data.recentFolders]),
+      projects: data.projects.filter((project) => !inside(project.realPath)),
+      recentFolders: data.recentFolders.filter((folder) => !inside(folder)),
     }));
   }
 

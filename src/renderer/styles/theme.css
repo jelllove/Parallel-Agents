@@ -170,6 +170,28 @@ b {
   max-height: 160px;
   overflow-y: auto;
 }
+.recent-folder-dropdown {
+  position: relative;
+  margin-bottom: 12px;
+}
+.recent-folder-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recent-folder-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  margin: 4px 0 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 20px #0005;
+}
 .recent-folders-heading {
   margin: 16px 0 6px;
   font-size: inherit;
@@ -837,6 +859,10 @@ button.ctx-menu-item {
   background: transparent;
   font-size: 14px;
   line-height: 20px;
+}
+.session-activity-icon.not-open {
+  color: var(--text-dim);
+  font-size: 16px;
 }
 .session-activity-glyph {
   display: inline-block;
@@ -1743,7 +1769,9 @@ button.ctx-menu-item:disabled {
 .agent-picker {
   position: fixed;
   z-index: 1501;
-  width: 240px;
+  width: min(560px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1761,19 +1789,39 @@ button.ctx-menu-item:disabled {
   margin-bottom: 4px;
 }
 .agent-picker-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  cursor: pointer;
+  gap: 12px;
+  padding: 12px 14px;
   transition: background 0.05s;
+}
+.agent-picker-row + .agent-picker-row {
+  border-top: 1px solid var(--border);
+}
+.agent-picker-actions {
+  display: flex;
+  gap: 8px;
+}
+.agent-picker-actions button {
+  margin: 0;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.agent-picker-actions button:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+.agent-picker-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .agent-picker-row:hover {
   background: var(--bg-hover);
 }
-.agent-picker-row.unavailable {
-  opacity: 0.45;
-  cursor: not-allowed;
+.agent-picker-row.unavailable .agent-picker-icon,
+.agent-picker-row.unavailable .agent-picker-text {
+  opacity: 0.55;
 }
 .agent-picker-row.unavailable:hover {
   background: transparent;
@@ -1793,16 +1841,25 @@ button.ctx-menu-item:disabled {
 .agent-picker-name {
   color: var(--text-bright);
   font-size: calc(var(--app-font-size) * 1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .agent-picker-sub {
   color: var(--text-dim);
   font-size: calc(var(--app-font-size) * 0.846154);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+  line-height: 1.4;
+}
+@media (max-width: 440px) {
+  .agent-picker-row {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+  .agent-picker-actions {
+    grid-column: 2;
+    justify-self: end;
+  }
 }
 
 .session-item.disabled {
@@ -2328,6 +2385,37 @@ button.ctx-menu-item:disabled {
   color: #a7f3d0;
   font-weight: var(--app-font-weight);
   flex-shrink: 0;
+}
+
+.session-order-handle {
+  width: 14px;
+  height: 22px;
+  flex: 0 0 14px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  cursor: grab;
+  opacity: 0;
+}
+.session-item:hover .session-order-handle,
+.session-order-handle:focus-visible {
+  opacity: 1;
+}
+.session-order-handle:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+.session-order-handle svg {
+  width: 12px;
+  height: 12px;
+}
+.session-item.session-drop-before {
+  box-shadow: inset 0 2px var(--accent);
+}
+.session-item.session-drop-after {
+  box-shadow: inset 0 -2px var(--accent);
 }
 
 .settings-picker {

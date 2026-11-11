@@ -2,15 +2,31 @@ import { ACTIVITY_ICON, ACTIVITY_LABEL } from '../../shared/session-activity';
 import type { ActivityState } from '../../shared/session-activity';
 
 interface Props {
+  isOpen?: boolean;
   state?: ActivityState;
   attention?: boolean;
   onAcknowledge?: () => void;
 }
 export function SessionActivityIcon({
+  isOpen = true,
   state = 'unknown',
   attention = false,
   onAcknowledge,
 }: Props) {
+  if (!isOpen) {
+    return (
+      <span
+        className="session-activity-icon not-open"
+        role="img"
+        aria-label="Not open in this window"
+        title="Not open in this window"
+      >
+        <span className="session-activity-glyph" aria-hidden="true">
+          ○
+        </span>
+      </span>
+    );
+  }
   const pending = state === 'completed' && attention;
   const label =
     ACTIVITY_LABEL[state] +

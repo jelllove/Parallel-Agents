@@ -68,7 +68,7 @@ function harness(overrides = {}, openExternal = async () => {}) {
       if (id === './AgentIcon') return { AgentIcon: 'agent-icon' };
       if (id === './ActionIcon') return { ActionIcon: 'action-icon' };
       if (id === './ProjectDeleteDialog') return { ProjectDeleteDialog: 'delete-dialog' };
-      if (id === './ConfirmDialog') return { ConfirmDialog: 'confirm-dialog' };
+      if (id === './SessionDeleteDialog') return { SessionDeleteDialog: 'session-delete-dialog' };
       if (id === './SessionList') return { SessionList: 'session-list' };
       return require(id);
     },

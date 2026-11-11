@@ -85,6 +85,7 @@ test('discovers Codex sessions recursively and prefers indexed titles', async (t
   assert.equal(inventory[0].cwd, projectPath);
   assert.equal(inventory[0].version, '0.42.0');
   assert.equal(inventory[0].timestamp, Date.parse('2026-09-09T12:00:00.000Z'));
+  assert.equal(inventory[0].createdAt, Date.parse('2026-09-09T10:00:00.000Z'));
   assert.equal(inventory[1].id, 'session-fallback');
   assert.equal(inventory[1].title, 'Fallback user prompt');
 });

@@ -4,12 +4,21 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { transform } from 'esbuild';
 import { resumeCommandFor } from '../src/shared/agent-commands.ts';
-import { collectProjectSessions } from '../src/shared/project-tree.ts';
+import { collectProjectSessions, pathKey } from '../src/shared/project-tree.ts';
+import { draftSessionRows } from '../src/shared/managed-session.ts';
 
 const require = createRequire(import.meta.url);
 
 // Exercise component handlers across renders without a DOM or provider processes.
 async function componentHarness(name, state = {}) {
+  for (const [key, value] of Object.entries({
+    openTabs: [],
+    managedTabs: {},
+    tabProjectId: {},
+    tabSessionId: {},
+    tabAgent: {},
+  }))
+    state[key] ??= value;
   const slots = [];
   const listeners = new Map();
   const focused = [];
@@ -59,7 +68,23 @@ async function componentHarness(name, state = {}) {
           sessionActivityRecord: (_records, _agent, sessionId) =>
             state.activityRecord?.sessionId === sessionId ? state.activityRecord : undefined,
         };
-      if (id === '../../shared/project-tree') return { collectProjectSessions };
+      if (id === '../../shared/project-tree') return { collectProjectSessions, pathKey };
+      if (id === '../hooks/use-session-order')
+        return {
+          sessionRowKey: (row, launches) =>
+            row.kind === 'history'
+              ? `${row.session.agent}:${row.session.id}`
+              : `draft:${launches[row.tabId].launchId}`,
+          useSessionOrder: (_projects, rows) => ({
+            ordered: rows,
+            loaded: true,
+            saving: false,
+            error: '',
+            move: async (...args) => state.moveSession?.(...args),
+            reload: async () => {},
+          }),
+        };
+      if (id === '../../shared/managed-session') return { draftSessionRows };
       if (id === '../store/workspace-operations')
         return { queueSessionDeletion: (...args) => state.queueSessionDeletion(...args) };
       if (id.startsWith('./')) {
@@ -121,6 +146,7 @@ function sessionState() {
     projects: [{ id: projectId, exists: true }],
     sessions: { [projectId]: sessions },
     activeTabId: 'tab-one',
+    openTabs: ['tab-one', 'tab-two'],
     tabProjectId: { 'tab-one': projectId, 'tab-two': projectId },
     tabSessionId: { 'tab-one': 'first', 'tab-two': 'second' },
     tabAgent: { 'tab-one': 'claude', 'tab-two': 'claude' },
@@ -197,6 +223,30 @@ test('completion icon is a sibling control; icon acknowledges only, session titl
   assert.deepEqual(acknowledgements, ['completion-one', 'completion-one']);
 });
 
+test('history-only sessions are not open; inactive linked tabs remain open across aliases and provider collisions', async () => {
+  const state = sessionState();
+  state.openTabs = ['tab-one', 'tab-two'];
+  const { render } = await componentHarness('SessionList', state);
+  const icon = (id) =>
+    find(
+      rows(render()).find((row) => row.key === `claude:${id}`),
+      (node) => node.type === 'SessionActivityIcon',
+    );
+  assert.equal(icon('first').props.isOpen, true);
+  assert.equal(icon('second').props.isOpen, true);
+  state.openTabs = ['tab-one'];
+  assert.equal(icon('first').props.isOpen, true);
+  assert.equal(icon('second').props.isOpen, false);
+  state.tabSessionId = { 'tab-one': 'second' };
+  state.tabAgent = { 'tab-one': 'codex' };
+  assert.equal(icon('second').props.isOpen, false);
+  state.tabAgent = { 'tab-one': 'claude' };
+  state.tabProjectId = { 'tab-one': 'claude:shared-history-alias' };
+  assert.equal(icon('second').props.isOpen, true);
+  state.tabSessionId = { 'tab-one': null };
+  assert.equal(icon('second').props.isOpen, false);
+});
+
 test('selection checkboxes are controlled independently of the active terminal', async () => {
   const state = sessionState();
   let launches = 0;
@@ -218,6 +268,24 @@ test('selection checkboxes are controlled independently of the active terminal',
   assert.equal(items[0].props.className.includes('active'), true);
 });
 
+test('empty worktree placeholders are hidden without hiding the parent empty message', async () => {
+  const state = sessionState();
+  state.openTabs = [];
+  state.sessions = {};
+  state.projects = [
+    { id: 'claude:base', exists: true },
+    {
+      id: 'claude:worktree',
+      exists: true,
+      worktree: { parentPath: 'C:/base', branch: 'feat/empty' },
+    },
+  ];
+  const { render } = await componentHarness('SessionList', state);
+  const notices = elements(render()).filter((node) => node.props?.className === 'session-notice');
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].key, 'claude:base');
+});
+
 test('empty projects have no Start session button', async () => {
   const state = sessionState();
   state.sessions = {};
@@ -228,34 +296,21 @@ test('empty projects have no Start session button', async () => {
   );
 });
 
-test('session deletion needs only acknowledgement and never requires typing delete', async () => {
-  const state = sessionState();
-  const deleted = [];
-  state.queueSessionDeletion = (project, session) => deleted.push([project.id, session.id]);
-  const list = await componentHarness('SessionList', state);
-  const dialog = await componentHarness('ConfirmDialog');
-  const row = rows(list.render())[0];
-  find(row, (node) => node.props.className === 'session-delete').props.onClick();
-  const props = find(list.render(), (node) => node.type === 'ConfirmDialog').props;
-  assert.equal(props.typeToConfirm, undefined);
-  let tree = dialog.render(props);
-  assert.equal(elements(tree).filter((node) => node.type === 'input').length, 1);
-  assert.equal(checkbox(tree).props.checked, false);
-  assert.equal(confirmButton(tree).props.disabled, true);
-  confirmButton(tree).props.onClick();
-  assert.deepEqual(deleted, []);
-  assert.equal(dialog.focused.at(-1), 'checkbox');
-  checkbox(tree).props.onChange({ target: { checked: true } });
-  tree = dialog.render(props);
-  assert.equal(confirmButton(tree).props.disabled, false);
-  checkbox(tree).props.onChange({ target: { checked: false } });
-  tree = dialog.render(props);
-  assert.equal(confirmButton(tree).props.disabled, true);
-  checkbox(tree).props.onChange({ target: { checked: true } });
-  confirmButton(dialog.render(props)).props.onClick();
-  assert.deepEqual(deleted, [['claude:repo', 'first']]);
+test('session deletion delegates the exact target to the shared review and closes only on acceptance', async () => {
+  const list = await componentHarness('SessionList', sessionState());
+  find(rows(list.render())[0], (node) => node.props.className === 'session-delete').props.onClick();
+  let dialog = find(list.render(), (node) => node.type === 'SessionDeleteDialog');
+  assert.equal(dialog.props.targets[0].session.id, 'first');
+  dialog.props.onCancel();
   assert.equal(
-    find(list.render(), (node) => node.type === 'ConfirmDialog'),
+    find(list.render(), (node) => node.type === 'SessionDeleteDialog'),
+    undefined,
+  );
+  find(rows(list.render())[0], (node) => node.props.className === 'session-delete').props.onClick();
+  dialog = find(list.render(), (node) => node.type === 'SessionDeleteDialog');
+  dialog.props.onAccepted();
+  assert.equal(
+    find(list.render(), (node) => node.type === 'SessionDeleteDialog'),
     undefined,
   );
 });

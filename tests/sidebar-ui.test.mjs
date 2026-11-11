@@ -171,7 +171,9 @@ async function harness({ config = {}, projects = [] } = {}) {
   const render = () => {
     cursor = 0;
     effects = [];
-    const tree = module.exports.ProjectList({ onNewProject: (id) => calls.push(['new', id]) });
+    const tree = module.exports.ProjectList({
+      onNewProject: (id, project) => calls.push(project ? ['new', id, project] : ['new', id]),
+    });
     effects.forEach((effect) => effect());
     return tree;
   };
@@ -180,7 +182,7 @@ async function harness({ config = {}, projects = [] } = {}) {
   return { render, calls, state, unmount: () => slots.forEach((slot) => slot.cleanup?.()) };
 }
 
-test('project name selects without launch and adjacent plus explicitly starts a session', async () => {
+test('project name selects without launch and adjacent plus opens scoped creation', async () => {
   const p = project('repo');
   const h = await harness({ projects: [p] });
   h.state.selectProject = async (id) => h.calls.push(['select', id]);
@@ -197,7 +199,7 @@ test('project name selects without launch and adjacent plus explicitly starts a 
   await plus.props.onClick(click);
   await flush();
   assert.equal(click.stopped, true);
-  assert.deepEqual(h.calls.at(-1), ['start-session', p.id]);
+  assert.deepEqual(h.calls.at(-1), ['new', p.agent, p]);
   h.state.agentStatus.claude.available = false;
   assert.equal(byLabel(h.render(), 'New session for repo').props.disabled, true);
 });
@@ -265,7 +267,7 @@ test('batch review captures checked targets, cancellation enqueues nothing and a
     true,
   );
   byLabel(h.render(), 'Delete selected sessions').props.onClick();
-  let dialog = nodes(h.render(), (node) => node.type === 'ConfirmDialog')[0];
+  let dialog = nodes(h.render(), (node) => node.type === 'SessionDeleteDialog')[0];
   assert.equal(dialog.props.typeToConfirm, undefined);
   dialog.props.onCancel();
   assert.equal(
@@ -273,11 +275,11 @@ test('batch review captures checked targets, cancellation enqueues nothing and a
     false,
   );
   byLabel(h.render(), 'Delete selected sessions').props.onClick();
-  dialog = nodes(h.render(), (node) => node.type === 'ConfirmDialog')[0];
+  dialog = nodes(h.render(), (node) => node.type === 'SessionDeleteDialog')[0];
   h.state.sessions = { a: [{ id: 'changed', agent: 'claude', title: 'Changed' }] };
-  dialog.props.onConfirm();
-  assert.equal(h.calls.at(-1)[1][0].session.id, 'one');
-  assert.equal(nodes(h.render(), (node) => node.type === 'ConfirmDialog').length, 0);
+  assert.equal(dialog.props.targets[0].session.id, 'one');
+  dialog.props.onAccepted();
+  assert.equal(nodes(h.render(), (node) => node.type === 'SessionDeleteDialog').length, 0);
 });
 
 test('each quick-create button targets its agent without toggling the group; unavailable CLIs stay disabled', async () => {

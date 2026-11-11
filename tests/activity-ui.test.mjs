@@ -54,6 +54,20 @@ test('session activity icon shows each approved state with accessible text', asy
     assert.match(html, /role="img" aria-label=/);
     assert.match(html, /class="session-activity-glyph"/);
   }
+  for (const state of ['running', 'waiting', 'completed', 'unknown', 'failed']) {
+    const closed = module.exports.SessionActivityIcon({
+      state,
+      isOpen: false,
+      attention: true,
+      onAcknowledge() {},
+    });
+    const html = renderToStaticMarkup(closed);
+    assert.equal(closed.type, 'span');
+    assert.match(html, /not-open/);
+    assert.match(html, /Not open in this window/);
+    assert.ok(html.includes('○'));
+    assert.doesNotMatch(html, /needs-attention|<button|✅|❔|❌|🏃|❓/u);
+  }
   const pending = renderToStaticMarkup(
     createElement(module.exports.SessionActivityIcon, {
       state: 'completed',

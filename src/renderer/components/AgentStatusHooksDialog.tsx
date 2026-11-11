@@ -37,6 +37,10 @@ export function AgentStatusHooksDialog({ onClose }: { onClose: () => void }) {
         Claude Code and Copilot receive passive launch-only hooks when their installed CLI supports
         them. Existing hooks, approvals and authentication are unchanged.
       </p>
+      <p>
+        ○ means this history has no linked tab open in this window. Inactive open tabs keep their
+        activity icon.
+      </p>
       <ul>
         {Object.entries(ACTIVITY_ICON).map(([state, icon]) => (
           <li key={state}>

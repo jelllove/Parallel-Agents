@@ -7,6 +7,7 @@ import type {
   SidebarTreeState,
 } from '../shared/types.ts';
 import { DEFAULT_AGENT_ORDER } from '../shared/sidebar-order.ts';
+import { validateSidebarArrangement } from '../shared/sidebar-arrangement.ts';
 
 const AGENTS: readonly AgentId[] = ['claude', 'codex', 'gemini', 'aider', 'copilot'];
 const PANES: readonly PaneId[] = ['sidebar', 'middle', 'right'];
@@ -182,6 +183,9 @@ export function validateConfig(value: unknown): AppConfig {
     hidden: projectIds(field('hidden'), 'hidden'),
     lastAgentByProject,
     projectOrder,
+    ...(raw.sidebarArrangement === undefined
+      ? {}
+      : { sidebarArrangement: validateSidebarArrangement(raw.sidebarArrangement) }),
     layout: layoutSetting(field('layout')),
     theme: themeSetting(field('theme')),
     confirmOnCloseTab: booleanSetting(field('confirmOnCloseTab'), 'confirmOnCloseTab'),

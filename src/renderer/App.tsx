@@ -16,6 +16,7 @@ import { StatusBar } from './components/StatusBar';
 import { AppHeader } from './components/AppHeader';
 import { OperationNotices } from './components/OperationNotices';
 import { subscribeActivity } from './store/activity-store';
+import { subscribeManagedSessions } from './store/managed-sessions';
 import type { PaneId } from '../shared/types';
 import { INVENTORY_AUTO_REFRESH_MS } from '../shared/constants';
 import { sessionTabLabelSuffix } from '../shared/session-terminals';
@@ -72,6 +73,7 @@ export default function App() {
   const openTabs = useAppStore((s) => s.openTabs);
   const tabProjectId = useAppStore((s) => s.tabProjectId);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
+  const managedTabs = useAppStore((s) => s.managedTabs);
   const awaitingSession = useAppStore((s) => Object.keys(s.tabSessionBaseline).length > 0);
   const sessions = useAppStore((s) => s.sessions);
   const findProject = useAppStore((s) => s.findProject);
@@ -84,6 +86,7 @@ export default function App() {
   const resizingVisibility = useRef(false);
 
   useEffect(() => subscribeActivity(), []);
+  useEffect(() => subscribeManagedSessions(), []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -149,11 +152,11 @@ export default function App() {
         const project = findProject(projectId);
         if (!project) return tabId;
         const sessionId = tabSessionId[tabId] ?? null;
-        if (!sessionId) return project.displayName;
+        if (!sessionId) return managedTabs[tabId]?.sessionTitle || project.displayName;
         const session = (sessions[projectId] ?? []).find((item) => item.id === sessionId);
         return sessionTabLabelSuffix(session?.title ?? '', sessionId);
       });
-  }, [openTabs, tabProjectId, tabSessionId, sessions, findProject]);
+  }, [openTabs, tabProjectId, tabSessionId, sessions, findProject, managedTabs]);
 
   const panes = useMemo(
     () => ({

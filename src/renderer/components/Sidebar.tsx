@@ -3,7 +3,7 @@ import { useAppStore } from '../store/app-store';
 import { ProjectList } from './ProjectList';
 import { AgentPicker } from './AgentPicker';
 import { NewProjectDialog } from './NewProjectDialog';
-import type { AgentId } from '../../shared/types';
+import type { AgentId, Project } from '../../shared/types';
 
 interface Props {
   onAbout: () => void;
@@ -13,7 +13,7 @@ export function Sidebar({ onAbout }: Props) {
   const agents = useAppStore((s) => s.agents);
   const status = useAppStore((s) => s.agentStatus);
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
-  const [newProjectAgent, setNewProjectAgent] = useState<AgentId | null>(null);
+  const [creation, setCreation] = useState<{ agent: AgentId; project?: Project } | null>(null);
 
   function handleNew(e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -22,7 +22,7 @@ export function Sidebar({ onAbout }: Props) {
 
   function onPick(id: AgentId) {
     setPicker(null);
-    setNewProjectAgent(id);
+    setCreation({ agent: id });
   }
 
   return (
@@ -35,7 +35,7 @@ export function Sidebar({ onAbout }: Props) {
         <div className="sidebar-title section-projects">
           <span>Projects</span>
         </div>
-        <ProjectList onNewProject={setNewProjectAgent} />
+        <ProjectList onNewProject={(agent, project) => setCreation({ agent, project })} />
       </div>
       <button className="sidebar-about" onClick={onAbout} title="About">
         <span className="section-glyph about-glyph">i</span>
@@ -52,8 +52,12 @@ export function Sidebar({ onAbout }: Props) {
           title="Pick an agent CLI"
         />
       )}
-      {newProjectAgent && (
-        <NewProjectDialog agent={newProjectAgent} onClose={() => setNewProjectAgent(null)} />
+      {creation && (
+        <NewProjectDialog
+          agent={creation.agent}
+          sourceProject={creation.project}
+          onClose={() => setCreation(null)}
+        />
       )}
     </div>
   );

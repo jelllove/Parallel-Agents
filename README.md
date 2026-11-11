@@ -53,12 +53,21 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
 ### Project sidebar
 
 Projects remain grouped by agent. Use the folder icon beside a project (an arrow on hover/focus)
-to expand or collapse its sessions without launching a terminal. Sessions are ordered newest
-first; multiple projects can stay expanded. Clicking a project name only selects it and expands
+to expand or collapse its sessions without launching a terminal. Projects and sessions default to
+creation time **oldest first**; multiple projects can stay expanded. Clicking a project name only selects it and expands
 its history; it never starts or automatically resumes an agent. Use the **+** beside that project's
-pin to start a new session in its checkout. Each accepted + opens an independent new-session tab,
-without restarting or resuming an existing one. Empty checkouts show a message without a **Start
-session** button; the per-project + and New Project workflow are the explicit launch paths.
+pin to open the existing **New Project** dialog with that provider and folder prefilled. Its
+**Current Folder** / **Git Worktree** choices preserve the existing creation behavior;
+there is no separate same-folder branch-switch workflow. Accepted creation opens an independent
+session tab, never reuses a running one.
+Its draft row shows the entered session title immediately, even before the CLI writes history. Project order stays
+fixed across session switching, activity, title changes, refresh and restarts. Drag projects to adjust
+their order; drag a session's grip or focus it and press **Alt+Up/Down** to move that session within its
+project group. Right-click the session grip for **Move up/down**. Manual arrangements persist; new
+items append without disturbing manually arranged rows. Existing lists reset to oldest-first once on
+this update, while pinned sections stay pinned. Older history without a reliable creation date uses
+a fixed first-observed fallback, never its continually changing modification time. Draft sessions keep
+their position when native history/title appears. Empty checkouts have no **Start session** button.
 
 Project rows show just the name; hover for the full path. Sessions use indented, two-line rows
 with muted branch/time metadata and a yellow active-session background (pale yellow in light mode,
@@ -96,11 +105,47 @@ main-process log, rather than preventing all projects and sessions from loading 
 Project files, Git metadata, and provider histories are not reset or repaired automatically.
 
 Session rename/delete actions target the original history, not the parent project. Right-click a
-worktree session (or its empty-checkout row) for that checkout's project actions. Cleanup mode
+worktree session for that checkout's project actions. Empty worktree placeholders are hidden, without
+removing the checkout from disk or cleanup inventory. Cleanup mode
 shows individual project histories so deletion selection stays explicit. Hidden histories stay
 hidden unless **show hidden** is enabled; dragging a project moves its worktree group together.
 Pinning a project-tree row pins its visible checkout histories together. A group with any pinned
 checkout appears in the pinned partition; a checkout's context menu still targets that history.
+
+Close the current terminal tab with **Ctrl+W** (macOS: **Cmd+W**), using the same confirmation as
+its close button. Chrome's Ctrl+T creates a tab; it does not close one. Closing stops that tab's
+terminals but keeps its session history, project and worktree.
+
+Session deletion keeps working folders by default. For verified linked worktrees, the review offers
+an unchecked **Also remove Git worktree** option. If other sessions use it, checking the option
+explicitly includes those displayed histories; leaving it unchecked deletes only the original selection.
+Branches are retained. Dirty/locked checkouts, remaining histories or other app terminals block removal;
+successful history deletion is reported separately from worktree-removal failures. Close external
+terminals first; they cannot be reliably detected.
+
+Completed operation notices (including failures and warnings) automatically dismiss after **15 seconds**.
+The timer does not depend on window focus, visibility or pointer/keyboard interaction. **Dismiss**
+remains available for immediate closure; queued/running work never expires.
+
+### Name a new session
+
+**New Agent Session** requires a manually entered **Session Title** (1–120 single-line characters,
+including non-English text). It appears immediately in the sidebar and terminal tab, before native
+history exists. Exact managed identity or an explicit Link transfers it to local session metadata;
+a later pencil rename always wins. No background title-generation request or retry button remains.
+Existing saved names, including previously generated names, stay visible without resuming generation.
+Provider history files are not renamed or rewritten.
+
+The dialog combines a repository dropdown/Browse row, **Current Folder / Git Worktree** isolation
+controls, and a real **Base Branch** selector for worktree mode. The settings icon opens the selected
+agent's approval/model settings. Current Folder never switches branches. Worktree details suggest an
+editable `feat/YYYYMMDD_title` branch, show its destination, and offer **Edit directory…** for custom paths.
+The date uses the local calendar when the dialog opens (for example `feat/20261111_refactor-auth`);
+non-Latin-only titles use a stable suffix. Manually edited branch names are never overwritten.
+Local main/master/develop branches are preferred when present; other local/remote refs, tags, HEAD
+and custom commit references are available without fetching. Workspace mode remains remembered.
+The form keeps essential field labels and destination details; redundant captions, badges and the
+ready-state footer text are omitted. Loading, validation errors and retry actions remain visible.
 
 ### Agent status icons
 
@@ -116,7 +161,9 @@ only a UI acknowledgement, not an answer to a CLI permission prompt.
 
 A completed turn does not mean the CLI exited; another request/tool/model event returns to running.
 System reduced-motion preferences disable these animations and retain a static unread-completion cue.
-Unsupported, disabled, untrusted or external sessions show ❔ rather than guessed activity.
+A history session with no linked tab in this window shows a muted **○** (not open), not **New**:
+it may be old history, not a newly created conversation. An open but inactive tab keeps its activity
+icon; an open session with unavailable/disabled/untrusted hooks shows ❔ rather than guessed activity.
 
 Use **Settings → Agent status hooks... → Add Codex status hooks** for Codex. Confirm the displayed
 hooks.json path; installation preserves existing entries and creates a backup before changes.
@@ -126,16 +173,23 @@ preserved and reported. Installation does not edit authentication or approval/sa
 
 Activity is local and in-memory. The reporter sends only event categories and session identity,
 not prompts, transcripts, tool input/output or credentials. Only app-managed launches receive the
-private reporting token. New sessions need their normal explicit session link before activity can
-be projected onto a history row. Closing/restarting a terminal invalidates old reports. No completion
-popup or timing-based inference is used; without a real exit/failure event, abnormal CLI exit may
+private reporting token. A managed new session can link automatically only after its exact hook
+launch identity and native history/checkout agree. Otherwise the explicit link flow remains available;
+the newest history is never guessed. If a new unlinked tab already exists for the same project/provider
+and the selected history appeared after that tab was launched, clicking the history offers **Link to
+running tab** instead of blindly resuming a potentially running session twice. Linking only records
+identity; it does not restart/stop the CLI. Cancel leaves it untouched. Use **Resume separately** only
+if that history is not already running in another terminal. Closing/restarting a terminal invalidates
+old reports. No completion popup or timing-based inference is used; without a real exit/failure event, abnormal CLI exit may
 remain unknown while its shell stays open. Gemini/Aider activity adapters are not yet supported.
 
 ## Quick start
 
 ### Quick-create, pin, and arrange projects
 
-The top **New Project** button still opens the agent picker. Each agent heading also has a **+**
+The top **New Project** button opens a wider agent picker with readable wrapped names/paths and row
+dividers. Each row has **New** to open creation and **Options** for approval/model settings. Missing CLIs
+disable only New; Options remains usable. Each agent heading also has a **+**
 button that opens the same Create/Open dialog directly for that agent, including recent folders
 and its launch settings. The shortcut is disabled when that CLI is not installed.
 
@@ -203,7 +257,9 @@ Choose **New Project**, select an agent, then select a path under **Recently ope
 This fills the existing folder field without launching anything until you confirm.
 The same list is available when choosing a base repository for a Git worktree; selecting a
 different base updates generated worktree paths but does not overwrite a manually entered target.
-The scrollable list shows each folder's icon, name, and full path without a separate search box.
+A compact dropdown opens a scrollable keyboard-accessible menu of folder icons, names and full
+paths, without a separate search box. Linked worktrees and their subfolders are excluded; base
+repositories and ordinary project folders remain available.
 
 **Workspace mode** uses folder/branch icons to distinguish opening a local folder from creating
 a Git worktree. The app remembers the last selected mode globally across agents and restarts,
@@ -213,10 +269,9 @@ The approval/model configuration button is marked with a settings icon.
 
 History is local to the application preferences and shared across agents. Existing registered
 project paths seed the list when upgrading; older provider-only folders appear after you open
-them again. Successful folder/worktree creation records the workspace and its worktree base;
-successful terminal opens also record the workspace. Browsing then cancelling does not add history.
-Missing/moved folders remain visible; attempting to open one reports an error rather than deleting
-it or silently opening another folder. A malformed/unwritable preferences file is reported without
+them again. Successful worktree creation records its eligible base, never the new checkout;
+terminal opens apply the same filter. Browsing then cancelling does not add history.
+Missing/moved folders are omitted from the dropdown without deleting saved data or opening a substitute. A malformed/unwritable preferences file is reported without
 resetting user data. Removing a registered project does not erase its folder history.
 
 ### Use a release
@@ -458,7 +513,7 @@ your selected projects are separate data, not contents of the settings file.
 - **Delete project/session** can permanently remove provider history. This is not the Explorer's
   recycle-bin action. Session deletion requires checking the acknowledgement and clicking **Delete
   forever**, without typing `delete`. Project deletion retains its session review and acknowledgement.
-  Accepted deletions run in the background; failures remain visible in dismissible notices.
+  Accepted deletions run in the background; failure notices include details and auto-dismiss after 15 seconds.
 - **Explorer trash**, file moves, and **Git discard/commit** operate on real selected project files.
 
 Do not delete settings or provider directories as a routine troubleshooting step. Quit the app and

@@ -89,10 +89,17 @@ async function themeHarness(platform) {
   const overlays = [];
   let theme = 'dark';
   let writeError;
-  const win = {
-    once() {},
-    setTitleBarOverlay: (overlay) => overlays.push(overlay),
-  };
+  const win = new EventEmitter();
+  win.setTitleBarOverlay = (overlay) => overlays.push(overlay);
+  win.isDestroyed = () => false;
+  win.focused = true;
+  win.visible = true;
+  win.minimized = false;
+  win.isFocused = () => win.focused;
+  win.isVisible = () => win.visible;
+  win.isMinimized = () => win.minimized;
+  const messages = [];
+  win.webContents = { isDestroyed: () => false, send: (...args) => messages.push(args) };
   const source = await readFile(new URL('../src/main/ipc.ts', import.meta.url), 'utf8');
   const { code } = await transform(source, { loader: 'ts', format: 'cjs' });
   const require = createRequire(import.meta.url);
@@ -100,7 +107,12 @@ async function themeHarness(platform) {
   new Function('require', 'module', 'exports', 'process', code)(
     (id) => {
       if (id === 'electron')
-        return { ipcMain: { handle: (name, handler) => handlers.set(name, handler) } };
+        return {
+          ipcMain: {
+            handle: (name, handler) => handlers.set(name, handler),
+            removeHandler: (name) => handlers.delete(name),
+          },
+        };
       if (id === './config.ts')
         return {
           getTheme: async () => theme,
@@ -124,6 +136,9 @@ async function themeHarness(platform) {
   module.exports.registerIpc(win, { subscribe: () => () => {} });
   return {
     overlays,
+    win,
+    handlers,
+    messages,
     getTheme: () => handlers.get('config:getTheme')(),
     setTheme: (value) => handlers.get('config:setTheme')({}, value),
     failWrites: () => {
@@ -131,6 +146,13 @@ async function themeHarness(platform) {
     },
   };
 }
+
+test('notification expiry needs no native foreground IPC or window listeners', async () => {
+  const h = await themeHarness('win32');
+  assert.equal(h.handlers.has('window:foreground'), false);
+  for (const event of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore'])
+    assert.equal(h.win.listenerCount(event), 0);
+});
 
 test('Windows native caption colors track loaded and saved application themes', async () => {
   const h = await themeHarness('win32');

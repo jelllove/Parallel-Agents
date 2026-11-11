@@ -8,6 +8,7 @@ type JsonRecord = Record<string, unknown>;
 export interface ClaudeSessionMeta {
   title: string;
   timestamp: number;
+  createdAt?: number;
   cwd: string | null;
   gitBranch: string | null;
   version: string | null;
@@ -20,13 +21,14 @@ export interface CopilotSessionMeta extends ClaudeSessionMeta {
 
 export type CopilotSessionStartMeta = Pick<
   CopilotSessionMeta,
-  'sessionId' | 'projectPath' | 'timestamp'
+  'sessionId' | 'projectPath' | 'timestamp' | 'createdAt'
 >;
 
 export interface GeminiSessionMeta {
   sessionId: string;
   title: string;
   timestamp: number;
+  createdAt?: number;
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -139,7 +141,9 @@ export async function readClaudeSessionMeta(filePath: string): Promise<ClaudeSes
     gitBranch: null,
     version: null,
   };
+  let createdAt: number | undefined;
   const mtime = await scanSessionLog(filePath, (record) => {
+    if (!record.isSidechain) createdAt ??= timestamp(record.timestamp) ?? undefined;
     if (record.type !== 'user' || record.isSidechain) return false;
     meta.title = claudeTitle(asRecord(record.message)?.content);
     meta.timestamp = timestamp(record.timestamp);
@@ -148,7 +152,13 @@ export async function readClaudeSessionMeta(filePath: string): Promise<ClaudeSes
     meta.version = asString(record.version);
     return true;
   });
-  return mtime === null ? null : { ...meta, timestamp: meta.timestamp ?? mtime };
+  return mtime === null
+    ? null
+    : {
+        ...meta,
+        timestamp: meta.timestamp ?? mtime,
+        ...(createdAt === undefined ? {} : { createdAt }),
+      };
 }
 
 interface CopilotHeader {
@@ -202,6 +212,7 @@ export async function readCopilotSessionMeta(filePath: string): Promise<CopilotS
     projectPath: header.projectPath,
     title: state.title ?? '(no user message)',
     timestamp: state.userTimestamp ?? header.startTime ?? mtime,
+    createdAt: header.startTime ?? state.userTimestamp ?? undefined,
     cwd: header.cwd,
     gitBranch: header.gitBranch,
     version: header.version,
@@ -227,6 +238,7 @@ export async function readCopilotSessionStart(
     sessionId: header.sessionId,
     projectPath: header.projectPath,
     timestamp: header.startTime ?? mtime,
+    createdAt: header.startTime ?? undefined,
   };
 }
 
@@ -257,5 +269,6 @@ export async function readGeminiSessionMeta(filePath: string): Promise<GeminiSes
     sessionId: header.sessionId,
     title: state.title ?? '(no user message)',
     timestamp: header.startTime ?? mtime,
+    createdAt: header.startTime ?? undefined,
   };
 }

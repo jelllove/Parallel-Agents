@@ -6,7 +6,7 @@ export interface OperationResult {
   warning?: boolean;
 }
 
-interface Operation {
+export interface Operation {
   id: number;
   key: string;
   title: string;

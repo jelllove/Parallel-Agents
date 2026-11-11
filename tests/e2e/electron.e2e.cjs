@@ -1,4 +1,4 @@
-/* global window, document, MouseEvent, DragEvent, DataTransfer, getComputedStyle */
+/* global window, document, MouseEvent, DragEvent, DataTransfer, KeyboardEvent, getComputedStyle */
 const assert = require('node:assert/strict');
 const {
   mkdirSync,
@@ -10,8 +10,10 @@ const {
 } = require('node:fs');
 const { dirname, join } = require('node:path');
 const { once } = require('node:events');
+const { execFileSync } = require('node:child_process');
 const { app, shell, Menu, ipcMain } = require('electron');
 const { trackNativePtys } = require('../helpers/native-pty-lifecycle.cjs');
+const { verifyAgentPicker } = require('../helpers/agent-picker-layout.cjs');
 const nativePtys = trackNativePtys();
 const nativePty = require('node-pty');
 const nativeSpawn = nativePty.spawn;
@@ -38,6 +40,34 @@ if (payloadPty !== nativePty) {
 const fixtureCreatePath = join(home, 'background-created-project');
 mkdirSync(fixtureCreatePath);
 const handle = ipcMain.handle.bind(ipcMain);
+const fixtureBranches = new Set();
+const fixturePasteWrites = [];
+const capturedDialogThemes = new Set();
+const originalFixtureBounds = new WeakMap();
+const fixturePathKey = (path) => {
+  const canonical = realpathSync(path);
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+};
+const nativeFixtureSpawn = nativePty.spawn;
+nativePty.spawn = (command, args, options) =>
+  nativeFixtureSpawn(command, args, {
+    ...options,
+    env: {
+      ...options.env,
+      PA_FIXTURE_WRITE_NEW_HISTORY: fixtureBranches.has(fixturePathKey(options.cwd)) ? '1' : '0',
+    },
+  });
+if (payloadPty !== nativePty) {
+  const spawn = payloadPty.spawn;
+  payloadPty.spawn = (command, args, options) =>
+    spawn(command, args, {
+      ...options,
+      env: {
+        ...options.env,
+        PA_FIXTURE_WRITE_NEW_HISTORY: fixtureBranches.has(fixturePathKey(options.cwd)) ? '1' : '0',
+      },
+    });
+}
 ipcMain.handle = (channel, listener) =>
   handle(channel, async (event, ...args) => {
     if (
@@ -46,7 +76,52 @@ ipcMain.handle = (channel, listener) =>
     ) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
-    return listener(event, ...args);
+    if (channel === 'workspace:repository' && windowUnderTest) {
+      const marker = await windowUnderTest.webContents.executeJavaScript(
+        'window.__dialogLayoutProbe ?? null',
+      );
+      if (marker === 'compact') {
+        originalFixtureBounds.set(windowUnderTest, windowUnderTest.getBounds());
+        windowUnderTest.setSize(1000, 600);
+      } else if (marker === 'restore' && originalFixtureBounds.has(windowUnderTest)) {
+        windowUnderTest.setBounds(originalFixtureBounds.get(windowUnderTest));
+        originalFixtureBounds.delete(windowUnderTest);
+      }
+    }
+    if (
+      channel === 'pty:write' &&
+      typeof args[1] === 'string' &&
+      args[1].includes('PA_CLIPBOARD_ONCE_FIXTURE')
+    ) {
+      fixturePasteWrites.push(args[1]);
+      // Record synthetic renderer input without submitting anything to a shell/provider.
+      return;
+    }
+    const result = await listener(event, ...args);
+    if (channel === 'workspace:repository' && windowUnderTest) {
+      const theme = await windowUnderTest.webContents.executeJavaScript(`(() => {
+        const dialog = document.querySelector('.new-session-dialog[open]');
+        return dialog?.querySelector('input[aria-label="Session Title"]')?.value === 'Refactor authentication' ? document.documentElement.dataset.theme : null;
+      })()`);
+      const compact = await windowUnderTest.webContents.executeJavaScript(
+        'window.__dialogLayoutProbe === "compact"',
+      );
+      const imageKey = compact ? `${theme}-compact` : theme;
+      if (['dark', 'light'].includes(theme) && !capturedDialogThemes.has(imageKey)) {
+        capturedDialogThemes.add(imageKey);
+        writeFileSync(
+          join(reports, `${reportName}-new-session-${imageKey}.png`),
+          (await windowUnderTest.capturePage()).toPNG(),
+        );
+      }
+    }
+    if (
+      channel === 'projects:create' &&
+      (args[0]?.branch?.startsWith('fixture/') ||
+        (args[0]?.mode === 'folder' && typeof args[0]?.sessionTitle === 'string'))
+    )
+      fixtureBranches.add(fixturePathKey(result.realPath));
+    return result;
   });
 const startedAt = Date.now();
 const smokeTimeoutMs = 120_000;
@@ -245,7 +320,7 @@ async function checkRenderer(projectPath, createPath) {
     check(
       code === 0 &&
         plainOutput.split(/\r?\n/).some((line) => line.trim() === 'PARALLEL_AGENTS_SMOKE_OK'),
-      `native PTY executes and exits successfully (code ${code}, output ${JSON.stringify(plainOutput.slice(0, 200))})`,
+      `native PTY executes and exits successfully (code ${code}, output ${JSON.stringify(plainOutput)})`,
     );
   } finally {
     clearTimeout(timer);
@@ -313,13 +388,13 @@ async function checkRenderer(projectPath, createPath) {
     await waitFor(() => !quickCreate.disabled, 'Codex quick-create remains disabled');
     quickCreate.click();
     await waitFor(
-      () => document.querySelector('.workflow-dialog h2')?.textContent.includes('Codex'),
+      () => document.querySelector('.new-session-provider')?.textContent.includes('Codex'),
       'Agent quick-create did not open the Codex project dialog',
     );
-    const workspaceSelect = () =>
-      document.querySelector('.workflow-dialog select[aria-label="Workspace mode"]');
+    const workspaceButton = (mode) =>
+      document.querySelectorAll('.new-session-modes button')[mode === 'folder' ? 0 : 1];
     await waitFor(
-      () => workspaceSelect() && !workspaceSelect().disabled,
+      () => workspaceButton('folder') && !workspaceButton('folder').disabled,
       'Workspace mode did not load',
     );
     check(
@@ -331,14 +406,19 @@ async function checkRenderer(projectPath, createPath) {
       'recent folders no longer show a search box',
     );
     check(
-      workspaceSelect().querySelector('option[value="folder"]').textContent.startsWith('📂 ') &&
-        workspaceSelect().querySelector('option[value="worktree"]').textContent.startsWith('🌿 '),
-      'native workspace options display distinct folder and branch icons',
+      workspaceButton('folder').querySelector('svg') &&
+        workspaceButton('worktree').textContent.includes('Git Worktree'),
+      'workspace isolation uses icon-labeled segmented controls',
     );
-    workspaceSelect().value = 'worktree';
-    workspaceSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    check(
+      !document.querySelector('.new-session-dialog input[type="checkbox"]'),
+      'automatic title checkbox is absent',
+    );
+    workspaceButton('worktree').click();
     await waitFor(
-      () => workspaceSelect().value === 'worktree' && !workspaceSelect().disabled,
+      () =>
+        workspaceButton('worktree').getAttribute('aria-pressed') === 'true' &&
+        !workspaceButton('worktree').disabled,
       'Workspace mode did not finish saving',
     );
     [...document.querySelectorAll('.workflow-dialog button')]
@@ -347,19 +427,20 @@ async function checkRenderer(projectPath, createPath) {
     document.querySelector('[data-agent-id="claude"] .agent-quick-create').click();
     await waitFor(
       () =>
-        document.querySelector('.workflow-dialog h2')?.textContent.includes('Claude') &&
-        workspaceSelect()?.value === 'worktree' &&
-        !workspaceSelect().disabled,
+        document.querySelector('.new-session-provider')?.textContent.includes('Claude') &&
+        workspaceButton('worktree')?.getAttribute('aria-pressed') === 'true' &&
+        !workspaceButton('worktree').disabled,
       'Cancelled workspace mode was not restored for a different agent',
     );
     check(
       (await window.api.workspace.getMode()) === 'worktree',
       'workspace mode is saved before creation and shared across agent dialogs',
     );
-    workspaceSelect().value = 'folder';
-    workspaceSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    workspaceButton('folder').click();
     await waitFor(
-      () => workspaceSelect().value === 'folder' && !workspaceSelect().disabled,
+      () =>
+        workspaceButton('folder').getAttribute('aria-pressed') === 'true' &&
+        !workspaceButton('folder').disabled,
       'Workspace mode could not switch back to opening a folder',
     );
     [...document.querySelectorAll('.workflow-dialog button')]
@@ -400,6 +481,37 @@ async function checkRenderer(projectPath, createPath) {
       () => document.querySelectorAll('.project-sessions .session-open').length === 2,
       'Both main and worktree sessions did not appear inline',
     );
+    const sessionTitles = () =>
+      [...document.querySelectorAll('.project-sessions .session-item .list-item-title')].map(
+        (item) => item.textContent,
+      );
+    check(
+      sessionTitles().join('|') === 'Isolated smoke fixture|Isolated worktree session',
+      'sessions default to oldest-created first',
+    );
+    const moveHandle = (title) =>
+      document.querySelector(`button[aria-label="Move session ${title}"]`);
+    await waitFor(
+      () =>
+        moveHandle('Isolated worktree session') &&
+        !moveHandle('Isolated worktree session').disabled,
+      'Session ordering did not hydrate',
+    );
+    moveHandle('Isolated worktree session').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }),
+    );
+    await waitFor(
+      () => sessionTitles()[0] === 'Isolated worktree session',
+      'Keyboard session move did not persist',
+    );
+    moveHandle('Isolated worktree session').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }),
+    );
+    await waitFor(
+      () => sessionTitles()[0] === 'Isolated smoke fixture',
+      'Keyboard session move down failed',
+    );
+    checks.push('manual session movement persists without changing terminal selection');
     check(
       !document.querySelector('.tab-bar .tab') && uiPtys.size === 0,
       'project-name click selects and expands history without launching a session',
@@ -428,6 +540,18 @@ async function checkRenderer(projectPath, createPath) {
       ),
       'two-line session rows retain compact spacing',
     );
+    check(
+      [...document.querySelectorAll('.project-sessions .session-item')].every((row) => {
+        const icon = row.querySelector('.session-activity-icon');
+        return (
+          icon?.classList.contains('not-open') &&
+          icon.textContent.trim() === '○' &&
+          icon.getAttribute('aria-label') === 'Not open in this window' &&
+          getComputedStyle(icon.querySelector('.session-activity-glyph')).animationName === 'none'
+        );
+      }),
+      'unopened history uses a static accessible hollow circle rather than unknown activity',
+    );
     const baseSession = [...document.querySelectorAll('.session-open')].find((button) =>
       button.textContent.includes('Isolated smoke fixture'),
     );
@@ -444,6 +568,16 @@ async function checkRenderer(projectPath, createPath) {
       'existing project session receives exact provider-specific mode and model arguments',
     );
     checks.push('the initial CLI command reaches the mounted terminal');
+    check(
+      [...document.querySelectorAll('.session-item')]
+        .find(
+          (row) =>
+            row.querySelector('.list-item-title')?.textContent === 'Isolated worktree session',
+        )
+        ?.querySelector('.session-activity-icon')
+        .classList.contains('not-open'),
+      'opening one session leaves the other history marked not open',
+    );
     await waitFor(
       () =>
         document.querySelector('.session-item.active .session-activity-icon')?.textContent === '✅',
@@ -482,6 +616,45 @@ async function checkRenderer(projectPath, createPath) {
     const activityPty = [...uiPtys].find(
       (id) => id.includes('smoke-session') && id.endsWith('::agent'),
     );
+    const pasteTextarea =
+      document.querySelector(
+        '.terminal-tab-panel.active .terminal-agent-pane .xterm-helper-textarea',
+      ) ?? document.querySelector('.terminal-tab-panel.active .xterm-helper-textarea');
+    check(Boolean(pasteTextarea), 'active terminal exposes its native paste input');
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { readText: async () => 'PA_CLIPBOARD_ONCE_FIXTURE' },
+      });
+      const platform = window.api.platform;
+      const pasteKey = new KeyboardEvent('keydown', {
+        key: 'v',
+        keyCode: 86,
+        which: 86,
+        ctrlKey: platform !== 'darwin',
+        metaKey: platform === 'darwin',
+        shiftKey: platform === 'linux',
+        bubbles: true,
+        cancelable: true,
+      });
+      pasteTextarea.dispatchEvent(pasteKey);
+      check(pasteKey.defaultPrevented, 'custom paste shortcut cancels Chromium default paste');
+      // A failure to cancel the native default would emit this second xterm paste path.
+      if (!pasteKey.defaultPrevented) {
+        const data = new DataTransfer();
+        data.setData('text/plain', 'PA_CLIPBOARD_ONCE_FIXTURE');
+        pasteTextarea.dispatchEvent(
+          new window.ClipboardEvent('paste', { clipboardData: data, bubbles: true }),
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await window.api.activity.snapshot();
+      checks.push('keyboard paste uses one xterm input path without duplicate default paste');
+    } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+      else delete navigator.clipboard;
+    }
     const emitActivity = async (event, state) => {
       const previousRevision = (await window.api.activity.snapshot()).revision;
       await window.api.pty.write(
@@ -582,7 +755,12 @@ async function checkRenderer(projectPath, createPath) {
     for (const name of ['sidebar-order-one', 'sidebar-order-two']) {
       const path = `${projectPath}${separator}${name}`;
       await window.api.fs.createDir(path);
-      await window.api.projects.create({ agent: 'claude', mode: 'folder', basePath: path });
+      await window.api.projects.create({
+        agent: 'claude',
+        mode: 'folder',
+        basePath: path,
+        sessionTitle: 'Sidebar fixture',
+      });
     }
     document.querySelector('button[aria-label="Refresh projects and agents"]').click();
     const projectRow = (name) =>
@@ -707,18 +885,64 @@ async function checkRenderer(projectPath, createPath) {
       );
       newProject.click();
       await waitFor(
-        () => document.querySelector('.agent-picker-row[title="Claude Code"]'),
+        () =>
+          document.querySelector('.agent-picker button[aria-label="New project with Claude Code"]'),
         'New Project agent picker unavailable',
       );
-      document.querySelector('.agent-picker-row[title="Claude Code"]').click();
+      const pickerRows = [...document.querySelectorAll('.agent-picker-row')];
+      check(
+        pickerRows.every(
+          (row) =>
+            [...row.querySelectorAll('button')]
+              .map((button) => button.textContent.trim())
+              .join('|') === 'New|Options',
+        ),
+        'every agent picker row exposes explicit New and Options buttons',
+      );
+      const picker = document.querySelector('.agent-picker');
+      const bounds = picker.getBoundingClientRect();
+      check(
+        bounds.width >= 500 &&
+          bounds.left >= 8 &&
+          bounds.right <= window.innerWidth - 8 &&
+          bounds.top >= 8 &&
+          bounds.bottom <= window.innerHeight - 8,
+        'wide measured agent picker stays inside the viewport',
+      );
+      check(
+        pickerRows.slice(1).every((row) => getComputedStyle(row).borderTopWidth === '1px') &&
+          getComputedStyle(pickerRows[0]).borderTopWidth === '0px',
+        'agent picker uses dividers only between rows',
+      );
+      check(
+        pickerRows.every((row) => {
+          const name = row.querySelector('.agent-picker-name');
+          const path = row.querySelector('.agent-picker-sub');
+          const actions = row.querySelector('.agent-picker-actions');
+          return (
+            getComputedStyle(name).whiteSpace === 'normal' &&
+            getComputedStyle(path).overflowWrap === 'anywhere' &&
+            path.scrollWidth <= path.clientWidth &&
+            actions.getBoundingClientRect().left >= name.getBoundingClientRect().right
+          );
+        }),
+        'agent names and executable paths wrap without overlapping New and Options',
+      );
+      document
+        .querySelector('.agent-picker button[aria-label="New project with Claude Code"]')
+        .click();
       await waitFor(
-        () => document.querySelector('dialog[open] .recent-folder'),
-        'Recent folder list did not appear',
+        () => document.querySelector('dialog[open] .recent-folder-trigger:not(:disabled)'),
+        'Recent folder dropdown did not appear',
+      );
+      check(
+        !document.querySelector('dialog[open] .recent-folder-menu'),
+        'recent folders start as a collapsed dropdown',
       );
     };
     await openNewDialog();
-    [...document.querySelectorAll('dialog[open] button')]
-      .find((button) => button.textContent.includes('Configure Claude Code'))
+    document
+      .querySelector('button[aria-label="Configure Claude Code approval mode and model"]')
       .click();
     await waitFor(
       () =>
@@ -738,6 +962,11 @@ async function checkRenderer(projectPath, createPath) {
       () => !document.querySelector('.agent-launch-dialog[open]'),
       'Launch options dialog did not close',
     );
+    document.querySelector('dialog[open] .recent-folder-trigger').click();
+    await waitFor(
+      () => document.querySelector('dialog[open] .recent-folder-menu'),
+      'Recent dropdown did not expand',
+    );
     const recent = [...document.querySelectorAll('.recent-folder')].find(
       (button) => button.title === projectPath,
     );
@@ -756,12 +985,77 @@ async function checkRenderer(projectPath, createPath) {
     );
     recent.click();
     await waitFor(
-      () => document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      () =>
+        document.querySelector('dialog[open] .recent-folder-trigger .recent-folder-path')
+          ?.textContent === projectPath,
       'recent folder selection did not update the project path',
     );
     check(
-      document.querySelector('dialog[open] .workflow-path input').value === projectPath,
+      document.querySelector('dialog[open] .recent-folder-trigger .recent-folder-path')
+        ?.textContent === projectPath,
       'recent folder selection fills the existing project path',
+    );
+    workspaceButton('worktree').click();
+    await waitFor(
+      () =>
+        document.querySelector('.new-session-worktree-details') &&
+        !document.querySelector('select[aria-label="Base Branch"]').disabled,
+      'Reference dialog worktree details unavailable',
+    );
+    const dialogTitle = document.querySelector('input[aria-label="Session Title"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      dialogTitle,
+      'Refactor authentication',
+    );
+    dialogTitle.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const originalDialogTheme = document.documentElement.dataset.theme;
+    try {
+      for (const theme of ['dark', 'light']) {
+        document.documentElement.dataset.theme = theme;
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+        const card = document.querySelector('.new-session-dialog');
+        const color = getComputedStyle(card).backgroundColor;
+        check(
+          color === (theme === 'dark' ? 'rgb(22, 24, 27)' : 'rgb(255, 255, 255)'),
+          `${theme} creation card follows supplied palette`,
+        );
+        const footer = card.querySelector('footer').getBoundingClientRect();
+        check(
+          footer.bottom <= window.innerHeight && footer.top >= 0,
+          `${theme} creation footer stays within the window`,
+        );
+        // Existing read-only IPC lets the isolated harness capture the current theme.
+        await window.api.workspace.repository(projectPath);
+      }
+      document.documentElement.style.setProperty('--app-font-size', '24px');
+      window.__dialogLayoutProbe = 'compact';
+      await window.api.workspace.repository(projectPath);
+      await waitFor(
+        () => window.innerWidth <= 1000 && window.innerHeight <= 600,
+        'Compact creation fixture did not resize',
+      );
+      const compactCard = document.querySelector('.new-session-dialog');
+      const body = compactCard.querySelector('.new-session-body');
+      const footer = compactCard.querySelector('footer').getBoundingClientRect();
+      const launch = compactCard.querySelector('button[type="submit"]').getBoundingClientRect();
+      check(
+        footer.bottom <= window.innerHeight &&
+          launch.right <= compactCard.getBoundingClientRect().right &&
+          body.clientHeight < body.scrollHeight,
+        'creation body scrolls and footer remains visible at minimum window and maximum app font',
+      );
+    } finally {
+      document.documentElement.style.removeProperty('--app-font-size');
+      window.__dialogLayoutProbe = 'restore';
+      await window.api.workspace.repository(projectPath);
+      delete window.__dialogLayoutProbe;
+      document.documentElement.dataset.theme = originalDialogTheme;
+    }
+    workspaceButton('folder').click();
+    await waitFor(
+      () => !workspaceButton('folder').disabled,
+      'Folder mode did not settle after design checks',
     );
     const cancelNew = () =>
       [...document.querySelectorAll('dialog[open] button')]
@@ -814,6 +1108,11 @@ async function checkRenderer(projectPath, createPath) {
       await window.api.pty.kill('smoke-start-options');
     }
     await openNewDialog();
+    document.querySelector('dialog[open] .recent-folder-trigger').click();
+    await waitFor(
+      () => document.querySelector('.recent-folder-menu'),
+      'Reopened history dropdown did not expand',
+    );
     check(
       [...document.querySelectorAll('.recent-folder')].some(
         (button) => button.title === projectPath,
@@ -896,6 +1195,12 @@ async function checkRenderer(projectPath, createPath) {
       'Worktree tab did not restore selection',
     );
     activeSession = document.querySelector('.project-sessions .session-item.active');
+    check(
+      !activityRow().classList.contains('active') &&
+        !activityIcon().classList.contains('not-open') &&
+        !activeSession.querySelector('.session-activity-icon').classList.contains('not-open'),
+      'inactive linked tabs retain activity icons instead of appearing unopened',
+    );
     checks.push('inline session arrow and highlight follow terminal tab switching');
     const originalTheme = document.documentElement.dataset.theme;
     try {
@@ -1116,6 +1421,10 @@ async function checkRenderer(projectPath, createPath) {
       'Session deletion did not reopen',
     );
     modal = document.querySelector('.modal-backdrop');
+    await waitFor(
+      () => modal.querySelector('.session-delete-review li'),
+      'Session deletion preview did not load',
+    );
     modal.querySelector('input[type="checkbox"]').click();
     await waitFor(
       () => !modal.querySelector('.btn-danger').disabled,
@@ -1136,27 +1445,120 @@ async function checkRenderer(projectPath, createPath) {
     );
     await waitFor(() => !baseTab.isConnected, 'Deleting history did not close its open tab');
     check(worktreeTab.isConnected, 'deleting a session keeps an unrelated worktree tab open');
-    const explicitPlus = () => document.querySelector('.project-new-session');
+    const explicitPlus = () =>
+      [...document.querySelectorAll('.project-new-session')].find((button) => !button.disabled);
     const tabCount = () => document.querySelectorAll('.tab-bar .tab').length;
+    const createFromPlus = async (name, mode = 'folder') => {
+      const before = tabCount();
+      await waitFor(() => explicitPlus(), 'Project creation action unavailable');
+      explicitPlus().click();
+      await waitFor(
+        () => document.querySelector('dialog[open] .new-session-modes button:not(:disabled)'),
+        'Project creation dialog unavailable',
+      );
+      const dialog = document.querySelector('dialog[open]');
+      check(
+        tabCount() === before &&
+          dialog.querySelector('.recent-folder-trigger .recent-folder-path')?.textContent,
+        'project plus opens a prefilled dialog without launching',
+      );
+      const control = dialog.querySelectorAll('.new-session-modes button')[
+        mode === 'folder' ? 0 : 1
+      ];
+      control.click();
+      await waitFor(
+        () => !control.disabled && control.getAttribute('aria-pressed') === 'true',
+        'Workspace mode did not settle',
+      );
+      const titleInput = dialog.querySelector('input[aria-label="Session Title"]');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+        titleInput,
+        `Manual fixture ${name}`,
+      );
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+      checks.push(`project creation mode ready: ${mode}`);
+      if (mode === 'worktree') {
+        const input = dialog.querySelector('input[aria-label="New branch"]');
+        await waitFor(
+          () => /^feat\/\d{8}_manual-fixture-/.test(input.value),
+          'Default branch did not use feat/local date/title format',
+        );
+        checks.push(
+          'new branch defaults use feat/YYYYMMDD_title without changing custom branch editing',
+        );
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+          input,
+          `fixture/${name}`,
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      await waitFor(
+        () => !dialog.querySelector('button[type="submit"]').disabled,
+        'Required title/repository did not enable launch',
+      );
+      dialog.querySelector('form').requestSubmit();
+      await waitFor(
+        () => !document.querySelector('dialog[open]') && tabCount() === before + 1,
+        'Accepted project creation did not open an independent tab',
+      );
+      const tab = document.querySelector('.tab-bar .tab.active');
+      await waitFor(
+        () => tab.textContent.includes(`Manual fixture ${name}`),
+        'Manual title was not visible immediately on the tab',
+      );
+      await waitFor(
+        () =>
+          [...document.querySelectorAll('.session-open')].some((button) =>
+            button.textContent.includes(`Manual fixture ${name}`),
+          ),
+        'Manual title did not reach the sidebar draft',
+      );
+      check(
+        !document.querySelector('[aria-label^="Retry title"]'),
+        'automatic title retry control is absent',
+      );
+      await waitFor(
+        () =>
+          [...document.querySelectorAll('.session-item:not(.session-draft)')].some(
+            (row) =>
+              row.querySelector('.list-item-title')?.textContent === `Manual fixture ${name}`,
+          ),
+        'Exact native binding did not retain the manual title',
+      );
+      checks.push(
+        'manual session title appears immediately and persists through exact native linking',
+      );
+      return tab;
+    };
     const beforePlus = tabCount();
-    explicitPlus().click();
-    await waitFor(
-      () => tabCount() === beforePlus + 1 && !explicitPlus().disabled,
-      'Project plus did not start a fresh session',
-    );
-    const firstFresh = document.querySelector('.tab-bar .tab.active');
-    explicitPlus().click();
-    await waitFor(
-      () => tabCount() === beforePlus + 2 && !explicitPlus().disabled,
-      'Second project plus reused the first session',
-    );
-    const secondFresh = document.querySelector('.tab-bar .tab.active');
+    const firstFresh = await createFromPlus('one');
+    const secondFresh = await createFromPlus('two', 'worktree');
+    check(firstFresh !== secondFresh, 'project dialog creates independent new-session tabs');
     check(
-      firstFresh !== secondFresh && firstFresh.textContent.includes('New session'),
-      'project plus creates independent new-session tabs',
+      (await window.api.workspace.getRecentFolders()).every((path) => !path.includes('.worktrees')),
+      'recent history excludes generated worktree folders',
+    );
+    check(
+      ![...document.querySelectorAll('.session-notice')].some(
+        (item) => item.textContent.includes('fixture/') && item.textContent.includes('No sessions'),
+      ),
+      'empty worktree notices are hidden',
     );
     for (const tab of [firstFresh, secondFresh]) {
-      tab.querySelector('.close').click();
+      tab.click();
+      await waitFor(
+        () => tab.classList.contains('active'),
+        'Shortcut close target did not activate',
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'w',
+          ctrlKey: window.api.platform !== 'darwin',
+          metaKey: window.api.platform === 'darwin',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       await waitFor(
         () => !tab.isConnected || document.querySelector('.modal-backdrop'),
         'Close-tab action did not settle',
@@ -1170,6 +1572,20 @@ async function checkRenderer(projectPath, createPath) {
       );
     }
     await waitFor(() => tabCount() === beforePlus, 'Disposable new-session tabs did not close');
+    await waitFor(() => {
+      const histories = [...document.querySelectorAll('.session-item')].filter((row) =>
+        ['Manual fixture one', 'Manual fixture two'].includes(
+          row.querySelector('.list-item-title')?.textContent,
+        ),
+      );
+      return (
+        histories.length === 2 &&
+        histories.every((row) =>
+          row.querySelector('.session-activity-icon')?.classList.contains('not-open'),
+        )
+      );
+    }, 'Closing linked tabs did not restore the unopened-history circles');
+    checks.push('closed native histories remain listed with not-open icons');
     const beforeNameClick = tabCount();
     document.querySelector('.project-open').click();
     await new Promise((resolve) => window.requestAnimationFrame(resolve));
@@ -1188,25 +1604,39 @@ async function checkRenderer(projectPath, createPath) {
       .find((button) => button.textContent.includes('Isolated worktree session'))
       .click();
     await new Promise((resolve) => window.requestAnimationFrame(resolve));
-    const beforeNavigationFixture = tabCount();
-    explicitPlus().click();
-    await waitFor(
-      () => tabCount() === beforeNavigationFixture + 1 && !explicitPlus().disabled,
-      'Navigation fixture session did not open',
-    );
+    await createFromPlus('navigation');
     await openNewDialog();
     const createDialog = document.querySelector('dialog[open]');
+    const globalMode = createDialog.querySelector('.new-session-modes button');
+    await waitFor(() => !globalMode.disabled, 'Workspace mode did not load');
+    globalMode.click();
     await waitFor(
-      () => !createDialog.querySelector('select').disabled,
-      'Workspace mode did not load',
+      () => !globalMode.disabled && globalMode.getAttribute('aria-pressed') === 'true',
+      'Global folder mode did not settle',
     );
-    const pathInput = createDialog.querySelector('.workflow-path input');
+    [...createDialog.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Enter path manually')
+      .click();
+    await waitFor(
+      () => createDialog.querySelector('input[aria-label="Project folder"]'),
+      'Manual path input did not open',
+    );
+    const pathInput = createDialog.querySelector('input[aria-label="Project folder"]');
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
       pathInput,
       createPath,
     );
     pathInput.dispatchEvent(new window.Event('input', { bubbles: true }));
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const manualTitle = createDialog.querySelector('input[aria-label="Session Title"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      manualTitle,
+      'Background creation fixture',
+    );
+    manualTitle.dispatchEvent(new Event('input', { bubbles: true }));
+    await waitFor(
+      () => !createDialog.querySelector('button[type="submit"]').disabled,
+      'Required manual title did not enable background creation',
+    );
     createDialog.querySelector('form').requestSubmit();
     await waitFor(
       () => !document.querySelector('dialog[open]'),
@@ -1332,6 +1762,9 @@ async function checkBatchSelection(confirm = false) {
     );
     document.querySelector('[aria-label="Select sessions"]').click();
     await waitFor(() => document.querySelector('.session-selection-check'));
+    window.__unselectedSmokeSessions = [...document.querySelectorAll('.session-item')]
+      .filter((row) => !row.textContent.includes('Batch fixture'))
+      .map((row) => row.querySelector('.list-item-title')?.textContent);
     const selected = [...document.querySelectorAll('.session-item')].filter((row) =>
       row.textContent.includes('Batch fixture'),
     );
@@ -1348,7 +1781,7 @@ async function checkBatchSelection(confirm = false) {
     return 'batch checkboxes select two histories without changing the active terminal';
   }
   document.querySelector('[aria-label="Delete selected sessions"]').click();
-  await waitFor(() => document.querySelector('.session-delete-review'));
+  await waitFor(() => document.querySelectorAll('.session-delete-review li').length === 2);
   const modal = document.querySelector('.modal-backdrop');
   if (
     modal.querySelectorAll('.session-delete-review li').length !== 2 ||
@@ -1370,10 +1803,14 @@ async function checkBatchSelection(confirm = false) {
     [...document.querySelectorAll('.operation-notice.succeeded')].some(
       (notice) =>
         notice.textContent.includes('Delete 2 sessions') &&
-        notice.textContent.includes('2 sessions deleted; 0 failed'),
+        notice.textContent.includes('2 sessions deleted.'),
     ),
   );
-  if (document.querySelectorAll('.session-open').length !== 2)
+  const remaining = [...document.querySelectorAll('.session-item .list-item-title')].map(
+    (node) => node.textContent,
+  );
+  const expected = window.__unselectedSmokeSessions;
+  if (remaining.length !== expected.length || expected.some((title) => !remaining.includes(title)))
     throw new Error('Batch deletion removed unselected history');
   return 'acknowledged batch deletion refreshes rows automatically without manually refreshing';
 }
@@ -1412,13 +1849,13 @@ async function inspectUpdateHeader(expectedLabel, nativeTitleBar) {
     }
     if (Date.now() > deadline)
       throw new Error(
-        `Update titlebar ${expectedLabel} was incorrect: ${JSON.stringify(observed)}`,
+        `Update titlebar ${expectedLabel} was incorrect: ${JSON.stringify({ observed, label: document.querySelector('.app-update-button')?.textContent, overlayVisible: navigator.windowControlsOverlay?.visible, hasNativeTitlebar: Boolean(document.querySelector('.app-titlebar')), fullscreen: Boolean(document.fullscreenElement), viewport: [window.innerWidth, window.innerHeight] })}`,
       );
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
 
-async function checkRestoredSidebar(expanded) {
+async function checkRestoredSidebar(expanded, expectedTitles) {
   const waitFor = async (predicate, message) => {
     const deadline = Date.now() + 12_000;
     while (!(await predicate())) {
@@ -1449,7 +1886,12 @@ async function checkRestoredSidebar(expanded) {
   }
   if (expanded) {
     await waitFor(
-      () => document.querySelectorAll('.project-sessions .session-open').length === 2,
+      () =>
+        expectedTitles.every((title) =>
+          [...document.querySelectorAll('.project-sessions .list-item-title')].some(
+            (item) => item.textContent === title,
+          ),
+        ),
       'Restored project did not load its inline sessions',
     );
   }
@@ -1467,7 +1909,12 @@ async function checkRestoredSidebar(expanded) {
   );
   if (!expanded) {
     await waitFor(
-      () => document.querySelectorAll('.project-sessions .session-open').length === 2,
+      () =>
+        expectedTitles.every((title) =>
+          [...document.querySelectorAll('.project-sessions .list-item-title')].some(
+            (item) => item.textContent === title,
+          ),
+        ),
       'Reopened project did not load its inline sessions',
     );
   }
@@ -1477,6 +1924,8 @@ async function checkRestoredSidebar(expanded) {
 app.on('browser-window-created', (_event, win) => {
   if (windowUnderTest) return;
   windowUnderTest = win;
+  // Keep fixture animation-frame waits progressing when another window covers the smoke UI.
+  win.webContents.setBackgroundThrottling(false);
   const preferences = win.webContents.getLastWebPreferences();
   assert.equal(preferences.sandbox, true, 'The preload must run in the Electron sandbox');
   assert.equal(preferences.contextIsolation, true);
@@ -1485,6 +1934,9 @@ app.on('browser-window-created', (_event, win) => {
     { urls: ['http://*/*', 'https://*/*'] },
     (_request, callback) => callback({ cancel: true }),
   );
+  win.webContents.on('console-message', (details) => {
+    if (details.level === 'error') console.error('Renderer error:', details.message);
+  });
   win.webContents.once('did-fail-load', (_loadEvent, code, description) => {
     finish(new Error(`Renderer load failed (${code}): ${description}`));
   });
@@ -1512,8 +1964,16 @@ app.on('browser-window-created', (_event, win) => {
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
         features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
       });
+      const pickerChecks = await verifyAgentPicker(win, reports, reportName);
+      console.log(`Agent picker verified: ${pickerChecks.join('; ')}`);
       const checks = await win.webContents.executeJavaScript(
         `(${checkRenderer.toString()})(${JSON.stringify(project)}, ${JSON.stringify(fixtureCreatePath)})`,
+      );
+      checks.push(...pickerChecks);
+      assert.deepEqual(
+        fixturePasteWrites,
+        ['PA_CLIPBOARD_ONCE_FIXTURE'],
+        'A single clipboard shortcut must produce one PTY write',
       );
       // Restore only the generated record deleted by the UI test before exercising renderer reload.
       writeFileSync(
@@ -1569,6 +2029,64 @@ app.on('browser-window-created', (_event, win) => {
       );
       checks.push(
         await win.webContents.executeJavaScript(`(${checkBatchSelection.toString()})(true)`),
+      );
+      // Completed notices use a plain fifteen-second timer, even when the app is hidden.
+      win.hide();
+      await win.webContents.executeJavaScript(`(async () => {
+        const deadline = Date.now() + 18000;
+        while ([...document.querySelectorAll('.operation-notice.succeeded')].some(item => item.textContent.includes('Delete 2 sessions'))) {
+          if (Date.now() > deadline) throw new Error('Completed deletion notice did not expire while hidden');
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      })()`);
+      win.show();
+      win.focus();
+      checks.push(
+        'completed deletion notices auto-dismiss after fifteen seconds without foreground gating',
+      );
+      // Verify optional checkout removal through real main IPC using only disposable Git data.
+      const cleanupPath = join(home, 'cleanup-checkout');
+      const cleanupGit = (...args) =>
+        execFileSync(
+          'git',
+          ['-C', project, '-c', `core.hooksPath=${join(home, 'disabled-hooks')}`, ...args],
+          { encoding: 'utf8' },
+        );
+      cleanupGit('worktree', 'add', '-b', 'fixture/cleanup-review', cleanupPath);
+      const cleanupHistory = join(home, '.claude', 'projects', 'C--cleanup-review');
+      mkdirSync(cleanupHistory);
+      for (const id of ['cleanup-one', 'cleanup-two'])
+        writeFileSync(
+          join(cleanupHistory, `${id}.jsonl`),
+          JSON.stringify({
+            type: 'user',
+            cwd: cleanupPath,
+            timestamp: '2026-01-05T00:00:00Z',
+            message: { content: id },
+          }) + '\n',
+        );
+      const cleanupRequest = async (id, remove) =>
+        win.webContents.executeJavaScript(`(async () => {
+        const project = (await window.api.projects.list()).find(item => item.realPath.replaceAll('\\\\', '/').toLowerCase() === ${JSON.stringify(cleanupPath.replaceAll('\\', '/').toLowerCase())});
+        if (!project) throw new Error('Cleanup fixture project unavailable');
+        const preview = await window.api.sessions.previewDeletion([{ projectId: project.id, sessionId: ${JSON.stringify(id)} }]);
+        const result = await window.api.sessions.deleteReviewed(preview.token, ${remove} ? preview.worktrees.map(item => item.key) : []);
+        if (result.failures.length) throw new Error(result.failures.join('; '));
+        return { additional: preview.worktrees[0]?.additional.length, result: await window.api.sessions.finishDeletion(preview.token) };
+      })()`);
+      const retained = await cleanupRequest('cleanup-one', false);
+      assert.equal(retained.additional, 1);
+      assert.equal(retained.result.deleted.length, 1);
+      assert.equal(statSync(cleanupPath).isDirectory(), true);
+      const removed = await cleanupRequest('cleanup-two', true);
+      assert.equal(removed.result.removedWorktrees.length, 1);
+      assert.equal(removed.result.retainedWorktrees.length, 0);
+      assert.throws(() => statSync(cleanupPath), { code: 'ENOENT' });
+      assert.ok(
+        cleanupGit('branch', '--list', 'fixture/cleanup-review').includes('fixture/cleanup-review'),
+      );
+      checks.push(
+        'optional cleanup retains checkout when declined, removes only after consent, and retains its Git branch',
       );
       const nativeTitleBar = process.platform === 'win32';
       const verifyUpdateHeader = async (label, disabled, native = nativeTitleBar) => {
@@ -1674,13 +2192,16 @@ app.on('browser-window-created', (_event, win) => {
       await win.webContents.executeJavaScript(deleteCopilotProject);
       assert.equal(readFileSync(controlFile, 'utf8'), '{}');
       checks.push('project deletion surfaces storage errors and preserves non-session files');
+      const restoredTitles = await win.webContents.executeJavaScript(
+        "[...document.querySelectorAll('.project-sessions .list-item-title')].map((item) => item.textContent)",
+      );
       for (const expanded of [true, false]) {
         const loaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
         win.webContents.reload();
         await loaded;
         checks.push(
           await win.webContents.executeJavaScript(
-            `(${checkRestoredSidebar.toString()})(${expanded})`,
+            `(${checkRestoredSidebar.toString()})(${expanded}, ${JSON.stringify(restoredTitles)})`,
           ),
         );
       }
