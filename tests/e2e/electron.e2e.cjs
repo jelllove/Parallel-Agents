@@ -1811,7 +1811,9 @@ async function checkBatchSelection(confirm = false) {
   );
   const expected = window.__unselectedSmokeSessions;
   if (remaining.length !== expected.length || expected.some((title) => !remaining.includes(title)))
-    throw new Error('Batch deletion removed unselected history');
+    throw new Error(
+      `Batch deletion removed unselected history: ${JSON.stringify({ expected, remaining })}`,
+    );
   return 'acknowledged batch deletion refreshes rows automatically without manually refreshing';
 }
 
