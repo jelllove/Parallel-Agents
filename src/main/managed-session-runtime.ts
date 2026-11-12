@@ -15,7 +15,7 @@ export const managedSessions = new ManagedSessionService({
     await promoteSessionDraft(launchId, projectId, sessionId, true);
   },
   activity: () => activityRuntime.snapshot().records,
-  list: listSessionsForProject,
+  list: (projectId) => listSessionsForProject(projectId, true),
   async samePath(left, right) {
     const paths = await Promise.all([realpath(left), realpath(right)]);
     return process.platform === 'win32'

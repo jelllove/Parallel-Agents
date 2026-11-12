@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { readFile } from 'fs/promises';
+import { readFile, realpath } from 'fs/promises';
 import { existsSync, readFileSync, statSync, watch as watchSync } from 'fs';
 import type { FSWatcher } from 'fs';
 import { join, resolve } from 'path';
@@ -121,7 +121,22 @@ async function getAheadBehind(repoPath: string): Promise<{ ahead: number; behind
   }
 }
 
+const statusReads = new Map<string, Promise<GitStatus | null>>();
 export async function getStatus(repoPath: string): Promise<GitStatus | null> {
+  const key = await realpath(repoPath).catch(() => repoPath);
+  let operation = statusReads.get(key);
+  if (!operation) {
+    operation = readStatus(repoPath);
+    statusReads.set(key, operation);
+    void operation
+      .finally(() => {
+        if (statusReads.get(key) === operation) statusReads.delete(key);
+      })
+      .catch(() => {});
+  }
+  return operation;
+}
+async function readStatus(repoPath: string): Promise<GitStatus | null> {
   if (!(await isGitAvailable())) return null;
   if (!(await isRepo(repoPath))) return null;
 
@@ -230,9 +245,21 @@ interface Watcher {
   fsWatchers: FSWatcher[];
   pollTimer: NodeJS.Timeout;
   lastFire: number;
+  trailing?: ReturnType<typeof setTimeout>;
 }
 
 const watchers = new Map<string, Watcher>();
+let watchRequest = 0;
+export async function focusRepo(repoPath: string | null): Promise<void> {
+  const request = ++watchRequest;
+  const canonical = repoPath
+    ? await worktreeRoot(await realpath(repoPath)).catch(() => repoPath)
+    : null;
+  if (request !== watchRequest) return;
+  for (const path of watchers.keys()) if (path !== canonical) unwatchRepo(path);
+  if (canonical) watchRepo(canonical);
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 export function attachWindow(win: BrowserWindow): void {
@@ -248,7 +275,17 @@ function emitChange(repoPath: string): void {
   if (!w) return;
   // Debounce: only emit at most once per 800ms.
   const now = Date.now();
-  if (now - w.lastFire < 800) return;
+  if (now - w.lastFire < 800) {
+    if (!w.trailing)
+      w.trailing = setTimeout(
+        () => {
+          w.trailing = undefined;
+          emitChange(repoPath);
+        },
+        800 - (now - w.lastFire),
+      );
+    return;
+  }
   w.lastFire = now;
   sendToWindow(mainWindow, 'git:changed', repoPath);
 }
@@ -282,7 +319,15 @@ export function watchRepo(repoPath: string): void {
   } catch (error) {
     console.warn(`Cannot watch Git metadata for ${repoPath}; using polling`, error);
   }
-  const pollTimer = setInterval(() => emitChange(repoPath), 5000);
+  const pollTimer = setInterval(() => {
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.isVisible() &&
+      !mainWindow.isMinimized()
+    )
+      emitChange(repoPath);
+  }, 5000);
   watchers.set(repoPath, { repoPath, fsWatchers, pollTimer, lastFire: 0 });
 }
 
@@ -291,6 +336,7 @@ export function unwatchRepo(repoPath: string): void {
   if (!w) return;
   for (const fw of w.fsWatchers) fw.close();
   clearInterval(w.pollTimer);
+  clearTimeout(w.trailing);
   watchers.delete(repoPath);
 }
 

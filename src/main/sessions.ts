@@ -5,6 +5,7 @@ import {
   deleteCodexProjectSession,
   filterCodexSessionsByProject,
   listCodexSessions,
+  invalidateCodexMetadata,
 } from './codex-storage.ts';
 import type { Session, AgentId } from '../shared/types.ts';
 import {
@@ -12,9 +13,16 @@ import {
   readClaudeSessionMeta,
   readCopilotSessionMeta,
   readGeminiSessionMeta,
+  invalidateSessionMetadata,
 } from './session-metadata.ts';
+import { freshHistoryRead, withFreshHistory, shareHistoryRead } from './history-read-context.ts';
 import { preferences } from './preferences-store.ts';
 import { applySessionNames } from '../shared/session-presentation.ts';
+
+export function invalidateHistoryMetadata(): void {
+  invalidateSessionMetadata();
+  invalidateCodexMetadata();
+}
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -40,14 +48,18 @@ async function readSessionDirectory(directory: string): Promise<string[]> {
   }
 }
 
-async function listClaudeSessions(projectId: string, dirName: string): Promise<Session[]> {
+async function listClaudeSessions(
+  projectId: string,
+  dirName: string,
+  fresh: boolean,
+): Promise<Session[]> {
   const dir = join(CLAUDE_ROOT, dirName);
   const files = await readSessionDirectory(dir);
   const out: Session[] = [];
   for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
     const full = join(dir, f);
     const id = f.replace(/\.jsonl$/, '');
-    const meta = await readClaudeSessionMeta(full);
+    const meta = await readClaudeSessionMeta(full, fresh);
     if (!meta) continue;
     out.push({
       id,
@@ -59,13 +71,17 @@ async function listClaudeSessions(projectId: string, dirName: string): Promise<S
   return out;
 }
 
-async function listGeminiSessions(projectId: string, dirName: string): Promise<Session[]> {
+async function listGeminiSessions(
+  projectId: string,
+  dirName: string,
+  fresh: boolean,
+): Promise<Session[]> {
   const chatsDir = join(GEMINI_TMP_ROOT, dirName, 'chats');
   const files = await readSessionDirectory(chatsDir);
   const out: Session[] = [];
   for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
     const full = join(chatsDir, f);
-    const meta = await readGeminiSessionMeta(full);
+    const meta = await readGeminiSessionMeta(full, fresh);
     if (!meta?.sessionId) continue;
     out.push({
       id: meta.sessionId,
@@ -82,10 +98,31 @@ async function listGeminiSessions(projectId: string, dirName: string): Promise<S
   return out;
 }
 
-async function listCopilotSessions(projectId: string, projectPath: string): Promise<Session[]> {
+async function listCopilotSessions(
+  projectId: string,
+  projectPath: string,
+  fresh: boolean,
+): Promise<Session[]> {
+  const entries = await shareHistoryRead(`copilot:${fresh}`, () => readCopilotSessions(fresh));
+  return entries
+    .filter(
+      (session) => normalizeProjectPath(session.cwdProject) === normalizeProjectPath(projectPath),
+    )
+    .map((session) => ({
+      id: session.id,
+      projectId,
+      agent: session.agent,
+      title: session.title,
+      timestamp: session.timestamp,
+      createdAt: session.createdAt,
+      cwd: session.cwd,
+      gitBranch: session.gitBranch,
+      version: session.version,
+    }));
+}
+async function readCopilotSessions(fresh: boolean) {
   const entries = await readSessionDirectory(COPILOT_SESSION_STATE_ROOT);
-  const targetPath = normalizeProjectPath(projectPath);
-  const out: Session[] = [];
+  const out: (Omit<Session, 'projectId'> & { cwdProject: string })[] = [];
   for (const dirName of entries) {
     const sessionDir = join(COPILOT_SESSION_STATE_ROOT, dirName);
     try {
@@ -95,12 +132,11 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
       throw error;
     }
 
-    const meta = await readCopilotSessionMeta(join(sessionDir, 'events.jsonl'));
+    const meta = await readCopilotSessionMeta(join(sessionDir, 'events.jsonl'), fresh);
     if (!meta) continue;
-    if (normalizeProjectPath(meta.projectPath) !== targetPath) continue;
     out.push({
       id: meta.sessionId ?? dirName,
-      projectId,
+      cwdProject: meta.projectPath,
       agent: 'copilot',
       title: meta.title,
       timestamp: meta.timestamp,
@@ -113,11 +149,13 @@ async function listCopilotSessions(projectId: string, projectPath: string): Prom
   return out;
 }
 
-export async function listSessionsForProject(projectId: string): Promise<Session[]> {
+export async function listSessionsForProject(projectId: string, fresh = false): Promise<Session[]> {
+  if (fresh && !freshHistoryRead())
+    return withFreshHistory(() => listSessionsForProject(projectId, true));
   const historyId = await resolveHistoryProjectId(projectId);
   if (!historyId) return [];
   if (historyId !== projectId) {
-    return (await listSessionsForProject(historyId)).map((s) => ({ ...s, projectId }));
+    return (await listSessionsForProject(historyId, fresh)).map((s) => ({ ...s, projectId }));
   }
   const colon = projectId.indexOf(':');
   if (colon < 0) return [];
@@ -125,21 +163,23 @@ export async function listSessionsForProject(projectId: string): Promise<Session
   const dirName = projectId.slice(colon + 1);
 
   let out: Session[] = [];
-  if (agent === 'claude') out = await listClaudeSessions(projectId, dirName);
+  if (agent === 'claude') out = await listClaudeSessions(projectId, dirName, fresh);
   else if (agent === 'codex') {
-    out = filterCodexSessionsByProject(await listCodexSessions(), dirName).map((session) => ({
-      id: session.id,
-      projectId,
-      agent: 'codex',
-      title: session.title,
-      timestamp: session.timestamp,
-      createdAt: session.createdAt,
-      cwd: session.cwd,
-      gitBranch: null,
-      version: session.version,
-    }));
-  } else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName);
-  else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName);
+    out = filterCodexSessionsByProject(await listCodexSessions(undefined, fresh), dirName).map(
+      (session) => ({
+        id: session.id,
+        projectId,
+        agent: 'codex',
+        title: session.title,
+        timestamp: session.timestamp,
+        createdAt: session.createdAt,
+        cwd: session.cwd,
+        gitBranch: null,
+        version: session.version,
+      }),
+    );
+  } else if (agent === 'gemini') out = await listGeminiSessions(projectId, dirName, fresh);
+  else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName, fresh);
   // aider: no session listing in v1
 
   out.sort((a, b) => b.timestamp - a.timestamp);
@@ -152,7 +192,7 @@ export async function renameSession(
   sessionId: string,
   title: string,
 ): Promise<string> {
-  const session = (await listSessionsForProject(projectId)).find((s) => s.id === sessionId);
+  const session = (await listSessionsForProject(projectId, true)).find((s) => s.id === sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   return preferences.renameSession(session.agent, session.id, title);
 }
@@ -162,13 +202,15 @@ async function findGeminiSessionFile(dirName: string, sessionId: string): Promis
   const files = await readSessionDirectory(chatsDir);
   for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
     const full = join(chatsDir, f);
-    const meta = await readGeminiSessionMeta(full);
+    const meta = await readGeminiSessionMeta(full, true);
     if (meta?.sessionId === sessionId) return full;
   }
   return null;
 }
 
 export async function deleteSession(projectId: string, sessionId: string): Promise<void> {
+  if (!freshHistoryRead()) return withFreshHistory(() => deleteSession(projectId, sessionId));
+  invalidateHistoryMetadata();
   const historyId = await resolveHistoryProjectId(projectId);
   if (!historyId) throw new Error(`Session not found: ${sessionId}`);
   if (historyId !== projectId) return deleteSession(historyId, sessionId);

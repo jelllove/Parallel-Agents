@@ -4,8 +4,29 @@ import { homedir } from 'os';
 import { join, normalize } from 'path';
 import { createInterface } from 'readline';
 
+import { createMetadataCache } from './metadata-cache.ts';
+import { freshHistoryRead, shareHistoryRead } from './history-read-context.ts';
+const rollouts = createMetadataCache();
+const indexes = createMetadataCache();
+export function invalidateCodexMetadata(): void {
+  rollouts.invalidate();
+  indexes.invalidate();
+}
 const DEFAULT_CODEX_ROOT = join(homedir(), '.codex');
 const TITLE_MAX = 80;
+async function readCached<T>(
+  cache: ReturnType<typeof createMetadataCache>,
+  path: string,
+  read: () => Promise<T>,
+  fresh: boolean,
+): Promise<T> {
+  try {
+    return await cache.read(path, read, fresh);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return read();
+    throw error;
+  }
+}
 
 export interface CodexStoredSession {
   id: string;
@@ -185,14 +206,30 @@ export function normalizeCodexProjectPath(path: string): string {
 
 export async function listCodexSessions(
   codexRoot: string = DEFAULT_CODEX_ROOT,
+  fresh = false,
 ): Promise<CodexStoredSession[]> {
+  fresh ||= freshHistoryRead();
+  return shareHistoryRead(`codex:${codexRoot}:${fresh}`, () => readCodexSessions(codexRoot, fresh));
+}
+async function readCodexSessions(codexRoot: string, fresh: boolean): Promise<CodexStoredSession[]> {
   const [files, index] = await Promise.all([
     findRolloutFiles(join(codexRoot, 'sessions')),
-    readSessionIndex(codexRoot),
+    readCached(
+      indexes,
+      join(codexRoot, 'session_index.jsonl'),
+      () => readSessionIndex(codexRoot),
+      fresh,
+    ),
   ]);
   const parsed: Array<ParsedRollout | null> = [];
   for (let i = 0; i < files.length; i += 16) {
-    parsed.push(...(await Promise.all(files.slice(i, i + 16).map(readRollout))));
+    parsed.push(
+      ...(await Promise.all(
+        files
+          .slice(i, i + 16)
+          .map((path) => readCached(rollouts, path, () => readRollout(path), fresh)),
+      )),
+    );
   }
   const sessions = parsed.flatMap((session) => {
     if (!session) return [];
@@ -247,7 +284,7 @@ export async function deleteCodexSession(
   sessionId: string,
   codexRoot: string = DEFAULT_CODEX_ROOT,
 ): Promise<void> {
-  const session = (await listCodexSessions(codexRoot)).find((item) => item.id === sessionId);
+  const session = (await listCodexSessions(codexRoot, true)).find((item) => item.id === sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   await unlink(session.filePath);
 }
@@ -258,7 +295,7 @@ export async function deleteCodexProjectSession(
   codexRoot: string = DEFAULT_CODEX_ROOT,
 ): Promise<void> {
   const target = normalizeCodexProjectPath(projectPath);
-  const session = (await listCodexSessions(codexRoot)).find(
+  const session = (await listCodexSessions(codexRoot, true)).find(
     (item) => item.id === sessionId && normalizeCodexProjectPath(item.cwd) === target,
   );
   if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -270,7 +307,7 @@ export async function deleteCodexProject(
   codexRoot: string = DEFAULT_CODEX_ROOT,
 ): Promise<void> {
   const target = normalizeCodexProjectPath(projectPath);
-  const sessions = await listCodexSessions(codexRoot);
+  const sessions = await listCodexSessions(codexRoot, true);
   await Promise.all(
     sessions
       .filter((session) => normalizeCodexProjectPath(session.cwd) === target)

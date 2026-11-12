@@ -17,6 +17,8 @@ function setup(t) {
       writes: [],
       sizes: [],
       kills: 0,
+      pause() {},
+      resume() {},
       write(data) {
         this.writes.push(data);
       },
@@ -116,8 +118,12 @@ test('a replaced PTY cannot send stale output to the current tab', (t) => {
 
   spawned[0].emitData('stale output');
   spawned[1].emitData('current output');
-
-  assert.deepEqual(messages, [['pty:data', 'tab', 'current output']]);
+  t.mock.timers.tick(8);
+  assert.deepEqual(
+    messages.map((message) => message.slice(0, 3)),
+    [['pty:data', 'tab', 'current output']],
+  );
+  assert.equal(messages[0][3].sequence, 1);
 });
 
 test('the current PTY forwards output and exit and removes its own entry', (t) => {
@@ -127,11 +133,74 @@ test('the current PTY forwards output and exit and removes its own entry', (t) =
   spawned[0].emitData('output');
   spawned[0].emitExit(0);
 
-  assert.deepEqual(messages, [
-    ['pty:data', 'tab', 'output'],
-    ['pty:exit', 'tab', 0],
-  ]);
+  assert.deepEqual(
+    messages.map((message) => message.slice(0, 3)),
+    [
+      ['pty:data', 'tab', 'output'],
+      ['pty:exit', 'tab', 0],
+    ],
+  );
   assert.equal(manager.has('tab'), false);
+});
+
+test('native exit drains pressure-blocked output before exit and permits safe replacement', async (t) => {
+  const { manager, spawned, messages } = setup(t);
+  await manager.spawn('tab', '/checkout', 80, 24);
+  const text = '中文🙂'.repeat(200000);
+  spawned[0].emitData(text);
+  spawned[0].emitExit(0);
+  assert.equal(manager.has('tab'), false, 'native process has actually exited');
+  await manager.waitForCheckoutIdle(async () => true);
+  assert.ok(messages.filter(([channel]) => channel === 'pty:data').length <= 8);
+  assert.equal(
+    messages.some(([channel]) => channel === 'pty:exit'),
+    false,
+  );
+  const firstPacket = messages[0][3];
+  manager.acknowledgeOutput('tab', 'old-generation', firstPacket.sequence);
+  assert.equal(
+    messages.some(([channel]) => channel === 'pty:exit'),
+    false,
+  );
+  let consumed = 0;
+  while (consumed < messages.length) {
+    const [channel, key, , packet] = messages[consumed++];
+    if (channel === 'pty:data') manager.acknowledgeOutput(key, packet.generation, packet.sequence);
+  }
+  assert.equal(messages.at(-1)[0], 'pty:exit');
+  assert.equal(
+    messages
+      .filter(([channel]) => channel === 'pty:data')
+      .map((item) => item[2])
+      .join(''),
+    text,
+  );
+  await manager.spawn('tab', '/checkout', 80, 24);
+  manager.acknowledgeOutput('tab', firstPacket.generation, firstPacket.sequence);
+  spawned[1].emitData('replacement');
+  t.mock.timers.tick(8);
+  assert.equal(messages.at(-1)[2], 'replacement');
+  assert.notEqual(messages.at(-1)[3].generation, firstPacket.generation);
+});
+
+test('replacing a draining terminal discards only its obsolete tail and rejects its acknowledgements', async (t) => {
+  const { manager, spawned, messages } = setup(t);
+  await manager.spawn('tab', '.', 80, 24);
+  spawned[0].emitData('x'.repeat(800000));
+  spawned[0].emitExit(0);
+  const packet = messages[0][3];
+  await manager.spawn('tab', '.', 80, 24);
+  messages.length = 0;
+  manager.acknowledgeOutput('tab', packet.generation, packet.sequence);
+  spawned[1].emitData('new output');
+  t.mock.timers.tick(8);
+  assert.deepEqual(
+    messages.map((message) => message.slice(0, 3)),
+    [['pty:data', 'tab', 'new output']],
+  );
+  manager.killAll();
+  manager.acknowledgeOutput('tab', packet.generation, packet.sequence);
+  assert.equal(messages.length, 1);
 });
 
 test('checkout removal waits for killed native PTYs and rejects active or starting terminals', async (t) => {
@@ -184,7 +253,13 @@ test('terminal dimensions retain their existing minimum bounds', (t) => {
 
   assert.equal(spawned[0].options.cols, 20);
   assert.equal(spawned[0].options.rows, 5);
-  assert.deepEqual(spawned[0].sizes, [[20, 5]]);
+  assert.deepEqual(
+    spawned[0].sizes,
+    [],
+    'unchanged clamped dimensions do not resize the native PTY',
+  );
+  manager.resize('tab', 40, 10);
+  assert.deepEqual(spawned[0].sizes, [[40, 10]]);
 });
 
 test('killing all PTYs prevents delayed startup commands', (t) => {
@@ -204,6 +279,21 @@ test('killing all PTYs prevents delayed startup commands', (t) => {
   assert.deepEqual(
     spawned.map((terminal) => terminal.writes),
     [[], []],
+  );
+});
+
+test('delayed initial command failures cannot escape the timer and crash the app', (t) => {
+  const { manager, spawned, messages } = setup(t);
+  const warning = t.mock.method(console, 'warn', () => {});
+  manager.spawn('tab', '.', 80, 24, 'fixture');
+  spawned[0].write = () => {
+    throw new Error('Native terminal closed');
+  };
+  assert.doesNotThrow(() => t.mock.timers.tick(250));
+  assert.equal(warning.mock.callCount(), 1);
+  t.mock.timers.tick(8);
+  assert.ok(
+    messages.some((message) => message[0] === 'pty:data' && message[2].includes('initial command')),
   );
 });
 

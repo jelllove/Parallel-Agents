@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/app-store';
 import { resumeCommandFor } from '../icons/agentIcons';
 import { SessionDeleteDialog } from './SessionDeleteDialog';
@@ -8,12 +9,13 @@ import type { ProjectSession } from '../../shared/project-tree';
 import { draftSessionRows } from '../../shared/managed-session';
 import { RenameSessionDialog } from './RenameSessionDialog';
 import { ActionIcon } from './ActionIcon';
-import { useActivityStore, sessionActivityRecord } from '../store/activity-store';
+import { useActivityStore } from '../store/activity-store';
 import { SessionActivityIcon } from './SessionActivityIcon';
 import type { SidebarSessionRow } from '../../shared/managed-session';
 import { useSessionOrder, sessionRowKey } from '../hooks/use-session-order';
 import { SessionOrderControls, activeSessionDrag } from './SessionOrderControls';
 import { pathKey } from '../../shared/project-tree';
+import { useWindowedRows } from '../hooks/use-windowed-rows';
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -32,8 +34,6 @@ interface Props {
 }
 
 export function SessionList({ projects, onProjectContext, selection }: Props) {
-  const activity = useActivityStore((state) => state.records);
-  const completions = useActivityStore((state) => state.completions);
   const acknowledge = useActivityStore((state) => state.acknowledge);
   const openTabs = useAppStore((s) => s.openTabs);
   const tabAgent = useAppStore((s) => s.tabAgent);
@@ -41,7 +41,51 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
   const managedTabs = useAppStore((s) => s.managedTabs);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
-  const sessions = useAppStore((s) => s.sessions);
+  const groupSessions = useAppStore(
+    useShallow((s) => projects.map((project) => s.sessions[project.id])),
+  );
+  const projectIds = new Set(projects.map((project) => project.id));
+  const groupNative = new Set(
+    groupSessions.flatMap((sessions) =>
+      (sessions ?? []).map((session) => `${session.agent}:${session.id}`),
+    ),
+  );
+  const relevantTabs = new Set(
+    openTabs
+      .filter(
+        (tab) =>
+          projectIds.has(tabProjectId[tab] ?? tab) ||
+          groupNative.has(`${tabAgent[tab]}:${tabSessionId[tab]}`),
+      )
+      .map((tab) => `${tab}::agent`),
+  );
+  const activity = useActivityStore(
+    useShallow((state) => state.records.filter((record) => relevantTabs.has(record.terminalKey))),
+  );
+  const groupCompletions = useActivityStore(
+    useShallow((state) => activity.map((record) => state.completions[record.terminalKey])),
+  );
+  const completions = Object.fromEntries(
+    activity.map((record, index) => [record.terminalKey, groupCompletions[index]]),
+  );
+  const openNative = new Set(
+    openTabs
+      .filter((tab) => tabSessionId[tab])
+      .map((tab) => `${tabAgent[tab]}:${tabSessionId[tab]}`),
+  );
+  const activityBySession = new Map<string, (typeof activity)[number]>();
+  for (const record of activity) {
+    const key = `${record.agent}:${record.sessionId}`;
+    if (openNative.has(key) && (activityBySession.get(key)?.revision ?? -1) < record.revision)
+      activityBySession.set(key, record);
+  }
+  const sessions = useMemo(
+    () =>
+      Object.fromEntries(
+        projects.map((project, index) => [project.id, groupSessions[index] ?? []]),
+      ),
+    [projects, groupSessions],
+  );
   const loadSessions = useAppStore((s) => s.loadSessions);
   const selectProject = useAppStore((s) => s.selectProject);
   const openSessionTab = useAppStore((s) => s.openSessionTab);
@@ -107,17 +151,32 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
     },
     onDragEnd: () => setDropTarget(null),
   });
+  const orderedKeys = order.ordered.map((row) => sessionRowKey(row, managedTabs));
+  const neighbors = new Map(
+    orderedKeys.map((key, index) => [
+      key,
+      { previous: orderedKeys[index - 1], next: orderedKeys[index + 1] },
+    ]),
+  );
+  const windowed = useWindowedRows(
+    orderedKeys,
+    activeSessionId
+      ? `${activeAgent}:${activeSessionId}`
+      : activeTabId && managedTabs[activeTabId]
+        ? `draft:${managedTabs[activeTabId].launchId}`
+        : undefined,
+    Boolean(selection),
+  );
   const controls = (rowKey: string, label: string) => {
-    const keys = order.ordered.map((row) => sessionRowKey(row, managedTabs));
-    const index = keys.indexOf(rowKey);
+    const { previous, next } = neighbors.get(rowKey)!;
     return (
       <SessionOrderControls
         rowKey={rowKey}
         scope={scope}
         label={label}
         disabled={orderDisabled}
-        previous={keys[index - 1]}
-        next={keys[index + 1]}
+        previous={previous}
+        next={next}
         onMove={order.move}
         onDragFinished={() => setDropTarget(null)}
       />
@@ -163,7 +222,15 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
   }
 
   return (
-    <div className="project-sessions" aria-label="Project sessions" aria-busy={loading}>
+    <div
+      ref={windowed.root}
+      className="project-sessions"
+      aria-label="Project sessions"
+      aria-busy={loading}
+      onDragStartCapture={() => windowed.setDragging(true)}
+      onDragEndCapture={() => windowed.setDragging(false)}
+      onDropCapture={() => windowed.setDragging(false)}
+    >
       {loading && (
         <div className="list-item-sub session-notice" role="status">
           Loading sessions...
@@ -190,14 +257,31 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           </button>
         </div>
       )}
-      {order.ordered.map((row) => {
+      {order.ordered.map((row, index) => {
         const rowKey = sessionRowKey(row, managedTabs);
+        const virtual = windowed.rows[index];
+        if (!virtual.visible) {
+          if (index > 0 && !windowed.rows[index - 1].visible) return null;
+          let height = 0;
+          for (
+            let next = index;
+            next < windowed.rows.length && !windowed.rows[next].visible;
+            next++
+          )
+            height += windowed.rows[next].height;
+          return <div key={`spacer:${rowKey}`} style={{ height }} aria-hidden="true" />;
+        }
+        const virtualProps = {
+          'data-virtual-key': rowKey,
+          onFocusCapture: () => windowed.setFocused(rowKey),
+        };
         const dropClass = dropTarget?.key === rowKey ? ` session-drop-${dropTarget.placement}` : '';
         if (row.kind === 'draft')
           return (
             <div
               key={rowKey}
               {...orderingProps(rowKey)}
+              {...virtualProps}
               className={`list-item session-item session-draft${activeTabId === row.tabId ? ' active' : ''}${dropClass}`}
             >
               {controls(rowKey, row.title)}
@@ -229,14 +313,9 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           : null;
         const active = Boolean(activeTabId && activeSessionId === s.id && activeAgent === s.agent);
         const selected = selection?.selectedKeys.includes(`${s.agent}:${s.id}`);
-        const isOpen = openTabs.some(
-          (tab) => tabAgent[tab] === s.agent && tabSessionId[tab] === s.id,
-        );
-        const record = sessionActivityRecord(activity, s.agent, s.id, {
-          openTabs,
-          tabAgent,
-          tabSessionId,
-        });
+        const nativeKey = `${s.agent}:${s.id}`;
+        const isOpen = openNative.has(nativeKey);
+        const record = activityBySession.get(nativeKey);
         const completion =
           record?.state === 'completed' ? completions[record.terminalKey] : undefined;
         const acknowledgeCompletion = () => {
@@ -246,6 +325,7 @@ export function SessionList({ projects, onProjectContext, selection }: Props) {
           <div
             key={`${s.agent}:${s.id}`}
             {...orderingProps(rowKey)}
+            {...virtualProps}
             className={`list-item session-item${enabled ? '' : ' disabled'}${active ? ' active' : ''}${selected ? ' deletion-selected' : ''}${dropClass}`}
             onContextMenu={(event) => onProjectContext?.(event, project)}
           >

@@ -1,7 +1,7 @@
 import './helpers/isolated-git.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -17,6 +17,7 @@ import {
   unstage,
   unwatchAll,
   watchRepo,
+  focusRepo,
 } from '../src/main/git.ts';
 
 const execFileAsync = promisify(execFile);
@@ -258,6 +259,30 @@ test('untracked nested files are listed individually instead of as directories',
     status.changes.map((change) => change.path),
     ['nested/new.txt'],
   );
+});
+
+test('focused Git interests replace old polling timers and release on close', async (t) => {
+  const first = await fixture(t),
+    second = await fixture(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const messages = [];
+  attachWindow({
+    isDestroyed: () => false,
+    isVisible: () => true,
+    isMinimized: () => false,
+    webContents: { isDestroyed: () => false, send: (...args) => messages.push(args) },
+  });
+  await focusRepo(first);
+  await focusRepo(second);
+  t.mock.timers.tick(5000);
+  assert.equal(messages.length, 1);
+  assert.equal(
+    (await realpath(messages[0][1])).toLowerCase(),
+    (await realpath(second)).toLowerCase(),
+  );
+  await focusRepo(null);
+  t.mock.timers.tick(10000);
+  assert.equal(messages.length, 1);
 });
 
 test('linked-worktree index changes notify without waiting for the polling fallback', async (t) => {

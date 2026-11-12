@@ -7,6 +7,7 @@ import type { ThemeMode } from '../../shared/types';
 import type { SessionShellProfile } from '../../shared/session-terminals';
 import { resolveFontFamily } from '../../shared/typography';
 import { terminalShortcut } from '../terminal-shortcuts';
+import { createTerminalLayout } from '../terminal-layout';
 
 interface Props {
   terminalKey: string;
@@ -45,6 +46,9 @@ export function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const spawnedRef = useRef(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const layoutRef = useRef<ReturnType<typeof createTerminalLayout> | null>(null);
   const themeMode = useAppStore((s) => s.theme);
   const multilineEnter = useAppStore((s) => s.terminalMultilineEnter);
   const copyPaste = useAppStore((s) => s.terminalCopyPaste);
@@ -123,9 +127,15 @@ export function TerminalPane({
     fitRef.current = fit;
 
     const { cols, rows } = term;
-    const offData = window.api.pty.onData((pid, data) => {
-      if (pid === terminalKey) term.write(data);
-    });
+    if (terminalKey.endsWith('::agent'))
+      useAppStore.getState().consumePendingCommand(terminalKey.slice(0, -'::agent'.length));
+    const offData = window.api.pty.onData((pid, data, packet) => {
+      if (pid === terminalKey)
+        term.write(data, () => {
+          if (packet && termRef.current === term)
+            window.api.pty.acknowledge(terminalKey, packet.generation, packet.sequence);
+        });
+    }, terminalKey);
     const offExit = window.api.pty.onExit((pid) => {
       if (pid === terminalKey) {
         term.write('\r\n\x1b[33m[process exited]\x1b[0m\r\n');
@@ -172,17 +182,29 @@ export function TerminalPane({
         );
       });
 
-    const ro = new ResizeObserver(() => {
-      try {
+    const layout = createTerminalLayout({
+      frame: (callback) => requestAnimationFrame(callback),
+      cancel: (id) => cancelAnimationFrame(id),
+      visible: () =>
+        visibleRef.current &&
+        Boolean(containerRef.current?.getBoundingClientRect().width) &&
+        Boolean(containerRef.current?.getBoundingClientRect().height),
+      fit: () => {
         fit.fit();
-        const { cols, rows } = term;
-        window.api.pty.resize(terminalKey, cols, rows);
-      } catch {}
+        return { cols: term.cols, rows: term.rows };
+      },
+      resize: (cols, rows) => {
+        void window.api.pty.resize(terminalKey, cols, rows);
+      },
     });
+    layoutRef.current = layout;
+    const ro = new ResizeObserver(() => layout.schedule());
     ro.observe(containerRef.current);
 
     return () => {
       ro.disconnect();
+      layout.dispose();
+      layoutRef.current = null;
       offData();
       offExit();
       term.dispose();
@@ -192,15 +214,9 @@ export function TerminalPane({
   }, [terminalKey, cwd]);
 
   useEffect(() => {
-    if (visible && fitRef.current && termRef.current) {
-      requestAnimationFrame(() => {
-        try {
-          fitRef.current!.fit();
-          const t = termRef.current!;
-          window.api.pty.resize(terminalKey, t.cols, t.rows);
-          t.focus();
-        } catch {}
-      });
+    if (visible) {
+      layoutRef.current?.schedule();
+      termRef.current?.focus();
     }
   }, [visible, terminalKey]);
 
@@ -213,13 +229,12 @@ export function TerminalPane({
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.fontSize = fontSize;
-    term.options.fontFamily = resolveFontFamily(fontFamily);
-    term.options.fontWeight = fontBold ? 700 : 400;
-    if (visible) {
-      fitRef.current?.fit();
-      void window.api.pty.resize(terminalKey, term.cols, term.rows);
-    }
+    if (term.options.fontSize !== fontSize) term.options.fontSize = fontSize;
+    const family = resolveFontFamily(fontFamily);
+    if (term.options.fontFamily !== family) term.options.fontFamily = family;
+    const weight = fontBold ? 700 : 400;
+    if (term.options.fontWeight !== weight) term.options.fontWeight = weight;
+    layoutRef.current?.schedule();
   }, [fontSize, fontFamily, fontBold, visible, terminalKey]);
 
   function onContextMenu(e: React.MouseEvent) {

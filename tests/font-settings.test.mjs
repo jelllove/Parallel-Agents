@@ -123,7 +123,12 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
     },
     useRef(initial) {
       const index = cursor++;
-      slots[index] ??= { current: index === 0 && name === 'TerminalPane' ? {} : initial };
+      slots[index] ??= {
+        current:
+          index === 0 && name === 'TerminalPane'
+            ? { getBoundingClientRect: () => ({ width: 800, height: 600 }) }
+            : initial,
+      };
       return slots[index];
     },
     useEffect(effect, deps) {
@@ -134,6 +139,9 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
           slots[index] = { deps, cleanup: effect() };
         });
       }
+    },
+    useLayoutEffect(effect, deps) {
+      return react.useEffect(effect, deps);
     },
     lazy: () => 'MockDiffEditor',
     Suspense: 'Suspense',
@@ -152,12 +160,16 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
     'window',
     'ResizeObserver',
     'requestAnimationFrame',
+    'cancelAnimationFrame',
     code,
   )(
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore };
       if (id === '../terminal-shortcuts') return { terminalShortcut };
+      if (id === '../terminal-layout') return require('../src/renderer/terminal-layout.ts');
+      if (id === '../diff-editor-lifecycle')
+        return require('../src/renderer/diff-editor-lifecycle.ts');
       if (id === '../../shared/typography')
         return {
           DEFAULT_FONT_SIZE: 14,
@@ -184,7 +196,11 @@ async function componentHarness(name, state, api = {}, dependencies = {}) {
       observe() {}
       disconnect() {}
     },
-    (callback) => callback(),
+    (callback) => {
+      queueMicrotask(callback);
+      return 1;
+    },
+    () => {},
   );
   return (props = {}) => {
     cursor = 0;
@@ -278,12 +294,14 @@ test('terminal changes normal weight live without recreating PTY or changing ANS
   assert.equal(terminal.options.fontFamily, 'resolved-consolas');
   onData('session', '\x1b[1mANSI bold\x1b[0m');
   assert.deepEqual(terminal.written, ['\x1b[1mANSI bold\x1b[0m']);
+  await Promise.resolve();
   const beforeHidden = fits;
   state.fontBold = true;
   render({ ...props, visible: false });
   assert.equal(terminal.options.fontWeight, 700);
   assert.equal(fits, beforeHidden);
   render(props);
+  await Promise.resolve();
   assert.ok(fits > beforeHidden);
   assert.equal(spawns, 1);
   assert.equal(terminals.length, 1);
@@ -307,6 +325,9 @@ test('Monaco options follow typography settings without refetching the diff', as
   for (const bold of [false, true, false]) {
     state.fontBold = bold;
     const editor = find(render(props), (node) => node.type === 'MockDiffEditor');
+    assert.equal(editor.props.keepCurrentOriginalModel, true);
+    assert.equal(editor.props.keepCurrentModifiedModel, true);
+    assert.equal(typeof editor.props.onMount, 'function');
     assert.equal(editor.props.options.fontWeight, bold ? '700' : '400');
     assert.equal(editor.props.options.fontSize, 14);
     assert.equal(editor.props.options.fontFamily, 'resolved-default');

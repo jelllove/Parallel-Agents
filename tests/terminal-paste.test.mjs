@@ -24,6 +24,7 @@ async function harness(platform = 'win32') {
     terminalCopyPaste: true,
     tabSessionId: {},
     managedTabs: {},
+    consumePendingCommand() {},
   };
   let text = 'copied text';
   let read = async () => text;
@@ -36,7 +37,9 @@ async function harness(platform = 'win32') {
     },
     useRef(initial) {
       const i = cursor++;
-      slots[i] ??= { current: i === 0 ? {} : initial };
+      slots[i] ??= {
+        current: i === 0 ? { getBoundingClientRect: () => ({ width: 800, height: 600 }) } : initial,
+      };
       return slots[i];
     },
     useEffect(effect, deps) {
@@ -62,12 +65,14 @@ async function harness(platform = 'win32') {
     'navigator',
     'ResizeObserver',
     'requestAnimationFrame',
+    'cancelAnimationFrame',
     code,
   )(
     (id) => {
       if (id === 'react') return react;
       if (id === '../store/app-store') return { useAppStore };
       if (id === '../terminal-shortcuts') return { terminalShortcut };
+      if (id === '../terminal-layout') return require('../src/renderer/terminal-layout.ts');
       if (id === '../../shared/typography') return { resolveFontFamily: () => 'monospace' };
       if (id === '@xterm/xterm')
         return {
@@ -130,7 +135,11 @@ async function harness(platform = 'win32') {
       observe() {}
       disconnect() {}
     },
-    (callback) => callback(),
+    (callback) => {
+      queueMicrotask(callback);
+      return 1;
+    },
+    () => {},
   );
   const render = () => {
     cursor = 0;

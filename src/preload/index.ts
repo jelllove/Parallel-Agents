@@ -1,6 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Api, UpdateStatus } from '../shared/types';
 
+const terminalData = new Map<string, Set<Parameters<Api['pty']['onData']>[0]>>();
+const observers = new Set<Parameters<Api['pty']['onData']>[0]>();
+ipcRenderer.on(
+  'pty:data',
+  (_event, key: string, data: string, packet?: { generation: string; sequence: number }) => {
+    for (const listener of terminalData.get(key) ?? []) listener(key, data, packet);
+    for (const observer of observers) observer(key, data, packet);
+  },
+);
+
 const api: Api = {
   workspace: {
     getRecentFolders: () => ipcRenderer.invoke('workspace:getRecentFolders'),
@@ -26,7 +36,7 @@ const api: Api = {
   },
   projects: {
     create: (options) => ipcRenderer.invoke('projects:create', options),
-    list: () => ipcRenderer.invoke('projects:list'),
+    list: (fresh) => ipcRenderer.invoke('projects:list', fresh),
     pin: (id, pinned) => ipcRenderer.invoke('projects:pin', id, pinned),
     hide: (id, hidden) => ipcRenderer.invoke('projects:hide', id, hidden),
     delete: (id) => ipcRenderer.invoke('projects:delete', id),
@@ -46,7 +56,8 @@ const api: Api = {
       ipcRenderer.invoke('sessions:promoteDraft', projectId, launchId, sessionId),
     rename: (projectId, sessionId, title) =>
       ipcRenderer.invoke('sessions:rename', projectId, sessionId, title),
-    listForProject: (projectId) => ipcRenderer.invoke('sessions:listForProject', projectId),
+    listForProject: (projectId, fresh) =>
+      ipcRenderer.invoke('sessions:listForProject', projectId, fresh),
     inspectManaged: (terminalKey, launchId) =>
       ipcRenderer.invoke('sessions:inspectManaged', terminalKey, launchId),
     delete: (projectId, sessionId) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),
@@ -70,10 +81,16 @@ const api: Api = {
     write: (projectId, data) => ipcRenderer.invoke('pty:write', projectId, data),
     resize: (projectId, cols, rows) => ipcRenderer.invoke('pty:resize', projectId, cols, rows),
     kill: (projectId) => ipcRenderer.invoke('pty:kill', projectId),
-    onData: (cb) => {
-      const fn = (_: unknown, projectId: string, data: string) => cb(projectId, data);
-      ipcRenderer.on('pty:data', fn);
-      return () => ipcRenderer.off('pty:data', fn);
+    acknowledge: (key, generation, sequence) =>
+      ipcRenderer.send('pty:acknowledge', key, generation, sequence),
+    onData: (cb, key) => {
+      const listeners = key ? (terminalData.get(key) ?? new Set()) : observers;
+      if (key) terminalData.set(key, listeners);
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+        if (key && !listeners.size) terminalData.delete(key);
+      };
     },
     onExit: (cb) => {
       const fn = (_: unknown, projectId: string, code: number) => cb(projectId, code);

@@ -185,7 +185,7 @@ export interface Api {
   };
   projects: {
     create(options: NewProjectOptions): Promise<Project>;
-    list(): Promise<Project[]>;
+    list(fresh?: boolean): Promise<Project[]>;
     pin(id: string, pinned: boolean): Promise<void>;
     hide(id: string, hidden: boolean): Promise<void>;
     delete(id: string): Promise<void>;
@@ -215,7 +215,7 @@ export interface Api {
       sessionId: string,
     ): Promise<import('./sidebar-arrangement').SessionArrangement>;
     rename(projectId: string, sessionId: string, title: string): Promise<string>;
-    listForProject(projectId: string): Promise<Session[]>;
+    listForProject(projectId: string, fresh?: boolean): Promise<Session[]>;
     inspectManaged(
       terminalKey: string,
       launchId: string,
@@ -249,7 +249,15 @@ export interface Api {
     write(projectId: string, data: string): Promise<void>;
     resize(projectId: string, cols: number, rows: number): Promise<void>;
     kill(projectId: string): Promise<void>;
-    onData(cb: (projectId: string, data: string) => void): () => void;
+    acknowledge(projectId: string, generation: string, sequence: number): void;
+    onData(
+      cb: (
+        projectId: string,
+        data: string,
+        packet?: { generation: string; sequence: number },
+      ) => void,
+      terminalKey?: string,
+    ): () => void;
     onExit(cb: (projectId: string, code: number) => void): () => void;
   };
   fs: {
@@ -314,7 +322,7 @@ export interface Api {
     unstage(repoPath: string, files: string[]): Promise<void>;
     discard(repoPath: string, files: string[]): Promise<void>;
     commit(repoPath: string, message: string): Promise<void>;
-    watch(repoPath: string): Promise<void>;
+    watch(repoPath: string | null): Promise<void>;
     onChanged(cb: (repoPath: string) => void): () => void;
   };
   shell: {

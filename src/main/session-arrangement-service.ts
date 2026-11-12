@@ -10,6 +10,7 @@ import {
 import type { ManagedLaunch } from './managed-session-service.ts';
 import type { ArrangementItem } from '../shared/sidebar-arrangement.ts';
 import { preferences } from './preferences-store.ts';
+import { withHistoryRead } from './history-read-context.ts';
 
 const drafts = new Map<string, ManagedLaunch>();
 const cancelledKeys = new Set<string>();
@@ -39,12 +40,14 @@ async function groupFor(projectId: string) {
   if (!tree) throw new Error('The project group is no longer available.');
   return tree;
 }
-async function currentItems(projectId: string) {
+async function currentItems(projectId: string, fresh = false) {
   const tree = await groupFor(projectId);
   const histories = Object.fromEntries(
-    await Promise.all(
-      tree.projects.map(
-        async (project) => [project.id, await listSessionsForProject(project.id)] as const,
+    await withHistoryRead(() =>
+      Promise.all(
+        tree.projects.map(
+          async (project) => [project.id, await listSessionsForProject(project.id, fresh)] as const,
+        ),
       ),
     ),
   );
@@ -96,7 +99,7 @@ export async function promoteSessionDraft(
       (draft.nativeSessionId && draft.nativeSessionId !== sessionId)
     )
       throw new Error('The session launch identity is no longer available.');
-    const { tree, items } = await currentItems(projectId);
+    const { tree, items } = await currentItems(projectId, true);
     const key = `${draft.agent}:${sessionId}`;
     if (draft.nativeSessionId === sessionId) return reconcileSessionOrder(tree.id, items);
     if (!items.some((item) => item.key === key) || drafts.get(launchId) !== draft)

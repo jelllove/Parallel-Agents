@@ -28,12 +28,14 @@ test('window-all-closed accepts no event argument and keeps the tray app running
 async function windowHarness(platform) {
   const app = new EventEmitter();
   app.whenReady = () => new Promise(() => {});
+  app.getPath = () => '/fixture';
+  app.getVersion = () => 'fixture';
   const windows = [];
   class BrowserWindow extends EventEmitter {
     constructor(options) {
       super();
       this.options = options;
-      this.webContents = { setWindowOpenHandler() {} };
+      this.webContents = { setWindowOpenHandler() {}, on() {} };
       windows.push(this);
     }
     loadFile() {}
@@ -50,6 +52,8 @@ async function windowHarness(platform) {
       if (id === 'electron') return { app, BrowserWindow };
       if (id === './window-titlebar.ts') return require('../src/main/window-titlebar.ts');
       if (id === './ipc.ts') return { registerIpc() {} };
+      if (id === './runtime-diagnostics.ts')
+        return { createRuntimeDiagnostics: () => async () => {} };
       if (id.startsWith('./')) return {};
       return require(id);
     },
@@ -109,6 +113,8 @@ async function themeHarness(platform) {
       if (id === 'electron')
         return {
           ipcMain: {
+            on() {},
+            off() {},
             handle: (name, handler) => handlers.set(name, handler),
             removeHandler: (name) => handlers.delete(name),
           },

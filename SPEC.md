@@ -191,6 +191,21 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
   when the dialog opens. The suffix follows the manual title's ASCII slug or a stable session suffix;
   later title/path/mode changes never overwrite a manually edited branch or custom destination.
 
+### Runtime responsiveness and stability
+
+- Reduce redundant history parsing, IPC and UI updates without stopping background agents, dropping
+  terminal output, reducing scrollback, or changing session/native identity and manual ordering.
+- Cache display metadata only; fresh reads and existing filesystem/Git/lease checks still authorize
+  launch baselines, linking and destructive operations. Explicit Refresh must not use a stale snapshot.
+- Keep status/completion acknowledgements responsive without scanning histories on every status event.
+  Back off optional history refresh while hidden and refresh on return; do not pause terminal parsing.
+- Window large session groups without hiding history from selection, keyboard focus or manual moves.
+  Equivalent project/history refreshes must not reset Explorer expansion or recreate PTYs.
+- Verify improvements using generated offline datasets and report measured counts/timings rather than
+  promise hardware-independent latency or parity with another editor.
+- Dispose diff models only after detaching them, contain delayed PTY startup write failures, and record
+  bounded local renderer/child process-exit metadata without prompts, transcript content or credentials.
+
 ### 5.3 Hook-reported session activity
 
 - History sessions without an open linked provider/native-session tab in this window show a static

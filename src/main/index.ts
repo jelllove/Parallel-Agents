@@ -19,6 +19,7 @@ import { applicationMenu, hidesOnClose } from './application-menu.ts';
 import { titleBarOverlayFor } from './window-titlebar.ts';
 import { activityRuntime } from './activity-service.ts';
 import { managedSessions } from './managed-session-runtime.ts';
+import { createRuntimeDiagnostics } from './runtime-diagnostics.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -76,6 +77,27 @@ function createWindow(): void {
   });
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());
+  const logFailure = createRuntimeDiagnostics(
+    join(app.getPath('userData'), 'logs', 'runtime-failures.jsonl'),
+    app.getVersion(),
+  );
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    void logFailure({
+      event: 'renderer-gone',
+      reason: details.reason,
+      exitCode: details.exitCode,
+    }).catch((error) => console.warn('Cannot record renderer failure', error));
+  });
+  const childGone = (_event: Electron.Event, details: Electron.Details) => {
+    void logFailure({
+      event: 'child-gone',
+      reason: details.reason,
+      exitCode: details.exitCode,
+      processType: details.type,
+    }).catch((error) => console.warn('Cannot record child process failure', error));
+  };
+  app.on('child-process-gone', childGone);
+  mainWindow.once('closed', () => app.off('child-process-gone', childGone));
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);

@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { reconcileRecords } from './reconcile-records.ts';
+import { createGitStatusReads } from './git-status-reads.ts';
 import type { OperationResult } from './background-operations.ts';
 import type { ManagedTab } from '../../shared/managed-session.ts';
 import { DEFAULT_AGENT_ORDER } from '../../shared/types.ts';
@@ -105,7 +107,7 @@ interface AppState {
   fontFamily: FontFamilyId;
   fontBold: boolean;
 
-  loadProjects: () => Promise<void>;
+  loadProjects: (fresh?: boolean) => Promise<void>;
   loadAgents: () => Promise<void>;
   checkAgents: () => Promise<void>;
   refreshProjectsAndAgents: () => Promise<void>;
@@ -142,7 +144,7 @@ interface AppState {
   deleteProject: (id: string) => Promise<OperationResult>;
   deleteMissingProjects: (ids: string[]) => Promise<OperationResult>;
   reorderProjects: (agent: AgentId, fromId: string, toId: string) => Promise<void>;
-  loadSessions: (projectId: string) => Promise<void>;
+  loadSessions: (projectId: string, fresh?: boolean) => Promise<void>;
   applyDeletedSessions: (
     targets: import('../../shared/session-deletion').ReviewedSession[],
   ) => void;
@@ -188,6 +190,7 @@ const emptyStatus = (): Record<AgentId, AgentStatus> => ({
   copilot: { available: false, path: null },
 });
 
+const readGitStatus = createGitStatusReads((path: string) => window.api.git.status(path));
 const projectSessionStarts = new Map<string, Promise<void>>();
 let nextNewSessionTab = 0;
 let historyMutationVersion = 0;
@@ -257,11 +260,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   fontFamily: DEFAULT_FONT_FAMILY,
   fontBold: false,
 
-  async loadProjects() {
+  async loadProjects(fresh = false) {
     const mutation = historyMutationVersion;
     const request = ++projectReadVersion;
-    const projects = await window.api.projects.list();
-    if (mutation === historyMutationVersion && request === projectReadVersion) set({ projects });
+    const projects = await window.api.projects.list(fresh);
+    if (mutation === historyMutationVersion && request === projectReadVersion) {
+      const next = reconcileRecords(get().projects, projects);
+      if (next !== get().projects) set({ projects: next });
+    }
   },
 
   async loadAgents() {
@@ -278,7 +284,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().inventoryRefreshing) return;
     set({ inventoryRefreshing: true, inventoryError: null });
     try {
-      await Promise.all([get().loadProjects(), get().loadAgents(), get().checkAgents()]);
+      await Promise.all([get().loadProjects(true), get().loadAgents(), get().checkAgents()]);
 
       const selectedId = get().selectedProjectId;
       const projectIds = new Set([
@@ -287,7 +293,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ]);
       for (const id of projectIds) {
         const project = get().findProject(id);
-        if (project && !project.dirName.startsWith('adhoc:')) await get().loadSessions(id);
+        if (project && !project.dirName.startsWith('adhoc:')) await get().loadSessions(id, true);
       }
       const p = selectedId ? get().findProject(selectedId) : undefined;
       if (p?.exists) {
@@ -308,7 +314,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     if (p?.exists) {
       void get().loadGitStatus(p.realPath);
-      void window.api.git.watch(p.realPath);
     }
   },
 
@@ -396,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (shouldFocus()) set({ activeTabId: tabId });
       return;
     }
-    const baseline = await window.api.sessions.listForProject(projectId);
+    const baseline = await window.api.sessions.listForProject(projectId, true);
     await window.api.config.setLastAgent(projectId, agentId);
     const { openTabs } = get();
     if (openTabs.includes(tabId)) {
@@ -794,13 +799,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadProjects();
   },
 
-  async loadSessions(projectId) {
+  async loadSessions(projectId, fresh = false) {
     const mutation = historyMutationVersion;
     const request = (sessionReadVersions.get(projectId) ?? 0) + 1;
     sessionReadVersions.set(projectId, request);
-    const list = await window.api.sessions.listForProject(projectId);
+    const list = await window.api.sessions.listForProject(projectId, fresh);
     if (mutation === historyMutationVersion && request === sessionReadVersions.get(projectId)) {
-      set({ sessions: { ...get().sessions, [projectId]: list } });
+      const previous = get().sessions[projectId];
+      const next = reconcileRecords(previous ?? [], list);
+      if (!previous || next !== previous)
+        set({ sessions: { ...get().sessions, [projectId]: next } });
     }
   },
 
@@ -996,13 +1004,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async loadGitStatus(repoPath) {
-    const status = await window.api.git.status(repoPath);
-    set({ gitStatusByPath: { ...get().gitStatusByPath, [repoPath]: status } });
+    const status = await readGitStatus(repoPath);
+    if (JSON.stringify(get().gitStatusByPath[repoPath]) !== JSON.stringify(status))
+      set({ gitStatusByPath: { ...get().gitStatusByPath, [repoPath]: status } });
   },
 
   subscribeGitChanges() {
-    return window.api.git.onChanged((repoPath) => {
-      void get().loadGitStatus(repoPath);
+    return window.api.git.onChanged(() => {
+      const state = get();
+      const id = state.activeTabId
+        ? (state.tabProjectId[state.activeTabId] ?? state.activeTabId)
+        : state.selectedProjectId;
+      const project = id ? state.findProject(id) : undefined;
+      if (project?.exists) void state.loadGitStatus(project.realPath);
     });
   },
 

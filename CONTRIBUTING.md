@@ -145,6 +145,37 @@ The [engineering automation guide](docs/automation.md) explains optional hooks, 
 prerequisites, workflow receipts, and human approval boundaries. Neither setup nor ordinary checks
 install hooks, mutate remote settings, or contact real AI-provider CLIs.
 
+### Local responsiveness and crash diagnostics
+
+After `npm run build`, run `node scripts/performance.mjs current`. This separate opt-in Electron
+workload generates 100 projects, 1,990 histories (including one 1,000-row group), ten inert terminals,
+ANSI/Unicode output and synthetic key/switch/scroll interactions. It writes aggregate counters,
+latency/frame samples, CPU/memory, a local trace and screenshot to a fresh reports/performance folder.
+No real provider, account, clipboard or user history is needed. Run benchmarks sequentially, not
+alongside full-suite/build load. `PA_PERFORMANCE_MAIN` can point at a preserved trusted build for the
+same workload; preserve its preload/renderer/resources together. A missing reporter resource changes
+the workload and is not a valid matched comparison. Timings are host-dependent, not a universal CI gate.
+ConPTY may repaint earlier lines on resize; use unique generated line identities for native delivery
+coverage and deterministic stream tests for exact transport ordering/duplication assertions.
+The divider probe uses pointer events and rejects runs with no actual panel movement. Echo samples
+include native shell/fixture time and polling resolution; they are not renderer-only typing latency.
+The current fixture covers ten terminals, not a separately qualified one-terminal scenario.
+
+Renderer/child process exits write bounded local metadata to userData/logs/runtime-failures.jsonl
+(and one .previous rotation), normally `%APPDATA%/parallel-agents/logs` on Windows. The record includes
+version, timestamp, reason and exit code, not terminal content. Existing installed builds without this
+instrumentation may have no log. Inspect installed app.asar/package.json before assuming which version
+ran; no event or an old dump does not prove a new reported crash was reproduced. Do not clear profiles,
+provider histories or GPU caches as automatic recovery, upload dumps, or kill existing app sessions.
+
+Native layout fixtures must account for fractional device scale: a one-CSS-pixel rule may compute to
+one device pixel (for example 0.666667 CSS px at DPR 1.5). Verify a visible thin separator and retain
+zero border on the first row; allow only device-rounding-sized viewport differences, not offscreen UI.
+Monaco models must be detached before disposal; repeated open/close is part of native verification.
+On the local Windows/Electron 43.6 host, final capturePage after fullscreen/reload has intermittently
+failed with UnknownVizError / GPU state invalid. Preserve the failed receipt: earlier assertions or a
+previous passing build do not qualify that run. Do not mask it with GPU/sandbox flags or skipped capture.
+
 ### Windows native smoke test
 
 This existing anchor now covers **Windows x64, macOS arm64/x64, and Linux x64** native smoke.

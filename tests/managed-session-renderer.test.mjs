@@ -26,10 +26,12 @@ test('late managed identity reads cannot restore deleted session history', async
   const { code } = await transform(source, { loader: 'ts', format: 'cjs' });
   const module = { exports: {} };
   const require = createRequire(import.meta.url);
-  new Function('require', 'module', 'exports', 'window', code)(
+  new Function('require', 'module', 'exports', 'window', 'document', code)(
     (id) => {
       if (id === './app-store.ts')
         return { useAppStore: store, sessionHistoryRevision: () => revision };
+      if (id === './history-refresh-queue.ts')
+        return require('../src/renderer/store/history-refresh-queue.ts');
       if (id === './activity-store.ts') return { useActivityStore: { subscribe: () => () => {} } };
       if (id === '../../shared/session-terminals.ts')
         return { agentTerminalKey: (id) => `${id}::agent` };
@@ -45,6 +47,7 @@ test('late managed identity reads cannot restore deleted session history', async
       },
       clearInterval: () => {},
     },
+    { hidden: false, addEventListener() {}, removeEventListener() {} },
   );
   const off = module.exports.subscribeManagedSessions();
   revision++;

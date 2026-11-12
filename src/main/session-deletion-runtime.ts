@@ -9,32 +9,34 @@ import { managedSessions } from './managed-session-runtime.ts';
 import { guardCheckout } from './checkout-guard.ts';
 import { SessionDeletionService, withinCheckout } from './session-deletion-service.ts';
 import type { ReviewedSession } from '../shared/session-deletion.ts';
+import { withFreshHistory } from './history-read-context.ts';
 
 export const sessionDeletion = new SessionDeletionService({
-  async inventory() {
-    const projects = await listProjects();
-    const entries: ReviewedSession[] = [];
-    for (const project of projects) {
-      for (const session of await listSessionsForProject(project.id)) {
-        let cwd = session.cwd ?? project.realPath;
-        try {
-          cwd = await realpath(cwd);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-          // Missing histories remain deletable, but cannot authorize checkout removal.
+  inventory: () =>
+    withFreshHistory(async () => {
+      const projects = await listProjects(true);
+      const entries: ReviewedSession[] = [];
+      for (const project of projects) {
+        for (const session of await listSessionsForProject(project.id, true)) {
+          let cwd = session.cwd ?? project.realPath;
+          try {
+            cwd = await realpath(cwd);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            // Missing histories remain deletable, but cannot authorize checkout removal.
+          }
+          entries.push({
+            projectId: project.id,
+            sessionId: session.id,
+            agent: session.agent,
+            title: session.title,
+            cwd,
+            ...(!session.cwd ? { ownershipUncertain: true } : {}),
+          });
         }
-        entries.push({
-          projectId: project.id,
-          sessionId: session.id,
-          agent: session.agent,
-          title: session.title,
-          cwd,
-          ...(!session.cwd ? { ownershipUncertain: true } : {}),
-        });
       }
-    }
-    return entries;
-  },
+      return entries;
+    }),
   async inspect(path) {
     try {
       return await inspectLinkedWorktree(path);

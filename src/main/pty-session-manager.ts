@@ -1,6 +1,8 @@
 import type { BrowserWindow } from 'electron';
 import type { IPty, spawn } from 'node-pty';
 import { posix } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { PtyOutputFlow } from './pty-output-flow.ts';
 import { resolveAvailableShell, resolveShellLaunch } from './shell-profiles.ts';
 import { sendToWindow } from './window-messenger.ts';
 import type { SessionShellProfile } from '../shared/session-terminals.ts';
@@ -15,15 +17,21 @@ interface Entry {
   pty: IPty;
   cwd: string;
   commandTimer?: ReturnType<typeof setTimeout>;
+  output?: PtyOutputFlow;
+  cols?: number;
+  rows?: number;
+  exited?: boolean;
 }
 
 export class PtyManager {
   private ptys = new Map<string, Entry>();
+  private draining = new Map<string, Entry>();
   private starting = new Map<string, symbol>();
   private startingCwds = new Map<string, string>();
   private closing = new Set<{ cwd: string; exited: Promise<void> }>();
   private exits = new WeakMap<Entry, Promise<void>>();
   private win: BrowserWindow | null = null;
+  private outputEnabled = true;
   private readonly createPty: typeof spawn;
   private readonly environment: { platform: NodeJS.Platform; env: NodeJS.ProcessEnv };
 
@@ -40,9 +48,14 @@ export class PtyManager {
 
   attachWindow(win: BrowserWindow) {
     this.win = win;
+    this.outputEnabled = true;
   }
 
   detachWindow(): void {
+    this.outputEnabled = false;
+    for (const entry of this.ptys.values()) entry.output?.dispose();
+    for (const entry of this.draining.values()) entry.output?.dispose();
+    this.draining.clear();
     this.win = null;
   }
 
@@ -103,13 +116,41 @@ export class PtyManager {
         cwd,
         env,
       });
-      const entry: Entry = { pty: p, cwd, observer };
+      const entry: Entry = {
+        pty: p,
+        cwd,
+        observer,
+        cols: Math.max(cols, 20),
+        rows: Math.max(rows, 5),
+      };
+      entry.output = new PtyOutputFlow(
+        {
+          send: (data, packet) => sendToWindow(this.win, 'pty:data', projectId, data, packet),
+          pause: () => {
+            try {
+              p.pause();
+            } catch (error) {
+              console.warn('Cannot pause terminal output', error);
+            }
+          },
+          resume: () => {
+            try {
+              if (!entry.exited) p.resume();
+            } catch (error) {
+              console.warn('Cannot resume terminal output', error);
+            }
+          },
+        },
+        randomUUID(),
+      );
+      this.draining.get(projectId)?.output?.dispose();
+      this.draining.delete(projectId);
       this.ptys.set(projectId, entry);
       attached = true;
 
       p.onData((data) => {
-        if (this.ptys.get(projectId) !== entry) return;
-        sendToWindow(this.win, 'pty:data', projectId, data);
+        if (!this.outputEnabled || this.ptys.get(projectId) !== entry) return;
+        entry.output!.push(data);
       });
       let resolveExit!: () => void;
       this.exits.set(
@@ -123,9 +164,17 @@ export class PtyManager {
         resolveExit();
         if (this.ptys.get(projectId) !== entry) return;
         clearTimeout(entry.commandTimer);
+        entry.exited = true;
         this.ptys.delete(projectId);
         entry.observer?.end(exitCode === 0 ? 'unknown' : 'failed');
-        sendToWindow(this.win, 'pty:exit', projectId, exitCode);
+        this.draining.set(projectId, entry);
+        // Exit is enqueued after the last output packet, without flooding IPC past the watermark.
+        entry.output!.finish(() => {
+          if (this.draining.get(projectId) !== entry) return;
+          this.draining.delete(projectId);
+          entry.output!.dispose();
+          sendToWindow(this.win, 'pty:exit', projectId, exitCode);
+        });
       });
 
       if (initialCommand) {
@@ -143,7 +192,14 @@ export class PtyManager {
           command = `/usr/bin/env ${quoted} ${initialCommand}`;
         }
         entry.commandTimer = setTimeout(() => {
-          if (this.ptys.get(projectId) === entry) p.write(command + '\r');
+          if (this.ptys.get(projectId) !== entry) return;
+          try {
+            p.write(command + '\r');
+          } catch (error) {
+            console.warn(`Cannot send initial command to terminal ${projectId}`, error);
+            entry.output?.push('\r\n[Failed to send initial command to terminal]\r\n');
+            entry.observer?.end('failed');
+          }
         }, 250);
       }
       return true;
@@ -160,11 +216,21 @@ export class PtyManager {
     this.ptys.get(projectId)?.pty.write(data);
   }
 
+  acknowledgeOutput(projectId: string, generation: string, sequence: number): void {
+    const entry = this.ptys.get(projectId) ?? this.draining.get(projectId);
+    entry?.output?.acknowledge(generation, sequence);
+  }
+
   resize(projectId: string, cols: number, rows: number): void {
     const e = this.ptys.get(projectId);
     if (!e) return;
+    cols = Math.max(cols, 20);
+    rows = Math.max(rows, 5);
+    if (e.cols === cols && e.rows === rows) return;
     try {
-      e.pty.resize(Math.max(cols, 20), Math.max(rows, 5));
+      e.pty.resize(cols, rows);
+      e.cols = cols;
+      e.rows = rows;
     } catch (error) {
       console.warn(`Cannot resize terminal ${projectId}`, error);
     }
@@ -173,9 +239,12 @@ export class PtyManager {
   kill(projectId: string): void {
     this.starting.delete(projectId);
     this.startingCwds.delete(projectId);
+    this.draining.get(projectId)?.output?.dispose();
+    this.draining.delete(projectId);
     const e = this.ptys.get(projectId);
     if (!e) return;
     clearTimeout(e.commandTimer);
+    e.output?.dispose();
     this.ptys.delete(projectId);
     e.observer?.end('unknown');
     const closing = { cwd: e.cwd, exited: this.exits.get(e) ?? Promise.resolve() };
@@ -191,7 +260,7 @@ export class PtyManager {
   killAll(): void {
     this.starting.clear();
     this.startingCwds.clear();
-    for (const id of [...this.ptys.keys()]) this.kill(id);
+    for (const id of new Set([...this.ptys.keys(), ...this.draining.keys()])) this.kill(id);
   }
 
   async waitForCheckoutIdle(

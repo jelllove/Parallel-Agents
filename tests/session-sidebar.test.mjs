@@ -54,13 +54,14 @@ async function componentHarness(name, state = {}) {
   new Function('require', 'module', 'exports', 'window', code)(
     (id) => {
       if (id === 'react') return react;
+      if (id === 'zustand/react/shallow') return { useShallow: (select) => select };
       if (id === '../store/app-store') return { useAppStore: (select) => select(state) };
       if (id === '../icons/agentIcons') return { resumeCommandFor };
       if (id === '../store/activity-store')
         return {
           useActivityStore: (select) =>
             select({
-              records: [],
+              records: state.activityRecord ? [state.activityRecord] : [],
               completions: state.completions ?? {},
               acknowledge: (token) => state.acknowledge?.(token),
             }),
@@ -69,6 +70,17 @@ async function componentHarness(name, state = {}) {
             state.activityRecord?.sessionId === sessionId ? state.activityRecord : undefined,
         };
       if (id === '../../shared/project-tree') return { collectProjectSessions, pathKey };
+      if (id === '../hooks/use-windowed-rows')
+        return {
+          useWindowedRows: (keys, activeKey) => {
+            state.windowedActiveKey = activeKey;
+            return {
+              root: { current: null },
+              rows: keys.map((key) => ({ key, visible: true })),
+              setFocused() {},
+            };
+          },
+        };
       if (id === '../hooks/use-session-order')
         return {
           sessionRowKey: (row, launches) =>
@@ -198,7 +210,13 @@ test('completion icon is a sibling control; icon acknowledges only, session titl
   const state = sessionState();
   const acknowledgements = [];
   const resumes = [];
-  state.activityRecord = { terminalKey: 'tab-one::agent', sessionId: 'first', state: 'completed' };
+  state.activityRecord = {
+    terminalKey: 'tab-one::agent',
+    sessionId: 'first',
+    agent: 'claude',
+    revision: 1,
+    state: 'completed',
+  };
   state.completions = { 'tab-one::agent': { token: 'completion-one', acknowledged: false } };
   state.acknowledge = (token) => acknowledgements.push(token);
   state.selectProject = async () => {};
@@ -245,6 +263,42 @@ test('history-only sessions are not open; inactive linked tabs remain open acros
   assert.equal(icon('second').props.isOpen, true);
   state.tabSessionId = { 'tab-one': null };
   assert.equal(icon('second').props.isOpen, false);
+});
+
+test('shared-history aliases retain activity and completion acknowledgement from their open tab', async () => {
+  const state = sessionState();
+  state.tabProjectId['tab-one'] = 'claude:shared-history-alias';
+  state.activityRecord = {
+    terminalKey: 'tab-one::agent',
+    sessionId: 'first',
+    agent: 'claude',
+    revision: 1,
+    state: 'completed',
+  };
+  state.completions = { 'tab-one::agent': { token: 'alias-completion', acknowledged: false } };
+  const acknowledged = [];
+  state.acknowledge = (token) => acknowledged.push(token);
+  const { render } = await componentHarness('SessionList', state);
+  const icon = find(rows(render())[0], (node) => node.type === 'SessionActivityIcon');
+  assert.equal(icon.props.isOpen, true);
+  assert.equal(icon.props.state, 'completed');
+  assert.equal(icon.props.attention, true);
+  icon.props.onAcknowledge();
+  assert.deepEqual(acknowledged, ['alias-completion']);
+});
+
+test('windowing pins the active unbound draft using its launch identity', async () => {
+  const state = sessionState();
+  state.activeTabId = 'draft-tab';
+  state.openTabs.push('draft-tab');
+  state.tabProjectId['draft-tab'] = state.projects[0].id;
+  state.tabAgent['draft-tab'] = 'claude';
+  state.managedTabs = {
+    'draft-tab': { launchId: 'draft-launch', createdAt: 1, sessionTitle: 'Draft' },
+  };
+  const { render } = await componentHarness('SessionList', state);
+  render();
+  assert.equal(state.windowedActiveKey, 'draft:draft-launch');
 });
 
 test('selection checkboxes are controlled independently of the active terminal', async () => {

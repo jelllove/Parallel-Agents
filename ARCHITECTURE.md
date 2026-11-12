@@ -36,6 +36,39 @@ The window explicitly enables `sandbox` and `contextIsolation` and disables `nod
 The sandboxed preload exposes only the typed bridge; these flags do not validate IPC arguments.
 Filesystem, process, and Git channels remain privileged operations.
 
+## Responsiveness and runtime failure boundaries
+
+History metadata caches hold decoded records only, keyed by file identity/size/high-resolution times,
+with bounded eviction and concurrent-read sharing. Directory manifests are still enumerated; appended,
+replaced and deleted histories are rediscovered. Request-local provider indexes share scans within an
+inventory operation. Explicit Refresh, launch baselines, native linking and destructive reviews bypass
+metadata reuse; filesystem/Git identity and checkout leases remain authoritative for mutations.
+
+The managed-history scheduler coalesces per-project reads. Unbound launches keep a three-second
+identity fallback; linked histories use a fifteen-second foreground fallback, sixty seconds when
+hidden, plus targeted identity/completion/failure events and visibility restoration. Completion
+acknowledgement and repeated running notifications do not schedule history reads. Equal transport
+snapshots retain object identity; session groups select their own data/activity, with precomputed
+ordering/neighbor maps. Large session groups use the sidebar's existing scroll owner, measured rows
+and overscan; selection/drag mode renders the complete logical group to preserve existing controls.
+Explorer expansion resets only for root changes, not equivalent project snapshots.
+
+PTY output flow batches for approximately eight milliseconds, splits bounded messages without
+breaking surrogate pairs, and pauses/resumes the native read side at high/low watermarks until xterm
+acknowledges consumption. A single preload dispatcher routes by terminal key; generation/sequence
+validation excludes stale acknowledgements. Native exit drains its remaining tail within the same
+in-flight watermark before enqueueing the exit marker; a separate draining entry does not retain a
+checkout lease after the process has actually exited. Closing/replacing the terminal cancels only its
+obsolete drain. Background terminals still consume output without animation-frame gating. Fit requests share one
+cancellable animation frame; unchanged cells do not resize native PTYs. Git watch interest follows the focused checkout and releases old timers; status
+bursts share reads with a trailing refresh. Optional polling is suppressed while hidden.
+
+Diff teardown detaches the Monaco model pair before disposing either model; React retains ownership
+of editor disposal. Delayed native startup-command write failures are contained and reported rather
+than escaping a timer. Local process-exit metadata is bounded/rotated under userData/logs without
+recording prompts, terminal output or credentials. These safeguards do not establish the cause of an
+unobserved user-reported crash, and JavaScript teardown errors are distinct from native process exits.
+
 ## Runtime and build toolchain
 
 ### Desktop portability contract
@@ -188,7 +221,7 @@ The table lists suffixes under each namespace; main-to-renderer event names are 
 | `updates`  | `getStatus`, `check`, `install`                                                                                                                                                                                                                                                                                                            | `updates:status`         |
 | `projects` | `list`, `create`, `pin`, `hide`, `delete`, `deleteMissing`, `setOrder`                                                                                                                                                                                                                                                                     | —                        |
 | `sessions` | `listForProject`, `inspectManaged`, `order`, `move`, `promoteDraft`, `delete`, `rename`                                                                                                                                                                                                                                                    | —                        |
-| `pty`      | `spawn`, `write`, `resize`, `kill`                                                                                                                                                                                                                                                                                                         | `pty:data`, `pty:exit`   |
+| `pty`      | `spawn`, `write`, `resize`, `kill`, `acknowledge`                                                                                                                                                                                                                                                                                          | `pty:data`, `pty:exit`   |
 | `fs`       | `readDir`, `createFile`, `createDir`, `rename`, `copy`, `move`, `trash`, `reveal`, `openDefault`                                                                                                                                                                                                                                           | —                        |
 | `git`      | `status`, `diff`, `stage`, `unstage`, `discard`, `commit`, `watch`                                                                                                                                                                                                                                                                         | `git:changed`            |
 | `dialog`   | `pickDirectory`                                                                                                                                                                                                                                                                                                                            | —                        |
@@ -610,8 +643,10 @@ records so spaces, renames, and unusual filenames are not split as ordinary line
   worktree, the `.git` pointer is resolved to that worktree's metadata directory. Directory
   notifications observe index replacement; the existing five-second polling fallback remains.
   Events are throttled to at most one per 800 ms for each watched repository.
-- `git:changed` causes the store to reload status. Watchers are cached by repository path and
-  released during application quit.
+- `git:changed` reloads the actual focused checkout's status. Watch interest follows that checkout;
+  previous watchers/timers are released on navigation and all remaining watchers close on quit.
+  Concurrent status requests share work with a trailing refresh; hidden/minimized windows skip
+  optional polling and refresh on visibility restoration.
 
 These are local operations, not automatic fetch/push/publish behavior.
 

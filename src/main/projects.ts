@@ -6,6 +6,7 @@ import {
   readCopilotSessionStart,
   readClaudeSessionMeta,
   readGeminiSessionMeta,
+  readSessionProjectDirectory,
 } from './session-metadata.ts';
 import {
   deleteCodexProject,
@@ -30,6 +31,7 @@ import { AGENT_IDS } from './agent-providers.ts';
 import { orderedAgents } from '../shared/sidebar-order.ts';
 import { eligibleRecentFolders } from './workspace-history.ts';
 import { validateSessionName } from '../shared/session-presentation.ts';
+import { freshHistoryRead, withFreshHistory, withHistoryRead } from './history-read-context.ts';
 
 const CLAUDE_ROOT = join(homedir(), '.claude', 'projects');
 const GEMINI_TMP_ROOT = join(homedir(), '.gemini', 'tmp');
@@ -61,20 +63,8 @@ async function decodeDirNameFromJsonl(projectDir: string): Promise<string | null
   for (const f of files) {
     if (!f.endsWith('.jsonl')) continue;
     try {
-      const content = await readFile(join(projectDir, f), 'utf-8');
-      const nl = content.indexOf('\n');
-      const firstLine = nl >= 0 ? content.slice(0, nl) : content;
-      if (!firstLine.trim()) continue;
-      const obj = JSON.parse(firstLine);
-      if (typeof obj?.cwd === 'string' && obj.cwd) return obj.cwd;
-      // Some early lines (e.g. permission-mode) lack cwd. Probe a few more.
-      for (const line of content.split('\n').slice(0, 20)) {
-        if (!line.trim()) continue;
-        try {
-          const o = JSON.parse(line);
-          if (typeof o?.cwd === 'string' && o.cwd) return o.cwd;
-        } catch {}
-      }
+      const directory = await readSessionProjectDirectory(join(projectDir, f));
+      if (directory) return directory;
     } catch {}
   }
   return null;
@@ -110,7 +100,9 @@ async function listClaudeProjects(pinned: Set<string>, hidden: Set<string>): Pro
     return [];
   }
 
-  const knownCreation = (await loadConfig()).sidebarArrangement?.projects.claude?.createdAt ?? {};
+  const knownCreation = freshHistoryRead()
+    ? {}
+    : ((await loadConfig()).sidebarArrangement?.projects.claude?.createdAt ?? {});
   const out: Project[] = [];
   for (const dirName of entries) {
     const full = join(CLAUDE_ROOT, dirName);
@@ -167,7 +159,9 @@ async function listGeminiProjects(pinned: Set<string>, hidden: Set<string>): Pro
     return [];
   }
 
-  const knownCreation = (await loadConfig()).sidebarArrangement?.projects.gemini?.createdAt ?? {};
+  const knownCreation = freshHistoryRead()
+    ? {}
+    : ((await loadConfig()).sidebarArrangement?.projects.gemini?.createdAt ?? {});
   const out: Project[] = [];
   for (const dirName of entries) {
     const full = join(GEMINI_TMP_ROOT, dirName);
@@ -334,7 +328,15 @@ async function listCodexProjects(pinned: Set<string>, hidden: Set<string>): Prom
   );
 }
 
+let discovery: Promise<Project[]> | undefined;
 async function listDiscoveredProjects(): Promise<Project[]> {
+  if (freshHistoryRead()) return discoverProjects();
+  discovery ??= discoverProjects().finally(() => {
+    discovery = undefined;
+  });
+  return structuredClone(await discovery);
+}
+async function discoverProjects(): Promise<Project[]> {
   const cfg = await loadConfig();
   const pinned = new Set(cfg.pinned);
   const hidden = new Set(cfg.hidden);
@@ -376,7 +378,15 @@ async function listDiscoveredProjects(): Promise<Project[]> {
   return out;
 }
 
-export async function listProjects(): Promise<Project[]> {
+let inventoryRead: Promise<Project[]> | undefined;
+export async function listProjects(fresh = false): Promise<Project[]> {
+  if (fresh || freshHistoryRead()) return withFreshHistory(readProjects);
+  inventoryRead ??= withHistoryRead(readProjects).finally(() => {
+    inventoryRead = undefined;
+  });
+  return structuredClone(await inventoryRead);
+}
+async function readProjects(): Promise<Project[]> {
   const [discovered, stored, cfg] = await Promise.all([
     listDiscoveredProjects(),
     preferences.read(),
@@ -459,7 +469,7 @@ export async function createProject(options: NewProjectOptions): Promise<Project
           targetPath: options.targetPath ?? '',
         })
       : normalize(options.basePath);
-  const projects = await listProjects();
+  const projects = await listProjects(true);
   const existing = projects.find(
     (project) =>
       project.agent === options.agent &&
@@ -559,7 +569,7 @@ async function deleteProjectHistory(projectId: string): Promise<void> {
         throw error;
       }
       const eventsPath = join(sessionDir, 'events.jsonl');
-      const meta = await readCopilotSessionStart(eventsPath);
+      const meta = await readCopilotSessionStart(eventsPath, true);
       if (!meta) continue;
       if (normalizeProjectPath(meta.projectPath) !== target) continue;
       await rm(sessionDir, { recursive: true, force: true });
@@ -570,7 +580,7 @@ async function deleteProjectHistory(projectId: string): Promise<void> {
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  await deleteProjectHistory(projectId);
+  await withFreshHistory(() => deleteProjectHistory(projectId));
   lastSuccessfulCopilotProjects = removeProjectsFromSnapshot(lastSuccessfulCopilotProjects, [
     projectId,
   ]);
@@ -580,7 +590,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function deleteMissingProjects(projectIds: string[]): Promise<void> {
   if (projectIds.length === 0) throw new Error('No projects selected');
-  const targets = validateMissingProjectIds(await listProjects(), projectIds);
+  const targets = validateMissingProjectIds(await listProjects(true), projectIds);
   for (const project of targets) {
     if (await pathExists(project.realPath)) {
       throw new Error(`Project is not missing: ${project.id}`);

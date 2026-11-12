@@ -54,6 +54,19 @@ export function GitPanel() {
 
   const repoPath = project?.exists ? project.realPath : null;
   const status = repoPath ? gitStatusByPath[repoPath] : null;
+  useEffect(() => {
+    void window.api.git
+      .watch(repoPath)
+      .catch((error) => console.warn('Cannot watch focused Git checkout', error));
+    const refresh = () => {
+      if (!document.hidden && repoPath) void loadGitStatus(repoPath);
+    };
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      void window.api.git.watch(null);
+    };
+  }, [repoPath, loadGitStatus]);
 
   const [commitMsg, setCommitMsg] = useState('');
   const [diffOpen, setDiffOpen] = useState<{ file: string; staged: boolean } | null>(null);

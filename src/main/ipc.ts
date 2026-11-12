@@ -86,7 +86,10 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       ipcMain.removeHandler(channel);
   });
 
-  ipcMain.handle('projects:list', () => listProjects());
+  ipcMain.handle('projects:list', (_event, fresh = false) => {
+    if (typeof fresh !== 'boolean') throw new Error('Invalid inventory freshness request.');
+    return listProjects(fresh);
+  });
   ipcMain.handle('config:getSidebarTree', () => getSidebarTree());
   ipcMain.handle('config:setSidebarTree', (_e, tree: SidebarTreeState) => setSidebarTree(tree));
   ipcMain.handle('projects:create', (_e, options: NewProjectOptions) =>
@@ -128,9 +131,10 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     (_event, projectId: string, launchId: string, sessionId: string) =>
       promoteSessionDraft(launchId, projectId, sessionId, true),
   );
-  ipcMain.handle('sessions:listForProject', (_e, projectId: string) =>
-    listSessionsForProject(projectId),
-  );
+  ipcMain.handle('sessions:listForProject', (_e, projectId: string, fresh = false) => {
+    if (typeof fresh !== 'boolean') throw new Error('Invalid history freshness request.');
+    return listSessionsForProject(projectId, fresh);
+  });
   ipcMain.handle('sessions:inspectManaged', (_event, terminalKey: string, launchId: string) => {
     if (
       typeof terminalKey !== 'string' ||
@@ -319,6 +323,23 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
       );
     }
   });
+  const acknowledge = (
+    event: Electron.IpcMainEvent,
+    key: string,
+    generation: string,
+    sequence: number,
+  ) => {
+    if (
+      event.sender !== win.webContents ||
+      typeof key !== 'string' ||
+      typeof generation !== 'string' ||
+      !Number.isSafeInteger(sequence)
+    )
+      return;
+    ptyManager.acknowledgeOutput(key, generation, sequence);
+  };
+  ipcMain.on('pty:acknowledge', acknowledge);
+  win.once('closed', () => ipcMain.off('pty:acknowledge', acknowledge));
   ipcMain.handle('pty:write', (_e, projectId: string, data: string) => {
     ptyManager.write(projectId, data);
   });
@@ -405,7 +426,11 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('git:commit', (_e, repoPath: string, message: string) =>
     git.commit(repoPath, message),
   );
-  ipcMain.handle('git:watch', (_e, repoPath: string) => git.watchRepo(repoPath));
+  ipcMain.handle('git:watch', (_e, repoPath: string | null) => {
+    if (repoPath !== null && typeof repoPath !== 'string')
+      throw new Error('Invalid Git watch request.');
+    return git.focusRepo(repoPath);
+  });
 
   ipcMain.handle('shell:openExternal', async (_e, url: string) => {
     await shell.openExternal(url);

@@ -22,10 +22,15 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
   accept(snapshot) {
     if (snapshot.revision <= get().revision) return;
     const previous = get();
+    const byKey = new Map(previous.records.map((record) => [record.terminalKey, record]));
+    const records = snapshot.records.map((record) => {
+      const old = byKey.get(record.terminalKey);
+      return old && JSON.stringify(old) === JSON.stringify(record) ? old : record;
+    });
     const completions: Record<string, CompletionAttention> = {};
-    for (const record of snapshot.records) {
+    for (const record of records) {
       if (record.state !== 'completed') continue;
-      const old = previous.records.find((item) => item.terminalKey === record.terminalKey);
+      const old = byKey.get(record.terminalKey);
       const attention = previous.completions[record.terminalKey];
       completions[record.terminalKey] =
         old?.state === 'completed' &&
@@ -45,7 +50,7 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
               acknowledged: false,
             };
     }
-    set({ ...snapshot, completions });
+    set({ ...snapshot, records, completions });
   },
   acknowledge(token) {
     set((state) => ({

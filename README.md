@@ -127,6 +127,15 @@ Completed operation notices (including failures and warnings) automatically dism
 The timer does not depend on window focus, visibility or pointer/keyboard interaction. **Dismiss**
 remains available for immediate closure; queued/running work never expires.
 
+### Runtime responsiveness
+
+Background history reads reuse bounded file-metadata caches and unchanged UI snapshots. Pending
+launches retain targeted identity checks; linked histories refresh less often, with slower optional
+refresh while hidden and an immediate refresh on return. **Refresh** still reads fresh inventory.
+Large session groups render a scroll window without truncating history; selection mode keeps every
+expanded history available. Terminal output is batched with consumption acknowledgements, and only
+changed visible terminal dimensions are resized. Background agents remain running.
+
 ### Name a new session
 
 **New Agent Session** requires a manually entered **Session Title** (1–120 single-line characters,

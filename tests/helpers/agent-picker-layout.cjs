@@ -54,8 +54,11 @@ async function inspectPicker(theme, enlarged) {
       actions.getBoundingClientRect().left < name.getBoundingClientRect().right
     )
       throw new Error('Agent picker text overlaps or clips actions');
-    if (getComputedStyle(row).borderTopWidth !== (index ? '1px' : '0px'))
-      throw new Error('Agent picker row divider is missing or trailing');
+    const border = parseFloat(getComputedStyle(row).borderTopWidth);
+    if (index ? border <= 0 || border > 1 : border !== 0)
+      throw new Error(
+        `Agent picker row divider is missing or trailing: ${index}, ${border}, DPR=${window.devicePixelRatio}`,
+      );
   }
   const tabs = document.querySelectorAll('.terminal-tab').length;
   for (const [label, id] of [

@@ -32,7 +32,7 @@ export function TerminalTabs() {
   const sessionsByProject = useAppStore((s) => s.sessions);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const closeTabs = useAppStore((s) => s.closeTabs);
-  const consumePendingCommand = useAppStore((s) => s.consumePendingCommand);
+  const pendingInitialCommand = useAppStore((s) => s.pendingInitialCommand);
   const tabAgent = useAppStore((s) => s.tabAgent);
   const tabRespawnNonce = useAppStore((s) => s.tabRespawnNonce);
   const tabShellProfile = useAppStore((s) => s.tabShellProfile);
@@ -346,7 +346,7 @@ export function TerminalTabs() {
             )}
             <div className="terminal-panels">
               {tabEntries.map((entry) => {
-                const pendingCmd = consumePendingCommand(entry.tabId);
+                const pendingCmd = pendingInitialCommand[entry.tabId];
                 const nonce = tabRespawnNonce[entry.tabId] ?? 0;
                 const profile: SessionShellProfile = tabShellProfile[entry.tabId] ?? 'default';
                 const agentKey = agentTerminalKey(entry.tabId);

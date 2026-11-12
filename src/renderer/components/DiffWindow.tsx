@@ -1,4 +1,6 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { detachDiffModels } from '../diff-editor-lifecycle';
+import type { DiffModelOwner } from '../diff-editor-lifecycle';
 import { useAppStore } from '../store/app-store';
 import type { GitDiff } from '../../shared/types';
 import { resolveFontFamily } from '../../shared/typography';
@@ -50,6 +52,14 @@ function languageFor(filePath: string): string {
 }
 
 export function DiffWindow({ repoPath, filePath, staged, onClose }: Props) {
+  const editor = useRef<DiffModelOwner | null>(null);
+  useLayoutEffect(
+    () => () => {
+      detachDiffModels(editor.current);
+      editor.current = null;
+    },
+    [],
+  );
   const [diff, setDiff] = useState<GitDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const themeMode = useAppStore((s) => s.theme);
@@ -108,6 +118,11 @@ export function DiffWindow({ repoPath, filePath, staged, onClose }: Props) {
             >
               <DiffEditor
                 height="100%"
+                onMount={(instance) => {
+                  editor.current = instance;
+                }}
+                keepCurrentOriginalModel
+                keepCurrentModifiedModel
                 language={lang}
                 original={diff.oldContent}
                 modified={diff.newContent}

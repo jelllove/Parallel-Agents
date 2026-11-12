@@ -46,19 +46,22 @@ export function Explorer() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const rootPath = project?.realPath ?? null;
+  const currentRoot = useRef(rootPath);
+  currentRoot.current = rootPath;
 
   const reloadDir = useCallback(async (path: string) => {
+    const root = currentRoot.current;
     const c = await window.api.fs.readDir(path);
-    setChildren((cur) => ({ ...cur, [path]: c }));
+    if (root === currentRoot.current) setChildren((cur) => ({ ...cur, [path]: c }));
   }, []);
 
   useEffect(() => {
-    if (!project || !project.exists || !rootPath) return;
+    if (!project?.exists || !rootPath) return;
     setChildren({});
     setExpanded(new Set());
     setSelectedPath(null);
     void reloadDir(rootPath);
-  }, [rootPath, project?.exists, project, reloadDir]);
+  }, [rootPath, project?.exists, reloadDir]);
 
   const toggleExpand = useCallback(
     async (node: FsNode) => {

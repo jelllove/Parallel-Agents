@@ -91,6 +91,8 @@ test('stale process output, exit and startup commands never affect its replaceme
   }));
   await manager.spawn('tab', 'C:\\repo', 80, 24, 'old command');
   processes[0].data('old output');
+  assert.equal(events.length, 0, 'output is batched, not synchronously forwarded');
+  timers.at(-1)();
   assert.equal(events.length, 1);
   manager.kill('tab');
   await manager.spawn('tab', 'C:\\repo', 80, 24, 'new command');

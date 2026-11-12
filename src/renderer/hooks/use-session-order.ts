@@ -78,30 +78,19 @@ export function useSessionOrder(
       setSaving(false);
     }
   };
+  const ranks = new Map(saved?.ids.map((key, index) => [key, index]) ?? []);
+  const tab = useAppStore.getState();
+  for (const [tabId, launch] of Object.entries(launches)) {
+    const sessionId = tab.tabSessionId[tabId];
+    const rank = ranks.get(`draft:${launch.launchId}`);
+    const key = `${tab.tabAgent[tabId]}:${sessionId}`;
+    if (sessionId && rank !== undefined && !ranks.has(key)) ranks.set(key, rank);
+  }
   const ordered = [...rows].sort((a, b) => {
     const ak = sessionRowKey(a, launches),
       bk = sessionRowKey(b, launches);
-    const rank = (key: string) => {
-      const direct = saved?.ids.indexOf(key) ?? -1;
-      if (direct >= 0) return direct;
-      if (key.startsWith('draft:')) return -1;
-      const native = rows.find(
-        (row) => row.kind === 'history' && sessionRowKey(row, launches) === key,
-      );
-      if (native?.kind === 'history') {
-        const linked = Object.entries(launches).find(([tabId]) => {
-          const tab = useAppStore.getState();
-          return (
-            tab.tabSessionId[tabId] === native.session.id &&
-            tab.tabAgent[tabId] === native.session.agent
-          );
-        });
-        return linked ? (saved?.ids.indexOf(`draft:${linked[1].launchId}`) ?? -1) : -1;
-      }
-      return -1;
-    };
-    const ai = rank(ak),
-      bi = rank(bk);
+    const ai = ranks.get(ak) ?? -1,
+      bi = ranks.get(bk) ?? -1;
     if (ai >= 0 || bi >= 0) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
     return compareCreated(
       {

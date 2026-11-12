@@ -74,7 +74,6 @@ export default function App() {
   const tabProjectId = useAppStore((s) => s.tabProjectId);
   const tabSessionId = useAppStore((s) => s.tabSessionId);
   const managedTabs = useAppStore((s) => s.managedTabs);
-  const awaitingSession = useAppStore((s) => Object.keys(s.tabSessionBaseline).length > 0);
   const sessions = useAppStore((s) => s.sessions);
   const findProject = useAppStore((s) => s.findProject);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -129,16 +128,6 @@ export default function App() {
     }, INVENTORY_AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refreshProjectsAndAgents]);
-
-  useEffect(() => {
-    if (!awaitingSession) return;
-    const timer = window.setInterval(() => void refreshProjectsAndAgents(), 5000);
-    const timeout = window.setTimeout(() => window.clearInterval(timer), 60_000);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(timeout);
-    };
-  }, [awaitingSession, refreshProjectsAndAgents]);
 
   useEffect(() => {
     const off = window.api.window.onFullscreenChange((on) => setFullscreen(on));

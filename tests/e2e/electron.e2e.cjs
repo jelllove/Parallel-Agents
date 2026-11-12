@@ -23,6 +23,7 @@ nativePty.spawn = trackedSpawn;
 const { createRequire } = require('node:module');
 
 const externalLinks = [];
+const rendererErrors = [];
 shell.openExternal = async (url) => {
   externalLinks.push(url);
 };
@@ -83,7 +84,7 @@ ipcMain.handle = (channel, listener) =>
       );
       if (marker === 'compact') {
         originalFixtureBounds.set(windowUnderTest, windowUnderTest.getBounds());
-        windowUnderTest.setSize(1000, 600);
+        windowUnderTest.setContentSize(1000, 600);
       } else if (marker === 'restore' && originalFixtureBounds.has(windowUnderTest)) {
         windowUnderTest.setBounds(originalFixtureBounds.get(windowUnderTest));
         originalFixtureBounds.delete(windowUnderTest);
@@ -911,8 +912,10 @@ async function checkRenderer(projectPath, createPath) {
         'wide measured agent picker stays inside the viewport',
       );
       check(
-        pickerRows.slice(1).every((row) => getComputedStyle(row).borderTopWidth === '1px') &&
-          getComputedStyle(pickerRows[0]).borderTopWidth === '0px',
+        pickerRows.slice(1).every((row) => {
+          const width = parseFloat(getComputedStyle(row).borderTopWidth);
+          return width > 0 && width <= 1;
+        }) && getComputedStyle(pickerRows[0]).borderTopWidth === '0px',
         'agent picker uses dividers only between rows',
       );
       check(
@@ -1033,8 +1036,11 @@ async function checkRenderer(projectPath, createPath) {
       window.__dialogLayoutProbe = 'compact';
       await window.api.workspace.repository(projectPath);
       await waitFor(
-        () => window.innerWidth <= 1000 && window.innerHeight <= 600,
-        'Compact creation fixture did not resize',
+        () =>
+          window.innerWidth <= 1000 + Math.ceil(window.devicePixelRatio) &&
+          window.innerHeight <= 600 + Math.ceil(window.devicePixelRatio),
+        () =>
+          `Compact creation fixture did not resize: ${window.innerWidth}x${window.innerHeight}, DPR=${window.devicePixelRatio}`,
       );
       const compactCard = document.querySelector('.new-session-dialog');
       const body = compactCard.querySelector('.new-session-body');
@@ -1141,6 +1147,21 @@ async function checkRenderer(projectPath, createPath) {
       'offline diff opens with a fixture revision rendered',
     );
     document.querySelector('.diff-close').click();
+    await waitFor(() => !document.querySelector('.diff-backdrop'), 'Diff close did not settle');
+    for (let reopen = 0; reopen < 3; reopen++) {
+      const changed = document.querySelectorAll('.git-row[title="notes.txt"]');
+      changed[changed.length - 1].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      await waitFor(
+        () => document.querySelector('.monaco-diff-editor')?.textContent.includes('working'),
+        'Reopened diff did not render',
+      );
+      document.querySelector('.diff-close').click();
+      await waitFor(
+        () => !document.querySelector('.diff-backdrop'),
+        'Repeated diff close did not settle',
+      );
+    }
+    checks.push('repeated offline diff mount and teardown keeps the renderer responsive');
     const worktreeSession = [...document.querySelectorAll('.session-open')].find((button) =>
       button.textContent.includes('Isolated worktree session'),
     );
@@ -1935,7 +1956,10 @@ app.on('browser-window-created', (_event, win) => {
     (_request, callback) => callback({ cancel: true }),
   );
   win.webContents.on('console-message', (details) => {
-    if (details.level === 'error') console.error('Renderer error:', details.message);
+    if (details.level === 'error') {
+      rendererErrors.push(details.message);
+      console.error('Renderer error:', details.message);
+    }
   });
   win.webContents.once('did-fail-load', (_loadEvent, code, description) => {
     finish(new Error(`Renderer load failed (${code}): ${description}`));
@@ -1970,6 +1994,10 @@ app.on('browser-window-created', (_event, win) => {
         `(${checkRenderer.toString()})(${JSON.stringify(project)}, ${JSON.stringify(fixtureCreatePath)})`,
       );
       checks.push(...pickerChecks);
+      assert.ok(
+        !rendererErrors.some((message) => message.includes('TextModel got disposed')),
+        'Diff teardown must detach models before disposal',
+      );
       assert.deepEqual(
         fixturePasteWrites,
         ['PA_CLIPBOARD_ONCE_FIXTURE'],

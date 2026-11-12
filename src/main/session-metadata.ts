@@ -2,6 +2,37 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { normalize } from 'node:path';
 import { createInterface } from 'node:readline';
+import { createMetadataCache } from './metadata-cache.ts';
+import { freshHistoryRead } from './history-read-context.ts';
+
+const claudeMetadata = createMetadataCache();
+const copilotMetadata = createMetadataCache();
+const copilotHeaders = createMetadataCache();
+const geminiMetadata = createMetadataCache();
+const projectDirectories = createMetadataCache();
+export function invalidateSessionMetadata(): void {
+  for (const cache of [
+    claudeMetadata,
+    copilotMetadata,
+    copilotHeaders,
+    geminiMetadata,
+    projectDirectories,
+  ])
+    cache.invalidate();
+}
+async function cachedMetadata<T>(
+  cache: ReturnType<typeof createMetadataCache>,
+  path: string,
+  load: () => Promise<T>,
+  fresh: boolean,
+): Promise<T | null> {
+  try {
+    return await cache.read(path, load, fresh || freshHistoryRead());
+  } catch (error) {
+    if (isMissingSessionFile(error)) return null;
+    throw error;
+  }
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -121,6 +152,26 @@ async function scanSessionLog(
   }
 }
 
+export function readSessionProjectDirectory(filePath: string): Promise<string | null> {
+  return cachedMetadata(
+    projectDirectories,
+    filePath,
+    async () => {
+      let directory: string | null = null;
+      await scanSessionLog(
+        filePath,
+        (record) => {
+          directory = asString(record.cwd);
+          return Boolean(directory);
+        },
+        20,
+      );
+      return directory;
+    },
+    false,
+  );
+}
+
 function claudeTitle(content: unknown): string {
   if (typeof content === 'string') return trimTitle(content);
   if (Array.isArray(content)) {
@@ -133,7 +184,13 @@ function claudeTitle(content: unknown): string {
 }
 
 /** Missing logs return null; other I/O failures reject. Unknown dates use the log's mtime. */
-export async function readClaudeSessionMeta(filePath: string): Promise<ClaudeSessionMeta | null> {
+export function readClaudeSessionMeta(
+  filePath: string,
+  fresh = false,
+): Promise<ClaudeSessionMeta | null> {
+  return cachedMetadata(claudeMetadata, filePath, () => readClaudeMetadata(filePath), fresh);
+}
+async function readClaudeMetadata(filePath: string): Promise<ClaudeSessionMeta | null> {
   const meta: Omit<ClaudeSessionMeta, 'timestamp'> & { timestamp: number | null } = {
     title: '(no user message)',
     timestamp: null,
@@ -187,7 +244,13 @@ function copilotHeader(record: JsonRecord): CopilotHeader | null {
 }
 
 /** Missing or headerless logs return null; other I/O failures reject. */
-export async function readCopilotSessionMeta(filePath: string): Promise<CopilotSessionMeta | null> {
+export function readCopilotSessionMeta(
+  filePath: string,
+  fresh = false,
+): Promise<CopilotSessionMeta | null> {
+  return cachedMetadata(copilotMetadata, filePath, () => readCopilotMetadata(filePath), fresh);
+}
+async function readCopilotMetadata(filePath: string): Promise<CopilotSessionMeta | null> {
   const state: {
     header: CopilotHeader | null;
     title: string | null;
@@ -220,9 +283,13 @@ export async function readCopilotSessionMeta(filePath: string): Promise<CopilotS
 }
 
 /** Project discovery probes at most twenty nonblank records, without waiting for a user message. */
-export async function readCopilotSessionStart(
+export function readCopilotSessionStart(
   filePath: string,
+  fresh = false,
 ): Promise<CopilotSessionStartMeta | null> {
+  return cachedMetadata(copilotHeaders, filePath, () => readCopilotHeader(filePath), fresh);
+}
+async function readCopilotHeader(filePath: string): Promise<CopilotSessionStartMeta | null> {
   const state: { header: CopilotHeader | null } = { header: null };
   const mtime = await scanSessionLog(
     filePath,
@@ -243,7 +310,13 @@ export async function readCopilotSessionStart(
 }
 
 /** Missing or headerless logs return null; other I/O failures reject. */
-export async function readGeminiSessionMeta(filePath: string): Promise<GeminiSessionMeta | null> {
+export function readGeminiSessionMeta(
+  filePath: string,
+  fresh = false,
+): Promise<GeminiSessionMeta | null> {
+  return cachedMetadata(geminiMetadata, filePath, () => readGeminiMetadata(filePath), fresh);
+}
+async function readGeminiMetadata(filePath: string): Promise<GeminiSessionMeta | null> {
   const state: {
     header: { sessionId: string; startTime: number | null } | null;
     title: string | null;
