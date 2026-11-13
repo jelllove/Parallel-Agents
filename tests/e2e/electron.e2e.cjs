@@ -643,8 +643,8 @@ async function checkRenderer(projectPath, createPath) {
       () =>
         `Terminal link output was not rendered: ${JSON.stringify({ activityPty, output: uiOutput.slice(-500), rows: rowGeometry().map((row) => row.textContent) })}`,
     );
-    const linkRow = rowGeometry().find((row) =>
-      row.textContent.includes('https://example.invalid/plain'),
+    const linkRow = rowGeometry().find(
+      (row) => row.textContent.trim() === 'https://example.invalid/plain',
     );
     const cell = linkRow.getBoundingClientRect();
     for (const index of [
