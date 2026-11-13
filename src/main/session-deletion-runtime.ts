@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises';
-import { listProjects } from './projects.ts';
+import { listProjects, resolveHistoryProjectPath } from './projects.ts';
 import { listSessionsForProject, deleteSession } from './sessions.ts';
 import { inspectLinkedWorktree, removeLinkedWorktree } from './worktrees.ts';
 import { preferences } from './preferences-store.ts';
@@ -9,30 +9,54 @@ import { managedSessions } from './managed-session-runtime.ts';
 import { guardCheckout } from './checkout-guard.ts';
 import { SessionDeletionService, withinCheckout } from './session-deletion-service.ts';
 import type { ReviewedSession } from '../shared/session-deletion.ts';
+import type { Session } from '../shared/types.ts';
 import { withFreshHistory } from './history-read-context.ts';
 
+async function reviewSession(session: Session, fallback: string): Promise<ReviewedSession> {
+  let cwd = session.cwd ?? fallback;
+  try {
+    cwd = await realpath(cwd);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // Missing histories remain deletable, but cannot authorize checkout removal.
+  }
+  return {
+    projectId: session.projectId,
+    sessionId: session.id,
+    agent: session.agent,
+    title: session.title,
+    cwd,
+    ...(!session.cwd ? { ownershipUncertain: true } : {}),
+  };
+}
+
 export const sessionDeletion = new SessionDeletionService({
+  resolve: (targets) =>
+    withFreshHistory(async () => {
+      const entries: ReviewedSession[] = [];
+      for (const projectId of new Set(targets.map((target) => target.projectId))) {
+        const wanted = new Set(
+          targets
+            .filter((target) => target.projectId === projectId)
+            .map((target) => target.sessionId),
+        );
+        const sessions = await listSessionsForProject(projectId, true, wanted);
+        // Only providers without recorded cwd need the project's fallback path. This lookup does
+        // not decorate inventory with Git metadata, including for manually registered workspaces.
+        const fallback = sessions.some((session) => !session.cwd)
+          ? await resolveHistoryProjectPath(projectId)
+          : '';
+        for (const session of sessions) entries.push(await reviewSession(session, fallback));
+      }
+      return entries;
+    }),
   inventory: () =>
     withFreshHistory(async () => {
       const projects = await listProjects(true);
       const entries: ReviewedSession[] = [];
       for (const project of projects) {
         for (const session of await listSessionsForProject(project.id, true)) {
-          let cwd = session.cwd ?? project.realPath;
-          try {
-            cwd = await realpath(cwd);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-            // Missing histories remain deletable, but cannot authorize checkout removal.
-          }
-          entries.push({
-            projectId: project.id,
-            sessionId: session.id,
-            agent: session.agent,
-            title: session.title,
-            cwd,
-            ...(!session.cwd ? { ownershipUncertain: true } : {}),
-          });
+          entries.push(await reviewSession(session, project.realPath));
         }
       }
       return entries;

@@ -9,6 +9,8 @@ interface Props {
   destructive?: boolean;
   warning?: string;
   confirmDisabled?: boolean;
+  armed?: boolean;
+  onArmedChange?: (armed: boolean) => void;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
@@ -21,11 +23,14 @@ export function ConfirmDialog({
   destructive,
   warning,
   confirmDisabled,
+  armed: controlledArmed,
+  onArmedChange,
   onConfirm,
   onCancel,
 }: Props) {
   const [input, setInput] = useState('');
-  const [armed, setArmed] = useState(false);
+  const [localArmed, setLocalArmed] = useState(false);
+  const armed = controlledArmed ?? localArmed;
   const inputRef = useRef<HTMLInputElement>(null);
   const checkboxRef = useRef<HTMLInputElement>(null);
 
@@ -72,7 +77,10 @@ export function ConfirmDialog({
               ref={checkboxRef}
               type="checkbox"
               checked={armed}
-              onChange={(e) => setArmed(e.target.checked)}
+              onChange={(e) => {
+                setLocalArmed(e.target.checked);
+                onArmedChange?.(e.target.checked);
+              }}
             />
             <span>I understand this cannot be undone.</span>
           </label>

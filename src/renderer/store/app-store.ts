@@ -401,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (shouldFocus()) set({ activeTabId: tabId });
       return;
     }
-    const baseline = await window.api.sessions.listForProject(projectId, true);
+    const baseline = await window.api.sessions.listIdsForProject(projectId);
     await window.api.config.setLastAgent(projectId, agentId);
     const { openTabs } = get();
     if (openTabs.includes(tabId)) {
@@ -422,7 +422,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tabSessionBaseline:
         agentId === 'aider'
           ? get().tabSessionBaseline
-          : { ...get().tabSessionBaseline, [tabId]: baseline.map((s) => s.id) },
+          : { ...get().tabSessionBaseline, [tabId]: baseline },
       tabAgent: { ...get().tabAgent, [tabId]: agentId },
       activeTabId: shouldFocus() ? tabId : get().activeTabId,
       tabShellProfile: nextTabShellProfile,

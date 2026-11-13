@@ -52,6 +52,7 @@ async function listClaudeSessions(
   projectId: string,
   dirName: string,
   fresh: boolean,
+  sessionIds?: ReadonlySet<string>,
 ): Promise<Session[]> {
   const dir = join(CLAUDE_ROOT, dirName);
   const files = await readSessionDirectory(dir);
@@ -59,6 +60,7 @@ async function listClaudeSessions(
   for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
     const full = join(dir, f);
     const id = f.replace(/\.jsonl$/, '');
+    if (sessionIds && !sessionIds.has(id)) continue;
     const meta = await readClaudeSessionMeta(full, fresh);
     if (!meta) continue;
     out.push({
@@ -149,13 +151,20 @@ async function readCopilotSessions(fresh: boolean) {
   return out;
 }
 
-export async function listSessionsForProject(projectId: string, fresh = false): Promise<Session[]> {
+export async function listSessionsForProject(
+  projectId: string,
+  fresh = false,
+  sessionIds?: ReadonlySet<string>,
+): Promise<Session[]> {
   if (fresh && !freshHistoryRead())
-    return withFreshHistory(() => listSessionsForProject(projectId, true));
+    return withFreshHistory(() => listSessionsForProject(projectId, true, sessionIds));
   const historyId = await resolveHistoryProjectId(projectId);
   if (!historyId) return [];
   if (historyId !== projectId) {
-    return (await listSessionsForProject(historyId, fresh)).map((s) => ({ ...s, projectId }));
+    return (await listSessionsForProject(historyId, fresh, sessionIds)).map((s) => ({
+      ...s,
+      projectId,
+    }));
   }
   const colon = projectId.indexOf(':');
   if (colon < 0) return [];
@@ -163,7 +172,7 @@ export async function listSessionsForProject(projectId: string, fresh = false): 
   const dirName = projectId.slice(colon + 1);
 
   let out: Session[] = [];
-  if (agent === 'claude') out = await listClaudeSessions(projectId, dirName, fresh);
+  if (agent === 'claude') out = await listClaudeSessions(projectId, dirName, fresh, sessionIds);
   else if (agent === 'codex') {
     out = filterCodexSessionsByProject(await listCodexSessions(undefined, fresh), dirName).map(
       (session) => ({
@@ -182,9 +191,22 @@ export async function listSessionsForProject(projectId: string, fresh = false): 
   else if (agent === 'copilot') out = await listCopilotSessions(projectId, dirName, fresh);
   // aider: no session listing in v1
 
+  if (sessionIds) out = out.filter((session) => sessionIds.has(session.id));
   out.sort((a, b) => b.timestamp - a.timestamp);
   const saved = await preferences.read();
   return applySessionNames(out, saved.sessionNames, saved.generatedTitles);
+}
+
+/** Fresh launch baseline: Claude identity is the JSONL filename, not parsed transcript content. */
+export async function listSessionIdsForProject(projectId: string): Promise<string[]> {
+  if (!freshHistoryRead()) return withFreshHistory(() => listSessionIdsForProject(projectId));
+  const historyId = await resolveHistoryProjectId(projectId);
+  if (!historyId) return [];
+  if (historyId.startsWith('claude:')) {
+    const files = await readSessionDirectory(join(CLAUDE_ROOT, historyId.slice('claude:'.length)));
+    return files.filter((file) => file.endsWith('.jsonl')).map((file) => file.slice(0, -6));
+  }
+  return (await listSessionsForProject(projectId, true)).map((session) => session.id);
 }
 
 export async function renameSession(

@@ -1,4 +1,4 @@
-import { readdir, stat, readFile, rm } from 'fs/promises';
+import { readdir, stat, readFile, rm, realpath } from 'fs/promises';
 import { join, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { loadConfig, forgetProject, reconcileProjectOrder } from './config.ts';
@@ -378,6 +378,7 @@ async function discoverProjects(): Promise<Project[]> {
   return out;
 }
 
+let lastProjectSnapshot: Project[] = [];
 let inventoryRead: Promise<Project[]> | undefined;
 export async function listProjects(fresh = false): Promise<Project[]> {
   if (fresh || freshHistoryRead()) return withFreshHistory(readProjects);
@@ -431,7 +432,7 @@ async function readProjects(): Promise<Project[]> {
   const decorated = await addProjectWorktreeMetadata(out);
   const arranged = await reconcileProjectOrder(decorated);
   const agentOrder = orderedAgents(arranged);
-  return decorated
+  const result = decorated
     .map((project) => ({
       ...project,
       pinned: arranged.pinned.includes(project.id),
@@ -446,6 +447,8 @@ async function readProjects(): Promise<Project[]> {
       const order = arranged.projectOrder[a.agent] ?? [];
       return order.indexOf(a.id) - order.indexOf(b.id);
     });
+  lastProjectSnapshot = result;
+  return result;
 }
 
 export async function createProject(options: NewProjectOptions): Promise<Project> {
@@ -469,17 +472,58 @@ export async function createProject(options: NewProjectOptions): Promise<Project
           targetPath: options.targetPath ?? '',
         })
       : normalize(options.basePath);
-  const projects = await listProjects(true);
-  const existing = projects.find(
+  // Registration is path-scoped; the sidebar's full provider/Git inventory is not a launch gate.
+  const [stored, cfg] = await Promise.all([preferences.read(), loadConfig()]);
+  const registered = stored.projects.find(
     (project) =>
       project.agent === options.agent &&
       normalizeProjectPath(project.realPath) === normalizeProjectPath(realPath),
   );
-  const id = existing?.id ?? `${options.agent}:manual:${normalizeProjectPath(realPath)}`;
+  const snapshot = lastProjectSnapshot.find(
+    (project) =>
+      project.agent === options.agent &&
+      normalizeProjectPath(project.realPath) === normalizeProjectPath(realPath),
+  );
   const historyPath =
     options.agent === 'copilot'
       ? ((await findProjectRepositoryRoot(realPath)) ?? realPath)
       : realPath;
+  const historyId =
+    registered || snapshot || options.agent === 'codex' || options.agent === 'copilot'
+      ? null
+      : await findHistoryProjectId(options.agent, historyPath);
+  const id =
+    registered?.id ??
+    snapshot?.id ??
+    historyId ??
+    `${options.agent}:manual:${normalizeProjectPath(realPath)}`;
+  const project: Project = {
+    ...snapshot,
+    worktree: undefined,
+    id,
+    agent: options.agent,
+    realPath,
+    dirName: id.slice(id.indexOf(':') + 1),
+    displayName: displayNameFor(realPath),
+    exists: true,
+    pinned: cfg.pinned.includes(id),
+    hidden: cfg.hidden.includes(id),
+    createdAt: snapshot?.createdAt ?? registered?.createdAt ?? Date.now(),
+    sessionCount: snapshot?.sessionCount ?? 0,
+    lastActivity: snapshot?.lastActivity ?? null,
+  };
+  // Retain correct grouping when opening an existing linked checkout, without inspecting other paths.
+  const [decorated] = await addProjectWorktreeMetadata([project]);
+  if (decorated.worktree) {
+    const parentKey = normalizeProjectPath(await realpath(decorated.worktree.parentPath));
+    const parent = stored.projects.find(
+      (item) =>
+        item.agent === options.agent &&
+        normalizeProjectPath(item.realPath) === normalizeProjectPath(options.basePath),
+    );
+    if (parent && normalizeProjectPath(await realpath(parent.realPath)) === parentKey)
+      decorated.worktree.parentPath = parent.realPath;
+  }
   try {
     await preferences.registerProject(
       { id, agent: options.agent, realPath, historyPath },
@@ -491,23 +535,9 @@ export async function createProject(options: NewProjectOptions): Promise<Project
       { cause: error },
     );
   }
-  const decorated = await addProjectWorktreeMetadata([
-    ...projects.filter((project) => project.id !== id),
-    existing ?? {
-      id,
-      agent: options.agent,
-      createdAt: Date.now(),
-      realPath,
-      dirName: `manual:${realPath}`,
-      displayName: displayNameFor(realPath),
-      exists: true,
-      pinned: false,
-      hidden: false,
-      sessionCount: 0,
-      lastActivity: null,
-    },
-  ]);
-  return decorated[decorated.length - 1];
+  lastProjectSnapshot = [...lastProjectSnapshot.filter((item) => item.id !== id), decorated];
+  await reconcileProjectOrder(lastProjectSnapshot);
+  return decorated;
 }
 
 export async function resolveHistoryProjectId(projectId: string): Promise<string | null> {
@@ -515,14 +545,76 @@ export async function resolveHistoryProjectId(projectId: string): Promise<string
   if (!registered && projectId.includes(':manual:'))
     throw new Error(`Unknown registered project: ${projectId}`);
   if (!registered || !projectId.includes(':manual:')) return projectId;
-  return (
-    (await listDiscoveredProjects()).find(
-      (project) =>
-        project.agent === registered.agent &&
-        normalizeProjectPath(project.realPath) ===
-          normalizeProjectPath(registered.historyPath ?? registered.realPath),
-    )?.id ?? null
+  return findHistoryProjectId(registered.agent, registered.historyPath ?? registered.realPath);
+}
+
+async function findHistoryProjectId(agent: AgentId, path: string): Promise<string | null> {
+  // Resolve only this provider's history address, without inventory counts or Git decoration.
+  if (agent === 'copilot' || agent === 'codex') return makeProjectId(agent, path);
+  if (agent !== 'claude' && agent !== 'gemini') return null;
+  const root = agent === 'claude' ? CLAUDE_ROOT : GEMINI_TMP_ROOT;
+  let directories;
+  try {
+    directories = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  for (const entry of directories) {
+    if (!entry.isDirectory()) continue;
+    const directory = entry.name;
+    let historyPath: string;
+    if (agent === 'claude') {
+      historyPath =
+        (await decodeDirNameFromJsonl(join(root, directory))) ?? decodeDirName(directory);
+    } else {
+      try {
+        historyPath = (await readFile(join(root, directory, '.project_root'), 'utf8')).trim();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+    }
+    if (normalizeProjectPath(historyPath) === normalizeProjectPath(path))
+      return makeProjectId(agent, directory);
+  }
+  return null;
+}
+
+/** Validate the selected launch address without reading the all-project inventory or Git metadata. */
+export async function resolveLaunchProject(
+  projectId: string,
+  agent: AgentId,
+): Promise<{ realPath: string }> {
+  if (!freshHistoryRead()) return withFreshHistory(() => resolveLaunchProject(projectId, agent));
+  const registered = (await preferences.read()).projects.find(
+    (project) => project.id === projectId && project.agent === agent,
   );
+  if (registered) return { realPath: registered.realPath };
+  if (
+    projectId.includes(':manual:') ||
+    !lastProjectSnapshot.some((project) => project.id === projectId && project.agent === agent)
+  )
+    throw new Error('Managed launch project identity is unavailable.');
+  const realPath = await resolveHistoryProjectPath(projectId);
+  if (!(await pathExists(realPath))) throw new Error('Managed launch checkout is unavailable.');
+  return { realPath };
+}
+
+export async function resolveHistoryProjectPath(projectId: string): Promise<string> {
+  const registered = (await preferences.read()).projects.find(
+    (project) => project.id === projectId,
+  );
+  if (registered) return registered.realPath;
+  const colon = projectId.indexOf(':');
+  const agent = projectId.slice(0, colon);
+  const directory = projectId.slice(colon + 1);
+  if (agent === 'claude')
+    return (await decodeDirNameFromJsonl(join(CLAUDE_ROOT, directory))) ?? decodeDirName(directory);
+  if (agent === 'gemini')
+    return (await readFile(join(GEMINI_TMP_ROOT, directory, '.project_root'), 'utf8')).trim();
+  if (agent === 'copilot' || agent === 'codex') return directory;
+  throw new Error(`Cannot resolve history project path: ${projectId}`);
 }
 
 async function deleteProjectHistory(projectId: string): Promise<void> {

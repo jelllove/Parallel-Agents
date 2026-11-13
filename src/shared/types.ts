@@ -195,6 +195,7 @@ export interface Api {
   sessions: {
     previewDeletion(
       targets: import('./session-deletion').DeleteTarget[],
+      cleanup?: boolean,
     ): Promise<import('./session-deletion').SessionDeletionPreview>;
     deleteReviewed(
       token: string,
@@ -216,6 +217,7 @@ export interface Api {
     ): Promise<import('./sidebar-arrangement').SessionArrangement>;
     rename(projectId: string, sessionId: string, title: string): Promise<string>;
     listForProject(projectId: string, fresh?: boolean): Promise<Session[]>;
+    listIdsForProject(projectId: string): Promise<string[]>;
     inspectManaged(
       terminalKey: string,
       launchId: string,

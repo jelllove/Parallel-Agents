@@ -15,6 +15,10 @@ async function harness(platform = 'win32') {
   let effects = [];
   let keyHandler;
   let dataListener;
+  let terminalOptions;
+  let webLinkHandler;
+  let linkError;
+  const externalLinks = [];
   const state = {
     theme: 'dark',
     fontSize: 14,
@@ -77,10 +81,11 @@ async function harness(platform = 'win32') {
       if (id === '@xterm/xterm')
         return {
           Terminal: class {
-            constructor() {
+            constructor(options) {
+              terminalOptions = options;
               this.cols = 80;
               this.rows = 24;
-              this.options = {};
+              this.options = options;
             }
             open() {}
             loadAddon() {}
@@ -113,7 +118,14 @@ async function harness(platform = 'win32') {
             fit() {}
           },
         };
-      if (id === '@xterm/addon-web-links') return { WebLinksAddon: class {} };
+      if (id === '@xterm/addon-web-links')
+        return {
+          WebLinksAddon: class {
+            constructor(handler) {
+              webLinkHandler = handler;
+            }
+          },
+        };
       return require(id);
     },
     module,
@@ -121,6 +133,12 @@ async function harness(platform = 'win32') {
     {
       api: {
         platform,
+        shell: {
+          async openExternal(url) {
+            if (linkError) throw linkError;
+            externalLinks.push(url);
+          },
+        },
         pty: {
           spawn: async () => {},
           write: (id, value) => writes.push([id, value]),
@@ -159,6 +177,12 @@ async function harness(platform = 'win32') {
     output,
     state,
     render,
+    externalLinks,
+    terminalOptions: () => terminalOptions,
+    webLinkHandler: () => webLinkHandler,
+    linkError: (error) => {
+      linkError = error;
+    },
     text: (value) => {
       text = value;
     },
@@ -191,6 +215,32 @@ async function harness(platform = 'win32') {
     },
   };
 }
+
+test('plain and OSC 8 terminal links send the actual URL to IPC, never a blank popup', async () => {
+  const h = await harness();
+  const url = 'https://example.invalid/repo/pull/4646';
+  assert.equal(typeof h.webLinkHandler(), 'function');
+  assert.equal(typeof h.terminalOptions().linkHandler?.activate, 'function');
+  for (const activate of [h.webLinkHandler(), h.terminalOptions().linkHandler.activate]) {
+    let prevented = false;
+    activate(
+      {
+        preventDefault() {
+          prevented = true;
+        },
+      },
+      url,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(prevented, true);
+  }
+  assert.deepEqual(h.externalLinks, [url, url]);
+  h.linkError(new Error('Browser unavailable'));
+  h.webLinkHandler()({ preventDefault() {} }, url);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(h.output.join(''), /Failed to open link: Browser unavailable/);
+  h.unmount();
+});
 
 for (const platform of ['win32', 'darwin', 'linux'])
   test(`${platform} clipboard shortcut cancels native default and delivers one xterm paste`, async () => {

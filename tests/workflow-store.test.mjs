@@ -4,6 +4,9 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 
 async function createStore(api) {
+  if (api.sessions && !api.sessions.listIdsForProject)
+    api.sessions.listIdsForProject = async (id) =>
+      (await api.sessions.listForProject(id, true)).map((session) => session.id);
   api.config ??= {};
   if (!api.config.getAgentLayout) {
     const readTree = api.config.getSidebarTree;

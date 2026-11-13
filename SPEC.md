@@ -150,10 +150,14 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - Empty-session rows have no **Start session** button. Keep existing project/open-dialog launch paths.
   Hide empty linked-worktree placeholders without deleting inventory or disk data; retain real drafts,
   native histories, parent empty messaging and history-load failures.
-- Session deletion is history-only by default. Verified linked worktrees expose an unchecked optional
-  removal choice. If other sessions share that checkout, show their identities and explicitly include
-  them only with user consent; declining deletes only the original selection and retains the worktree.
-  Changed scope requires fresh acknowledgement. Preserve branches and the primary repository; never
+- Session deletion is history-only by default. Show captured histories and existing sidebar worktree
+  metadata immediately; opening the dialog must not scan all projects or query Git. Freshly validate
+  only the selected native histories. Acknowledgement enables optional worktree removal; toggling either
+  checkbox must not reset the other, and unchecking acknowledgement disables cleanup and submission
+  while retaining the cleanup choice. Only requesting cleanup performs a fresh checkout/shared-history
+  review. If additional histories are discovered, display them before requiring a second explicit
+  cleanup selection; never silently include them. Declining deletes only the original selection.
+  Preserve branches and the primary repository; never
   force removal of dirty/locked worktrees. Remaining/new/ambiguous histories or open app terminals block
   removal. Report successful histories and failed cleanup separately, without retry or rollback claims.
 - All completed notices, including failures/warnings, expire after 15 seconds without foreground,
@@ -184,6 +188,11 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
   verified HEAD. Keep custom start-point and destination input. Stale repository reads cannot change a
   new folder's choices. Non-Git folders work in place, but worktree mode requires a committed Git repo.
   Current Folder must not switch branches; original safe worktree creation remains unchanged.
+- Current Folder registration and managed PTY validation must not wait for global provider/project/Git
+  discovery. Reuse known identity/display metadata, validate the selected folder and persisted launch
+  address freshly, and retain stable IDs, ordering, recent-folder policy and checkout guards. Claude's
+  pre-launch baseline enumerates fresh native IDs rather than parsing full histories; do not guess links
+  or remove identity checks, reduced-approval confirmations or first-launch hook capability detection.
 - Agent-selection rows expose separate New/Options buttons, wrap long provider names/executable paths,
   and show dividers between rows. Missing CLIs disable New, not Options. The measured scrollable popup
   stays inside viewport gutters at enlarged fonts and after resize; actions do not overlap readable text.
@@ -251,6 +260,10 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - 顶部 tab bar，每个 tab 显示 agent 图标 + project displayName
 - 关 tab 时按设置确认，然后终止对应 PTY；不删除 agent 已写入的会话历史
 - 同一 projectId 复用一个 tab，不承诺任意多个同 ID 独立终端
+- Plain terminal web links and OSC 8 CLI hyperlinks open their actual HTTP(S) URL in the default
+  browser through the main-process bridge, without a blank popup. Reject internal and arbitrary OS
+  protocols (including about:, file: and application schemes) before calling the system opener.
+  Opening failures are reported in the originating terminal without an unhandled rejection.
 - 每个 tab 一个独立 xterm.js + node-pty 实例
 - 终端代码按需加载，初始命令仅在终端挂载时消费；提前关闭会取消尚未消费的命令
 - PATH 增强：spawn 时 prepend `extraPath` 让 agent 找到 npm global bin 等

@@ -9,7 +9,7 @@ function setup(t) {
   globalThis.window = {
     api: {
       config: { setLastAgent: async () => {} },
-      sessions: { listForProject: async () => [] },
+      sessions: { listForProject: async () => [], listIdsForProject: async () => [] },
       pty: {
         kill: async (id) => {
           killed.push(id);
@@ -47,6 +47,22 @@ test('closing a not-yet-mounted tab cancels its pending launch', (t) => {
   assert.equal(state.tabRespawnNonce.closed, undefined);
   assert.equal(state.pendingInitialCommand.remaining.command, 'remaining-command');
   assert.deepEqual(killed, ['closed::agent']);
+});
+
+test('new sessions use a fresh identity-only baseline instead of parsing history content', async (t) => {
+  setup(t);
+  globalThis.window.api.sessions.listForProject = async () => {
+    throw new Error('Full history must not block startup');
+  };
+  const calls = [];
+  globalThis.window.api.sessions.listIdsForProject = async (id) => {
+    calls.push(id);
+    return ['old'];
+  };
+  await useAppStore.getState().openTabWithAgent('claude:folder', 'claude', 'claude');
+  assert.deepEqual(calls, ['claude:folder']);
+  assert.deepEqual(useAppStore.getState().tabSessionBaseline['claude:folder'], ['old']);
+  assert.equal(useAppStore.getState().pendingInitialCommand['claude:folder'].command, 'claude');
 });
 
 test('concurrent tab launches retain both tabs after asynchronous configuration writes', async (t) => {

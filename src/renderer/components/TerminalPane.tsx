@@ -81,6 +81,15 @@ export function TerminalPane({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const activateLink = (event: MouseEvent, url: string) => {
+      event.preventDefault();
+      void window.api.shell.openExternal(url).catch((error) => {
+        if (termRef.current === term)
+          term.write(
+            `\r\n[Failed to open link: ${error instanceof Error ? error.message : String(error)}]\r\n`,
+          );
+      });
+    };
     const term = new Terminal({
       fontFamily: resolveFontFamily(useAppStore.getState().fontFamily),
       fontSize: useAppStore.getState().fontSize,
@@ -89,10 +98,11 @@ export function TerminalPane({
       cursorBlink: true,
       theme: xtermThemeFor(useAppStore.getState().theme),
       allowProposedApi: true,
+      linkHandler: { activate: activateLink },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon(activateLink));
     term.open(containerRef.current);
     fit.fit();
 

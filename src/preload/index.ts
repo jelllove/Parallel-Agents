@@ -44,7 +44,8 @@ const api: Api = {
     setOrder: (agent, ids) => ipcRenderer.invoke('projects:setOrder', agent, ids),
   },
   sessions: {
-    previewDeletion: (targets) => ipcRenderer.invoke('sessions:previewDeletion', targets),
+    previewDeletion: (targets, cleanup) =>
+      ipcRenderer.invoke('sessions:previewDeletion', targets, cleanup),
     deleteReviewed: (token, worktreeKeys) =>
       ipcRenderer.invoke('sessions:deleteReviewed', token, worktreeKeys),
     finishDeletion: (token) => ipcRenderer.invoke('sessions:finishDeletion', token),
@@ -58,6 +59,7 @@ const api: Api = {
       ipcRenderer.invoke('sessions:rename', projectId, sessionId, title),
     listForProject: (projectId, fresh) =>
       ipcRenderer.invoke('sessions:listForProject', projectId, fresh),
+    listIdsForProject: (projectId) => ipcRenderer.invoke('sessions:listIdsForProject', projectId),
     inspectManaged: (terminalKey, launchId) =>
       ipcRenderer.invoke('sessions:inspectManaged', terminalKey, launchId),
     delete: (projectId, sessionId) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),

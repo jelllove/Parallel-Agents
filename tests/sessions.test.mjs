@@ -84,6 +84,37 @@ async function listSessions(root, projectId) {
   return JSON.parse(stdout);
 }
 
+test('Claude launch baseline enumerates identities without reading transcript contents', async (t) => {
+  const root = await fixture(t);
+  await writeLog(root, 'claude', 'old', 'not valid json');
+  await writeLog(root, 'claude', 'new', '');
+  await runInFixture(
+    root,
+    `
+    const { listSessionIdsForProject } = await import(${JSON.stringify(sessionsUrl)});
+    assert.deepEqual((await listSessionIdsForProject('claude:workspace')).sort(), ['new', 'old']);
+  `,
+  );
+});
+
+test('targeted Claude reads skip unrelated logs in the selected project', async (t) => {
+  const root = await fixture(t);
+  await writeLog(
+    root,
+    'claude',
+    'selected',
+    jsonl({ type: 'user', cwd: root, message: { content: 'Selected' } }),
+  );
+  await mkdir(join(root, '.claude', 'projects', 'workspace', 'unrelated.jsonl'));
+  await runInFixture(
+    root,
+    `
+    const result = await listSessionsForProject('claude:workspace', true, new Set(['selected']));
+    assert.deepEqual(result.map(item => item.id), ['selected']);
+  `,
+  );
+});
+
 test('Claude preserves first non-sidechain messages, metadata, and descending date order', async (t) => {
   const root = await fixture(t);
   const cwd = join(root, 'project');

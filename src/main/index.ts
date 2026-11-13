@@ -20,6 +20,7 @@ import { titleBarOverlayFor } from './window-titlebar.ts';
 import { activityRuntime } from './activity-service.ts';
 import { managedSessions } from './managed-session-runtime.ts';
 import { createRuntimeDiagnostics } from './runtime-diagnostics.ts';
+import { isExternalWebUrl, openExternalWebUrl } from './external-links.ts';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -100,7 +101,11 @@ function createWindow(): void {
   mainWindow.once('closed', () => app.off('child-process-gone', childGone));
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    // xterm's default popup flow starts with about:blank, not the clicked URL.
+    if (isExternalWebUrl(details.url))
+      void openExternalWebUrl(details.url, (url) => shell.openExternal(url)).catch((error) =>
+        console.warn('Cannot open external web link:', error),
+      );
     return { action: 'deny' };
   });
 

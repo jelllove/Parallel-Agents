@@ -99,6 +99,15 @@ ipcMain.handle = (channel, listener) =>
       // Record synthetic renderer input without submitting anything to a shell/provider.
       return;
     }
+    if (channel === 'pty:write' && args[1] === 'PA_TERMINAL_LINK_FIXTURE') {
+      // Synthetic output only: never submit the marker or URLs to a shell/provider.
+      windowUnderTest.webContents.send(
+        'pty:data',
+        args[0],
+        '\x1b[2J\x1b[Hhttps://example.invalid/plain\r\n\x1b]8;;https://example.invalid/osc8\x07Terminal OSC link\x1b]8;;\x07\r\n',
+      );
+      return;
+    }
     const result = await listener(event, ...args);
     if (channel === 'workspace:repository' && windowUnderTest) {
       const theme = await windowUnderTest.webContents.executeJavaScript(`(() => {
@@ -618,6 +627,50 @@ async function checkRenderer(projectPath, createPath) {
     const activityPty = [...uiPtys].find(
       (id) => id.includes('smoke-session') && id.endsWith('::agent'),
     );
+    // Click real plain-text and OSC 8 links in the mounted xterm, with the OS opener replaced
+    // by the main-process recorder. Neither route may call window.open/about:blank.
+    await window.api.pty.write(activityPty, 'PA_TERMINAL_LINK_FIXTURE');
+    const terminalElement = document.querySelector(
+      '.terminal-tab-panel.active .terminal-agent-pane .xterm',
+    );
+    const screen = terminalElement.querySelector('.xterm-screen');
+    const rowGeometry = () => [...terminalElement.querySelectorAll('.xterm-rows > div')];
+    await waitFor(
+      () =>
+        rowGeometry().some((row) =>
+          row.textContent.replace(/\s/g, ' ').includes('Terminal OSC link'),
+        ),
+      () =>
+        `Terminal link output was not rendered: ${JSON.stringify({ activityPty, output: uiOutput.slice(-500), rows: rowGeometry().map((row) => row.textContent) })}`,
+    );
+    const linkRow = rowGeometry().find((row) =>
+      row.textContent.includes('https://example.invalid/plain'),
+    );
+    const cell = linkRow.getBoundingClientRect();
+    for (const index of [
+      rowGeometry().indexOf(linkRow),
+      rowGeometry().findIndex((row) =>
+        row.textContent.replace(/\s/g, ' ').includes('Terminal OSC link'),
+      ),
+    ]) {
+      const target = rowGeometry()[index].getBoundingClientRect();
+      const coordinates = {
+        clientX: cell.left + 5,
+        clientY: target.top + target.height / 2,
+        bubbles: true,
+        cancelable: true,
+      };
+      screen.dispatchEvent(new MouseEvent('mousemove', coordinates));
+      await waitFor(
+        () => screen.classList.contains('xterm-cursor-pointer'),
+        'Terminal web link did not become clickable',
+      );
+      screen.dispatchEvent(new MouseEvent('mousedown', { ...coordinates, button: 0, buttons: 1 }));
+      screen.dispatchEvent(new MouseEvent('mouseup', { ...coordinates, button: 0, buttons: 0 }));
+      screen.dispatchEvent(new MouseEvent('mouseleave', coordinates));
+    }
+    await window.api.activity.snapshot();
+    checks.push('real plain-text and OSC 8 terminal clicks route their actual web URL through IPC');
     const pasteTextarea =
       document.querySelector(
         '.terminal-tab-panel.active .terminal-agent-pane .xterm-helper-textarea',
@@ -1755,6 +1808,67 @@ async function checkRenderer(projectPath, createPath) {
   return checks;
 }
 
+async function checkWorktreeDeleteDialog() {
+  const assert = {
+    equal(actual, expected, message = 'Incorrect deletion checkbox state') {
+      if (actual !== expected) throw new Error(message);
+    },
+  };
+  const waitFor = async (predicate) => {
+    const deadline = Date.now() + 12000;
+    while (!(await predicate())) {
+      if (Date.now() > deadline) throw new Error('Worktree deletion dialog did not settle');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  };
+  const refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
+  await waitFor(() => !refresh.disabled);
+  refresh.click();
+  const row = () =>
+    [...document.querySelectorAll('.session-item')].find((item) =>
+      item.textContent.includes('cleanup-one'),
+    );
+  await waitFor(row);
+  row().querySelector('.session-delete').click();
+  await waitFor(() => document.querySelector('.modal-backdrop'));
+  const modal = document.querySelector('.modal-backdrop');
+  const checkbox = (label) =>
+    [...modal.querySelectorAll('label')]
+      .find((item) => item.textContent.includes(label))
+      ?.querySelector('input');
+  await waitFor(() => checkbox('Also remove Git worktree'));
+  assert.equal(checkbox('Also remove Git worktree').disabled, true);
+  checkbox('I understand').click();
+  await waitFor(() => !checkbox('Also remove Git worktree').disabled);
+  checkbox('Also remove Git worktree').click();
+  await waitFor(() =>
+    [...modal.querySelectorAll('section li')].some((item) =>
+      item.textContent.includes('cleanup-two'),
+    ),
+  );
+  assert.equal(
+    document.querySelector('.modal-backdrop'),
+    modal,
+    'cleanup must not remount the dialog',
+  );
+  assert.equal(checkbox('I understand').checked, true);
+  assert.equal(
+    checkbox('Also remove Git worktree').checked,
+    false,
+    'additional sessions require explicit review before inclusion',
+  );
+  checkbox('Also remove Git worktree').click();
+  await waitFor(() => checkbox('Also remove Git worktree').checked);
+  assert.equal(checkbox('I understand').checked, true);
+  checkbox('I understand').click();
+  await waitFor(() => checkbox('Also remove Git worktree').disabled);
+  assert.equal(checkbox('Also remove Git worktree').checked, true);
+  assert.equal(modal.querySelector('.btn-danger').disabled, true);
+  modal.querySelector('.modal-actions .btn-secondary').click();
+  await waitFor(() => !document.querySelector('.modal-backdrop'));
+  return 'worktree review is deferred until requested; acknowledgement and cleanup choices remain independent with additional-history consent';
+}
+
 async function checkBatchSelection(confirm = false) {
   const waitFor = async (predicate) => {
     const until = Date.now() + 12000;
@@ -2112,23 +2226,46 @@ app.on('browser-window-created', (_event, win) => {
             message: { content: id },
           }) + '\n',
         );
+      checks.push(
+        await win.webContents.executeJavaScript(`(${checkWorktreeDeleteDialog.toString()})()`),
+      );
+      await win.webContents.executeJavaScript(`window.__smokeChecks = ${JSON.stringify(checks)}`);
       const cleanupRequest = async (id, remove) =>
         win.webContents.executeJavaScript(`(async () => {
         const project = (await window.api.projects.list()).find(item => item.realPath.replaceAll('\\\\', '/').toLowerCase() === ${JSON.stringify(cleanupPath.replaceAll('\\', '/').toLowerCase())});
         if (!project) throw new Error('Cleanup fixture project unavailable');
-        const preview = await window.api.sessions.previewDeletion([{ projectId: project.id, sessionId: ${JSON.stringify(id)} }]);
+        const preview = await window.api.sessions.previewDeletion([{ projectId: project.id, sessionId: ${JSON.stringify(id)} }], ${remove});
         const result = await window.api.sessions.deleteReviewed(preview.token, ${remove} ? preview.worktrees.map(item => item.key) : []);
         if (result.failures.length) throw new Error(result.failures.join('; '));
         return { additional: preview.worktrees[0]?.additional.length, result: await window.api.sessions.finishDeletion(preview.token) };
       })()`);
       const retained = await cleanupRequest('cleanup-one', false);
-      assert.equal(retained.additional, 1);
+      assert.equal(
+        retained.additional,
+        undefined,
+        'history-only preview must not inspect shared checkout histories',
+      );
       assert.equal(retained.result.deleted.length, 1);
       assert.equal(statSync(cleanupPath).isDirectory(), true);
       const removed = await cleanupRequest('cleanup-two', true);
       assert.equal(removed.result.removedWorktrees.length, 1);
       assert.equal(removed.result.retainedWorktrees.length, 0);
       assert.throws(() => statSync(cleanupPath), { code: 'ENOENT' });
+      // This dialog probe loads the checkout's rows, unlike the former IPC-only fixture. Refresh
+      // after direct test IPC removes it so later reload checks do not capture stale deleted rows.
+      await win.webContents.executeJavaScript(`(async () => {
+        const refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
+        const deadline = Date.now() + 12000;
+        while (refresh.disabled) {
+          if (Date.now() > deadline) throw new Error('Cleanup fixture refresh unavailable');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        refresh.click();
+        while ([...document.querySelectorAll('.session-item')].some(row => /cleanup-one|cleanup-two/.test(row.textContent))) {
+          if (Date.now() > deadline) throw new Error('Deleted cleanup fixture rows did not refresh');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      })()`);
       assert.ok(
         cleanupGit('branch', '--list', 'fixture/cleanup-review').includes('fixture/cleanup-review'),
       );
@@ -2215,8 +2352,18 @@ app.on('browser-window-created', (_event, win) => {
       assert.deepEqual(externalLinks, [
         'http://www.jelllove.com',
         'https://github.com/jelllove/Parallel-Agents/releases/latest',
+        'https://example.invalid/plain',
+        'https://example.invalid/osc8',
       ]);
-      checks.push('About website and release links cross IPC without opening a real browser');
+      await assert.rejects(
+        win.webContents.executeJavaScript("window.api.shell.openExternal('about:blank')"),
+        /Only HTTP and HTTPS/,
+      );
+      await win.webContents.executeJavaScript("window.open('about:blank')");
+      assert.equal(externalLinks.length, 4, 'about:blank must never reach the OS opener');
+      checks.push(
+        'terminal and About links open exact web URLs once; blank popup and unsupported protocol are blocked without opening a real browser',
+      );
       checks.push('all provider executables resolve to inert fixture shims');
       assert.equal(
         await win.webContents.executeJavaScript('window.api.platform'),

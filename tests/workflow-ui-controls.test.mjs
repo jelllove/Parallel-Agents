@@ -66,6 +66,7 @@ async function harness(name, props, { api = {}, queue = () => 1, background = {}
       if (id === 'react') return react;
       if (id === '../icons/iconResolver') return { folderIconUrl: () => 'folder.svg' };
       if (id === './ConfirmDialog') return { ConfirmDialog: 'ConfirmDialog' };
+      if (id === '../../shared/project-tree') return require('../src/shared/project-tree.ts');
       if (id === '../store/session-deletion') return { queueReviewedSessionDeletion: queue };
       if (id === '../store/background-operations')
         return { useBackgroundOperations: (selector) => selector(background) };
@@ -233,7 +234,16 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
     sessions: [a],
     worktrees: [{ key: 'wt', path: 'C:/wt', branch: 'feat/test', additional: [b] }],
   };
-  const targets = [{ project: { id: a.projectId }, session: { id: a.sessionId } }];
+  const targets = [
+    {
+      project: {
+        id: a.projectId,
+        realPath: a.cwd,
+        worktree: { parentPath: 'C:/base', branch: 'feat/test' },
+      },
+      session: { id: a.sessionId, agent: a.agent, title: a.title, cwd: a.cwd },
+    },
+  ];
   const h = await harness(
     'SessionDeleteDialog',
     {
@@ -248,7 +258,8 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
     {
       api: {
         sessions: {
-          previewDeletion: async () => preview,
+          previewDeletion: async (_targets, cleanup) =>
+            cleanup ? preview : { ...preview, token: 'history', worktrees: [] },
           cancelDeletion: async (token) => cancelledTokens.push(token),
         },
       },
@@ -269,10 +280,21 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
     nodes(tree, (n) => n.props['aria-label'] === 'Sessions to delete')[0].props.children.length,
     1,
   );
+  assert.equal(option.props.disabled, true);
+  tree.props.onArmedChange(true);
+  tree = h.render();
+  option = nodes(tree, (n) => n.type === 'input' && n.props.type === 'checkbox')[0];
   const key = tree.key;
   option.props.onChange({ target: { checked: true } });
+  h.render();
+  await tick();
   tree = h.render();
-  assert.notEqual(tree.key, key, 'consent expansion resets acknowledgement');
+  assert.equal(tree.key, key, 'cleanup never remounts or resets acknowledgement');
+  assert.equal(tree.props.armed, true);
+  option = nodes(tree, (n) => n.type === 'input' && n.props.type === 'checkbox')[0];
+  assert.equal(option.props.checked, false, 'additional identities are shown before consent');
+  option.props.onChange({ target: { checked: true } });
+  tree = h.render();
   assert.equal(
     nodes(tree, (n) => n.props['aria-label'] === 'Sessions to delete')[0].props.children.length,
     2,
@@ -283,7 +305,8 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
   assert.equal(accepted, 1);
   assert.deepEqual(queued[0][1], []);
   h.unmount();
-  assert.deepEqual(cancelledTokens, []);
+  assert.deepEqual(cancelledTokens, ['history']);
+  cancelledTokens.length = 0;
   const cancel = await harness(
     'SessionDeleteDialog',
     {
@@ -296,7 +319,8 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
     {
       api: {
         sessions: {
-          previewDeletion: async () => preview,
+          previewDeletion: async (_targets, cleanup) =>
+            cleanup ? preview : { ...preview, token: 'history', worktrees: [] },
           cancelDeletion: async (token) => cancelledTokens.push(token),
         },
       },
@@ -307,5 +331,5 @@ test('worktree deletion review is opt-in, expands only after consent, and cancel
   cancel.render().props.onCancel();
   cancel.unmount();
   assert.equal(cancelled, 1);
-  assert.deepEqual(cancelledTokens, ['preview']);
+  assert.deepEqual(cancelledTokens, ['history']);
 });

@@ -32,7 +32,7 @@ test('creation captures input, survives dialog unmount and never overrides subse
         return pending.promise;
       },
     },
-    sessions: { listForProject: async () => [] },
+    sessions: { listForProject: async () => [], listIdsForProject: async () => [] },
     config: { setLastAgent: async () => {} },
   });
   const project = { id: 'codex:repo', agent: 'codex', realPath: 'C:\\repo', displayName: 'Repo' };

@@ -1,6 +1,17 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
-import { listProjects, deleteProject, deleteMissingProjects, createProject } from './projects.ts';
-import { listSessionsForProject, deleteSession, renameSession } from './sessions.ts';
+import {
+  listProjects,
+  deleteProject,
+  deleteMissingProjects,
+  createProject,
+  resolveLaunchProject,
+} from './projects.ts';
+import {
+  listSessionsForProject,
+  listSessionIdsForProject,
+  deleteSession,
+  renameSession,
+} from './sessions.ts';
 import {
   readDir,
   createFile,
@@ -67,6 +78,7 @@ import { guardCheckout } from './checkout-guard.ts';
 import type { DeleteTarget } from '../shared/session-deletion.ts';
 import { validateSessionName } from '../shared/session-presentation.ts';
 import { inspectWorkspaceRepository } from './workspace-repository.ts';
+import { openExternalWebUrl } from './external-links.ts';
 
 export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ptyManager.attachWindow(win);
@@ -95,8 +107,8 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   ipcMain.handle('projects:create', (_e, options: NewProjectOptions) =>
     guardCheckout(options.basePath, () => createProject(options)),
   );
-  ipcMain.handle('sessions:previewDeletion', (_event, targets: DeleteTarget[]) =>
-    sessionDeletion.preview(targets),
+  ipcMain.handle('sessions:previewDeletion', (_event, targets: DeleteTarget[], cleanup = false) =>
+    sessionDeletion.preview(targets, cleanup),
   );
   ipcMain.handle('sessions:deleteReviewed', (_event, token: string, keys: string[]) =>
     sessionDeletion.deleteReviewed(token, keys),
@@ -131,6 +143,11 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     (_event, projectId: string, launchId: string, sessionId: string) =>
       promoteSessionDraft(launchId, projectId, sessionId, true),
   );
+  ipcMain.handle('sessions:listIdsForProject', (_event, projectId: string) => {
+    if (typeof projectId !== 'string' || !projectId || projectId.length > 4096)
+      throw new Error('Invalid session baseline project.');
+    return listSessionIdsForProject(projectId);
+  });
   ipcMain.handle('sessions:listForProject', (_e, projectId: string, fresh = false) => {
     if (typeof fresh !== 'boolean') throw new Error('Invalid history freshness request.');
     return listSessionsForProject(projectId, fresh);
@@ -239,10 +256,8 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
     const prepareCommand = async (command: string | undefined) => {
       const launch = opts.managedLaunch;
       if (launch) {
-        const project = (await listProjects()).find(
-          (item) => item.id === launch.projectId && item.agent === agent,
-        );
-        if (!project || project.realPath !== opts.cwd)
+        const project = await resolveLaunchProject(launch.projectId, agent!);
+        if (project.realPath !== opts.cwd)
           throw new Error('Managed launch checkout is unavailable.');
       }
       const configured = await prepareAgentLaunch(command, {
@@ -433,6 +448,6 @@ export function registerIpc(win: BrowserWindow, updates: UpdateController) {
   });
 
   ipcMain.handle('shell:openExternal', async (_e, url: string) => {
-    await shell.openExternal(url);
+    await openExternalWebUrl(url, (value) => shell.openExternal(value));
   });
 }

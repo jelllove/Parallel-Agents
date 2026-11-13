@@ -9,6 +9,7 @@ import type {
 import type { LinkedWorktree } from './worktrees.ts';
 
 interface Dependencies {
+  resolve(targets: DeleteTarget[]): Promise<ReviewedSession[]>;
   inventory(): Promise<ReviewedSession[]>;
   inspect(path: string): Promise<LinkedWorktree | null>;
   delete(target: ReviewedSession): Promise<void | string[]>;
@@ -40,8 +41,9 @@ export class SessionDeletionService {
     this.dependencies = dependencies;
   }
 
-  async preview(targets: DeleteTarget[]): Promise<SessionDeletionPreview> {
+  async preview(targets: DeleteTarget[], cleanup = false): Promise<SessionDeletionPreview> {
     if (
+      typeof cleanup !== 'boolean' ||
       !Array.isArray(targets) ||
       !targets.length ||
       targets.length > 1000 ||
@@ -55,7 +57,10 @@ export class SessionDeletionService {
       )
     )
       throw new Error('Invalid session deletion request.');
-    const inventory = await this.dependencies.inventory();
+    // Opening a history-only review must not scan unrelated projects or query Git.
+    const inventory = cleanup
+      ? await this.dependencies.inventory()
+      : await this.dependencies.resolve(targets);
     const sessions = targets
       .map((target) => {
         const found = inventory.find(
@@ -72,9 +77,9 @@ export class SessionDeletionService {
     const token = randomUUID();
     const checkouts = new Map<string, LinkedWorktree>();
     let cleanupWarning: string | undefined;
-    for (const session of sessions) {
+    for (const cwd of cleanup ? new Set(sessions.map((session) => session.cwd)) : []) {
       try {
-        const worktree = await this.dependencies.inspect(session.cwd);
+        const worktree = await this.dependencies.inspect(cwd);
         if (worktree && !checkouts.has(worktree.root)) checkouts.set(worktree.root, worktree);
       } catch (error) {
         cleanupWarning = `Optional worktree removal is unavailable: ${message(error)}`;
@@ -161,7 +166,7 @@ export class SessionDeletionService {
         if (!current || current.identity !== expected.identity)
           throw new Error('Worktree identity changed; review again before deleting its histories.');
       }
-      const current = await this.dependencies.inventory();
+      const current = await this.dependencies.resolve(targets);
       for (const target of targets) {
         try {
           if (

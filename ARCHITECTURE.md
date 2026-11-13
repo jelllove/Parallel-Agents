@@ -36,6 +36,13 @@ The window explicitly enables `sandbox` and `contextIsolation` and disables `nod
 The sandboxed preload exposes only the typed bridge; these flags do not validate IPC arguments.
 Filesystem, process, and Git channels remain privileged operations.
 
+TerminalPane supplies the same explicit activation callback to the web-links addon and xterm's OSC 8
+link handler. It sends the actual URL through `shell.openExternal` IPC instead of xterm's default
+`window.open()`-then-location flow, whose initial about:blank cannot be forwarded to the OS as a web
+link. Main's shared external-link policy validates HTTP(S) URLs at both IPC and popup fallback entry
+points; popups are always denied, unsupported protocols never reach the system opener, and asynchronous
+opening failures are contained. This does not change Explorer's explicit local-file open operations.
+
 ## Responsiveness and runtime failure boundaries
 
 History metadata caches hold decoded records only, keyed by file identity/size/high-resolution times,
@@ -316,6 +323,15 @@ worktree implementation remain unchanged; no same-folder branch-switch path is a
 creation replaces project metadata in place and opens a unique fresh tab. Registration/launch failure
 is reported separately from an already-completed Git mutation.
 
+Current Folder registration resolves the selected provider/path from persisted registration and the
+last inventory snapshot, rather than calling full inventory and decorating every checkout twice. Only
+the target's Git grouping/recent-folder eligibility is inspected. Managed PTY preparation validates its
+persisted/discovered address directly under the existing checkout lease, without rediscovering all
+projects. Snapshot display/identity reuse does not replace fresh filesystem checks or authorize cleanup.
+The fresh Claude launch baseline reads JSONL filenames only through an identity-only IPC; other storage
+formats retain their native metadata reader where filenames are not identities. CLI initialization and
+the bounded, once-per-provider help probe for status-hook compatibility remain separate startup costs.
+
 Managed tab metadata records launch ID, creation time and optional initial manual title. The creation
 dialog requires that name; other existing launch paths can retain a generic draft label. SessionList
 projects an unbound row without inventing a native history or deletion target. The identity-only main
@@ -562,9 +578,17 @@ session deletion uses provider/native identity to close matching open tabs throu
 attached shells, pending commands and hook registrations. Partial failures retain their tabs; unrelated
 provider collisions and unbound tabs remain open. The same deletion review warns about terminal closure.
 
-SessionDeleteDialog shares single/batch review with optional linked-worktree cleanup. A bounded,
-main-owned preview token captures native identities and additional checkout histories; checking cleanup
-explicitly includes the displayed extra sessions. A dependency-injected deletion service reports each
+SessionDeleteDialog shares single/batch review with optional linked-worktree cleanup. Captured rows and
+sidebar worktree hints render immediately. History-only preview resolves selected native identities
+without global project inventory or Git decoration; Claude reads skip non-selected logs even inside the
+same project. Other provider storage layouts may still require provider-local enumeration. Manual project
+history-address resolution avoids all-provider discovery, counts and Git grouping. Display hints never
+authorize removal. Only an acknowledged cleanup request obtains a fresh full shared-history/Git review.
+Acknowledgement is controlled independently of cleanup selection, without remounting the confirmation;
+newly discovered additional histories require another explicit cleanup click after being displayed.
+A bounded, main-owned preview token captures the reviewed scope. Changing review mode cancels the old
+token, late responses after dismissal are cancelled, and accepted tokens belong to the background queue.
+A dependency-injected deletion service freshly resolves only captured deletion targets and reports each
 history outcome before the renderer closes successful tabs. A separate finish phase waits for actual
 native PTY exit, then revalidates histories and Git identity under a canonical-checkout guard. The guard
 excludes concurrent app launches/mutations during removal; normal parallel PTY starts share leases.

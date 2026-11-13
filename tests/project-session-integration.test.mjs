@@ -7,8 +7,9 @@ import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import fsPromises from 'node:fs/promises';
 
-async function backend(home) {
+async function backend(home, { rejectGit = false } = {}) {
   const outputDirectory = await mkdtemp(join(tmpdir(), 'pa-project-backend-bundle-'));
   const outputFile = join(outputDirectory, 'backend.cjs');
   const result = await build({
@@ -25,6 +26,16 @@ async function backend(home) {
       {
         name: 'isolated-application-home',
         setup(builder) {
+          if (rejectGit) {
+            builder.onResolve({ filter: /^(node:)?child_process$/ }, () => ({
+              path: 'blocked-process',
+              namespace: 'test-process',
+            }));
+            builder.onLoad({ filter: /.*/, namespace: 'test-process' }, () => ({
+              contents:
+                'export function execFile() { throw new Error("Unrelated Git subprocess"); } export const exec = execFile;',
+            }));
+          }
           builder.onResolve({ filter: /^(electron|os)$/ }, (args) => ({
             path: args.path,
             namespace: 'test-home',
@@ -51,6 +62,59 @@ async function backend(home) {
     await rm(outputDirectory, { recursive: true, force: true });
   }
 }
+
+test('Current Folder registration and launch lookup never scan unrelated providers or query unrelated Git checkouts', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'pa-folder-start-'));
+  t.after(() => rm(home, { recursive: true, force: true, maxRetries: 5 }));
+  const folder = join(home, 'selected');
+  const unrelated = join(home, 'unrelated');
+  await mkdir(folder);
+  await mkdir(join(unrelated, '.git'), { recursive: true });
+  for (const [directory, cwd] of [
+    ['selected-history', folder],
+    ['unrelated-history', unrelated],
+  ]) {
+    const history = join(home, '.claude', 'projects', directory);
+    await mkdir(history, { recursive: true });
+    await writeFile(
+      join(history, 'one.jsonl'),
+      JSON.stringify({ type: 'user', cwd, message: { content: directory } }) + '\n',
+    );
+  }
+  const api = await backend(home, { rejectGit: true });
+  const reads = [];
+  const warning = t.mock.method(console, 'warn', () => {});
+  const originalRead = fsPromises.readdir;
+  t.mock.method(fsPromises, 'readdir', async (...args) => {
+    reads.push(String(args[0]));
+    return originalRead(...args);
+  });
+  const registered = await api.createProject({
+    agent: 'claude',
+    mode: 'folder',
+    basePath: folder,
+    sessionTitle: 'Fast start',
+  });
+  assert.equal(registered.id, 'claude:selected-history');
+  assert.equal(registered.realPath, folder);
+  assert.equal(registered.worktree, undefined);
+  assert.equal(
+    warning.mock.callCount(),
+    0,
+    'unrelated Git failures must not be hidden as optional metadata warnings',
+  );
+  assert.ok(
+    !reads.some((path) => /[\\/]\.(codex|copilot|gemini)([\\/]|$)/.test(path)),
+    `Unrelated provider read: ${reads}`,
+  );
+  assert.ok(
+    !reads.some((path) => path.endsWith('unrelated-history')),
+    `Unrelated history parsed: ${reads}`,
+  );
+  const resolved = await api.resolveLaunchProject(registered.id, 'claude');
+  assert.equal(resolved.realPath, folder);
+  await assert.rejects(api.resolveLaunchProject(registered.id, 'codex'), /unavailable|identity/i);
+});
 
 test('manual draft titles transfer only to explicitly linked native identities and persist without overwriting rename', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'pa-title-link-'));

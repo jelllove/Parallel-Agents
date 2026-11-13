@@ -31,11 +31,18 @@ async function windowHarness(platform) {
   app.getPath = () => '/fixture';
   app.getVersion = () => 'fixture';
   const windows = [];
+  const externalLinks = [];
   class BrowserWindow extends EventEmitter {
     constructor(options) {
       super();
       this.options = options;
-      this.webContents = { setWindowOpenHandler() {}, on() {} };
+      this.webContents = {
+        setWindowOpenHandler: (handler) => {
+          this.openWindow = handler;
+        },
+        on() {},
+      };
+      this.externalLinks = externalLinks;
       windows.push(this);
     }
     loadFile() {}
@@ -49,8 +56,14 @@ async function windowHarness(platform) {
   const module = { exports: {} };
   new Function('require', 'module', 'exports', 'process', '__dirname', code)(
     (id) => {
-      if (id === 'electron') return { app, BrowserWindow };
+      if (id === 'electron')
+        return {
+          app,
+          BrowserWindow,
+          shell: { openExternal: async (url) => externalLinks.push(url) },
+        };
       if (id === './window-titlebar.ts') return require('../src/main/window-titlebar.ts');
+      if (id === './external-links.ts') return require('../src/main/external-links.ts');
       if (id === './ipc.ts') return { registerIpc() {} };
       if (id === './runtime-diagnostics.ts')
         return { createRuntimeDiagnostics: () => async () => {} };
@@ -65,6 +78,22 @@ async function windowHarness(platform) {
   await module.exports.createWindow();
   return windows[0];
 }
+
+test('window-open fallback never sends about:blank or arbitrary protocols to the OS', async () => {
+  const win = await windowHarness('win32');
+  for (const url of [
+    'about:blank',
+    'javascript:alert(1)',
+    'file:///C:/test.txt',
+    'ms-windows-store://home',
+  ])
+    assert.deepEqual(win.openWindow({ url }), { action: 'deny' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(win.externalLinks, []);
+  assert.deepEqual(win.openWindow({ url: 'https://example.invalid/path' }), { action: 'deny' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(win.externalLinks, ['https://example.invalid/path']);
+});
 
 test('Windows shares the content title row with native caption buttons without disabling its frame or sandbox', async () => {
   const win = await windowHarness('win32');
@@ -128,6 +157,7 @@ async function themeHarness(platform) {
           },
         };
       if (id === './window-titlebar.ts') return require('../src/main/window-titlebar.ts');
+      if (id === './external-links.ts') return require('../src/main/external-links.ts');
       if (id === './pty-manager.ts') return { ptyManager: { attachWindow() {} } };
       if (id === './activity-service.ts')
         return { activityRuntime: { bridge: { subscribe: () => () => {} } } };

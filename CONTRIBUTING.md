@@ -215,6 +215,10 @@ The fixture checks:
   xterm's custom handler alone does not prevent a second browser paste. Assert exactly one PTY write
   and use Terminal.paste for newline/bracketed-paste behavior. Use generated text and an injected
   clipboard, not the user's real clipboard; late reads after terminal disposal must be ignored.
+- Terminal link regressions cover both plain URL detection and OSC 8 activation. The native fixture
+  injects synthetic output without sending commands to a provider, clicks both real xterm links, and
+  records the exact targets with a replaced system opener. It must not open a real browser, Store,
+  or arbitrary protocol handler; about:blank must be blocked by both IPC and popup fallback.
 - Hook-aware inert Claude fixture commands execute the real silent reporter, with completion distinct
   from CLI exit. Focused activity tests cover state mapping, root/session identity, token revocation,
   bounded payloads, launch-only configuration and additive Codex installation in disposable paths.
@@ -239,6 +243,9 @@ The fixture checks:
   accepted creation requires a manual title and produces independent tabs with immediately named draft
   rows. Exact launch identity merges draft/native rows and persists the name without guessing histories
   or calling a title model. The inert CLI rejects unexpected print/title requests.
+  Current Folder regressions block unrelated Git subprocesses/provider scans during registration and
+  direct launch-address validation, and verify fresh Claude identity baselines without transcript reads.
+  Keep checkout leases, launch confirmations, manual titles and independent tabs intact.
   Deleting a fixture history closes only its matching tab and retains an unrelated worktree tab.
   Unit tests additionally cover aliases/provider collisions, failed deletion and attached-shell cleanup.
 - Per-agent quick-create opens the existing provider-specific dialog. Real sidebar drag events and
@@ -270,7 +277,11 @@ The fixture checks:
   correct provider without creating tabs. Date-default tests freeze the dialog's local day across
   midnight, check a non-UTC timezone, and preserve explicit branch/destination/start-point requests.
 - Ctrl+W/Cmd+W must use the tab-close confirmation, not delete history or close the app. Empty worktree
-  placeholders are hidden without removing inventory. Optional cleanup tests use disposable Git repos:
+  placeholders are hidden without removing inventory. Deletion-dialog tests verify captured rows,
+  history-only preview without Git/global inventory, acknowledgement-gated cleanup, independent checkbox
+  state and late-token cancellation. The native fixture opens a disposable linked-worktree review,
+  checks no modal remount or acknowledgement reset, and cancels without deleting either shared history.
+  Optional cleanup tests use disposable Git repos:
   explicitly reviewed additional sessions, no-force removal, branches retained, dirty/locked/ambiguous
   histories and pending/running/closing PTY safety. Never run cleanup fixtures against user checkouts.
   Await the guard callback's explicit entry signal before testing contention: one setImmediate turn

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProjectSession } from '../../shared/project-tree';
-import type { SessionDeletionPreview } from '../../shared/session-deletion';
+import { pathKey } from '../../shared/project-tree';
+import type { SessionDeletionPreview, WorktreeReview } from '../../shared/session-deletion';
 import { ConfirmDialog } from './ConfirmDialog';
 import { queueReviewedSessionDeletion } from '../store/session-deletion';
 
@@ -16,32 +17,60 @@ export function SessionDeleteDialog({
   const [snapshot] = useState(targets);
   const [preview, setPreview] = useState<SessionDeletionPreview | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [armed, setArmed] = useState(false);
+  const [cleanupRequested, setCleanupRequested] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
   const accepted = useRef(false);
+  const requestedPath = useRef('');
   useEffect(() => {
     let active = true;
     let token: string | undefined;
     void window.api.sessions
       .previewDeletion(
         snapshot.map(({ project, session }) => ({ projectId: project.id, sessionId: session.id })),
+        cleanupRequested,
       )
       .then((result) => {
         token = result.token;
-        if (active) setPreview(result);
-        else void window.api.sessions.cancelDeletion(token).catch(() => {});
+        if (active) {
+          setPreview(result);
+          setLoading(false);
+          // A directory choice may be retained only if it adds no unreviewed histories.
+          // Otherwise display the additional identities first and require a second explicit click.
+          setSelected(
+            result.worktrees
+              .filter(
+                (item) =>
+                  pathKey(item.path) === requestedPath.current &&
+                  !item.blocked &&
+                  !item.additional.length,
+              )
+              .map((item) => item.key),
+          );
+        } else void window.api.sessions.cancelDeletion(token).catch(() => {});
       })
       .catch((error) => {
-        if (active) setError(String(error));
+        if (active) {
+          setError(String(error));
+          setLoading(false);
+        }
       });
     return () => {
       active = false;
       if (token && !accepted.current)
         void window.api.sessions.cancelDeletion(token).catch(() => {});
     };
-  }, [snapshot]);
+  }, [snapshot, cleanupRequested]);
   const included = [
-    ...(preview?.sessions ?? []),
+    ...(preview?.sessions ??
+      snapshot.map(({ project, session }) => ({
+        projectId: project.id,
+        sessionId: session.id,
+        agent: session.agent,
+        title: session.title,
+        cwd: session.cwd ?? project.realPath,
+      }))),
     ...(preview?.worktrees
       .filter((item) => selected.includes(item.key))
       .flatMap((item) => item.additional) ?? []),
@@ -52,21 +81,41 @@ export function SessionDeleteDialog({
         (other) => other.agent === item.agent && other.sessionId === item.sessionId,
       ) === index,
   );
+  // Existing sidebar metadata is a display hint, never authorization to remove a checkout.
+  const hints: WorktreeReview[] = snapshot
+    .filter(({ project }) => project.worktree)
+    .map(({ project }) => ({
+      key: pathKey(project.realPath),
+      path: project.realPath,
+      branch: project.worktree!.branch,
+      additional: [],
+    }));
+  const worktrees =
+    cleanupRequested && !loading
+      ? (preview?.worktrees ?? [])
+      : hints.filter(
+          (item, index, list) => list.findIndex((other) => other.key === item.key) === index,
+        );
   return (
     <ConfirmDialog
-      key={revision}
       title={
-        targets.length === 1
+        snapshot.length === 1
           ? 'Delete session?'
-          : `Delete ${unique.length || targets.length} sessions?`
+          : `Delete ${unique.length || snapshot.length} sessions?`
       }
+      armed={armed}
+      onArmedChange={setArmed}
       message={
         <>
           <p>
             This permanently deletes the reviewed session histories. Their open tabs and terminals
             will close. Working folders are kept unless explicitly selected below.
           </p>
-          {!preview && !error && <p role="status">Loading deletion review…</p>}
+          {loading && (
+            <p role="status">
+              {cleanupRequested ? 'Reviewing worktree removal…' : 'Verifying selected sessions…'}
+            </p>
+          )}
           {preview?.cleanupWarning && (
             <p role="alert">{preview.cleanupWarning} Session history can still be deleted.</p>
           )}
@@ -80,20 +129,26 @@ export function SessionDeleteDialog({
               </li>
             ))}
           </ul>
-          {preview?.worktrees.map((worktree) => (
+          {worktrees.map((worktree) => (
             <section key={worktree.key}>
               <label className="modal-check">
                 <input
                   type="checkbox"
                   checked={selected.includes(worktree.key)}
-                  disabled={Boolean(worktree.blocked)}
+                  disabled={!armed || loading || Boolean(error) || Boolean(worktree.blocked)}
                   onChange={(event) => {
+                    if (!armed || loading) return;
+                    if (!cleanupRequested) {
+                      requestedPath.current = pathKey(worktree.path);
+                      setLoading(true);
+                      setCleanupRequested(true);
+                      return;
+                    }
                     setSelected((keys) =>
                       event.target.checked
                         ? [...keys, worktree.key]
                         : keys.filter((key) => key !== worktree.key),
                     );
-                    setRevision((value) => value + 1);
                   }}
                 />
                 <span>
@@ -119,20 +174,34 @@ export function SessionDeleteDialog({
               )}
             </section>
           ))}
-          {preview?.worktrees.length ? (
+          {worktrees.length ? (
             <p>
-              Branches are retained. Dirty/locked worktrees or other open terminals prevent removal.
-              External terminals cannot be detected reliably; close them first.
+              Check “I understand” below to enable optional worktree removal. Branches are retained.
+              Dirty/locked worktrees or other open terminals prevent removal. External terminals
+              cannot be detected reliably; close them first.
             </p>
           ) : null}
+          {cleanupRequested && error && (
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setSelected([]);
+                setError('');
+                setLoading(true);
+                setCleanupRequested(false);
+              }}
+            >
+              Keep folder and review history only
+            </button>
+          )}
         </>
       }
       confirmText="Delete forever"
       destructive
-      confirmDisabled={!preview || Boolean(error)}
+      confirmDisabled={!preview || loading || Boolean(error)}
       warning={error}
       onConfirm={() => {
-        if (!preview) return;
+        if (!armed || !preview || loading || error) return;
         if (queueReviewedSessionDeletion(preview, selected) === null) {
           setError('A selected session or worktree already has a pending deletion.');
           return;

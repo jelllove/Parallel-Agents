@@ -24,7 +24,8 @@ Launching an agent uses that CLI's own installation, authentication, and permiss
   sessions inline; there is no separate Recent Sessions panel. Git worktree sessions appear under
   their parent project with branch labels, while resuming in their own checkout.
 - **Per-session tabs backed by real PTYs**, with agent start/resume commands, remembered agent
-  choices, session rename/link flows, and optional attached shell panes.
+  choices, session rename/link flows, and optional attached shell panes. Plain web URLs and CLI-rendered
+  hyperlinks open their actual HTTP(S) target in the default browser, without blank popup windows.
 - **Hook-reported session activity** for managed Claude Code, Copilot and configured Codex launches:
   🏃‍♂️ processing, ❓ waiting for input/permission, ✅ current turn finished, ❔ unavailable/not running,
   ❌ failure. These passive observers do not approve tools or change CLI authentication.
@@ -116,9 +117,13 @@ Close the current terminal tab with **Ctrl+W** (macOS: **Cmd+W**), using the sam
 its close button. Chrome's Ctrl+T creates a tab; it does not close one. Closing stops that tab's
 terminals but keeps its session history, project and worktree.
 
-Session deletion keeps working folders by default. For verified linked worktrees, the review offers
-an unchecked **Also remove Git worktree** option. If other sessions use it, checking the option
-explicitly includes those displayed histories; leaving it unchecked deletes only the original selection.
+Session deletion keeps working folders by default. The dialog immediately shows the selected histories
+and existing sidebar worktree labels; opening it validates only the selected histories, without a full
+project inventory or Git worktree scan. Check **I understand** to enable **Also remove Git worktree**.
+Only requesting that optional cleanup performs a fresh worktree/shared-history review. Neither checkbox
+resets the other; unchecking the acknowledgement disables removal and submission but retains the choice.
+If the review discovers additional sessions, they are listed before a second explicit cleanup selection
+agrees to delete them too. Leaving cleanup unchecked deletes only the original selection.
 Branches are retained. Dirty/locked checkouts, remaining histories or other app terminals block removal;
 successful history deletion is reported separately from worktree-removal failures. Close external
 terminals first; they cannot be reliably detected.
@@ -140,7 +145,9 @@ changed visible terminal dimensions are resized. Background agents remain runnin
 
 **New Agent Session** requires a manually entered **Session Title** (1–120 single-line characters,
 including non-English text). It appears immediately in the sidebar and terminal tab, before native
-history exists. Exact managed identity or an explicit Link transfers it to local session metadata;
+history exists. **Current Folder** registers and validates only that workspace, without a full
+all-provider/Git inventory on the launch path. Claude's fresh pre-launch baseline lists session IDs
+without parsing their transcripts; CLI startup and the first status-hook capability probe still take time. Exact managed identity or an explicit Link transfers it to local session metadata;
 a later pencil rename always wins. No background title-generation request or retry button remains.
 Existing saved names, including previously generated names, stay visible without resuming generation.
 Provider history files are not renamed or rewritten.
