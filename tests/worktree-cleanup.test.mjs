@@ -59,7 +59,18 @@ test('clean linked worktree removal preserves its branch and primary repository'
   assert.ok((await stat(f.base)).isDirectory());
   assert.match((await f.git('branch', '--list', 'feat/cleanup')).stdout, /feat\/cleanup/);
 });
-for (const name of ['untracked.txt', 'ignored.txt', '.gitignore'])
+test('explicit whole-worktree removal includes ignored files without force and preserves the branch', async (t) => {
+  const f = await fixture(t);
+  await writeFile(
+    join(f.wt, 'ignored.txt'),
+    'Ignored local data explicitly included in folder removal\n',
+  );
+  await removeLinkedWorktree(f.info);
+  await assert.rejects(stat(f.wt), { code: 'ENOENT' });
+  assert.ok((await stat(f.base)).isDirectory());
+  assert.match((await f.git('branch', '--list', 'feat/cleanup')).stdout, /feat\/cleanup/);
+});
+for (const name of ['untracked.txt', '.gitignore'])
   test(`worktree removal retains ${name} changes`, async (t) => {
     const f = await fixture(t);
     await writeFile(join(f.wt, name), 'Keep this data\n');

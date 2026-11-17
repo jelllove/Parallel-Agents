@@ -128,6 +128,13 @@ test('deletion opens with captured rows and a history-only request; cleanup requ
   const f = await fixture();
   const tree = f.render();
   assert.ok(nodes(tree.props.message).some((node) => node.type === 'li'));
+  const text = nodes(tree.props.message)
+    .flatMap((node) =>
+      [node.props?.children].flat(Infinity).filter((value) => typeof value === 'string'),
+    )
+    .join(' ');
+  assert.match(text, /worktree and all ignored files/);
+  assert.match(text, /secrets or configuration/);
   assert.deepEqual(f.requests[0].args, [[{ projectId: 'claude:wt', sessionId: 'a' }], false]);
   assert.equal(f.checkbox().props.disabled, true);
   f.requests[0].resolve({ token: 'history', sessions: [f.session], worktrees: [] });
@@ -196,6 +203,52 @@ test('additional histories are displayed before a second explicit cleanup select
   assert.equal(f.render().props.armed, true);
   f.unmount();
   assert.deepEqual(f.cancelled, ['history', 'cleanup']);
+});
+
+test('blocked cleanup lists ambiguous histories and does not tell an acknowledged user to acknowledge again', async () => {
+  const f = await fixture();
+  f.render();
+  f.requests[0].resolve({ token: 'history', sessions: [f.session], worktrees: [] });
+  await settle();
+  f.render().props.onArmedChange(true);
+  f.checkbox().props.onChange({ target: { checked: true } });
+  f.render();
+  f.requests[1].resolve({
+    token: 'cleanup',
+    sessions: [f.session],
+    worktrees: [
+      {
+        key: '/wt',
+        path: '/wt',
+        branch: 'feat/test',
+        additional: [],
+        blocked: 'Checkout cannot be determined for Old session.',
+        blockers: [
+          {
+            ...f.session,
+            sessionId: 'old',
+            title: 'Old session',
+            cwd: '/base',
+            ownershipUncertain: true,
+          },
+        ],
+      },
+    ],
+  });
+  await settle();
+  const tree = f.render();
+  assert.equal(f.checkbox().props.disabled, true);
+  const text = nodes(tree.props.message)
+    .flatMap((node) =>
+      [node.props?.children].flat(Infinity).filter((value) => typeof value === 'string'),
+    )
+    .join(' ');
+  assert.match(text, /Old session/);
+  assert.match(text, /History-only deletion is still available/);
+  assert.doesNotMatch(text, /Check “I understand” below/);
+  assert.equal(tree.props.armed, true);
+  assert.equal(tree.props.confirmDisabled, false);
+  f.unmount();
 });
 
 test('cleanup scan failure offers a history-only review without discarding acknowledgement', async () => {

@@ -148,6 +148,40 @@ test('Claude accepts valid text blocks after malformed blocks and retains its em
   }
 });
 
+test('Claude keeps a recorded root cwd even before the first user message', async (t) => {
+  const root = await fixture(t);
+  const cwd = join(root, 'checkout');
+  for (const [name, records] of [
+    ['header-only', [{ type: 'system', cwd, timestamp: startTime }]],
+    [
+      'user-without-cwd',
+      [
+        { type: 'system', cwd },
+        { type: 'user', message: { content: 'Request' } },
+      ],
+    ],
+    [
+      'sidechain',
+      [
+        { type: 'system', isSidechain: true, cwd: join(root, 'other') },
+        { type: 'system', cwd },
+      ],
+    ],
+  ]) {
+    const file = await writeLog(root, name, jsonl(records));
+    assert.equal((await metadata.readClaudeSessionMeta(file))?.cwd, cwd);
+  }
+  const file = await writeLog(
+    root,
+    'user-cwd',
+    jsonl([
+      { type: 'system', cwd },
+      { type: 'user', cwd: join(root, 'explicit'), message: { content: 'Request' } },
+    ]),
+  );
+  assert.equal((await metadata.readClaudeSessionMeta(file))?.cwd, join(root, 'explicit'));
+});
+
 test('Copilot rejects malformed headers and guards every optional context field', async (t) => {
   const root = await fixture(t);
   const cwd = join(root, 'working', '..', 'project');

@@ -159,7 +159,15 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
   cleanup selection; never silently include them. Declining deletes only the original selection.
   Preserve branches and the primary repository; never
   force removal of dirty/locked worktrees. Remaining/new/ambiguous histories or open app terminals block
-  removal. Report successful histories and failed cleanup separately, without retry or rollback claims.
+  removal. Identify ownership blockers separately from additional histories with their title, provider,
+  native session ID and explicitly labelled fallback path; do not imply acknowledgement can override
+  a blocked cleanup. Retain recorded root checkout metadata even before a user message. Missing cwd
+  remains uncertain, but fresh registered-history/Git checkout evidence may exclude a different checkout
+  from the review; never authorize deletion from a decoded path, colliding key or missing evidence.
+  Whole-worktree consent explicitly includes all ignored files (dependencies, outputs, caches and any
+  ignored secrets/configuration). Ignored files alone do not block non-force removal; uncommitted tracked
+  changes, untracked files, locks, primary checkout and active terminals remain protected. Report successful
+  histories and failed cleanup separately, without retry or rollback claims.
 - All completed notices, including failures/warnings, expire after 15 seconds without foreground,
   visibility, hover or keyboard-focus gating. Keep manual Dismiss and never expire queued/running jobs.
   Unrelated rerenders must not reset expiry; manual dismissal/unmount cancels its timer.

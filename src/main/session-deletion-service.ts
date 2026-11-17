@@ -28,6 +28,25 @@ interface Review {
 }
 const identity = (target: ReviewedSession) => `${target.agent}:${target.sessionId}`;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+function ambiguousHistories(
+  inventory: ReviewedSession[],
+  worktree: LinkedWorktree,
+): ReviewedSession[] {
+  return inventory
+    .filter(
+      (item) =>
+        item.ownershipUncertain &&
+        (item.ownershipScope
+          ? withinCheckout(worktree.root, item.ownershipScope) ||
+            withinCheckout(item.ownershipScope, worktree.root)
+          : withinCheckout(worktree.parentPath, item.cwd) ||
+            withinCheckout(worktree.root, item.cwd)),
+    )
+    .filter(
+      (item, index, list) =>
+        list.findIndex((other) => identity(other) === identity(item)) === index,
+    );
+}
 export function withinCheckout(root: string, path: string): boolean {
   const part = relative(root, path);
   return part === '' || (!isAbsolute(part) && part !== '..' && !part.startsWith(`..${sep}`));
@@ -77,7 +96,11 @@ export class SessionDeletionService {
     const token = randomUUID();
     const checkouts = new Map<string, LinkedWorktree>();
     let cleanupWarning: string | undefined;
-    for (const cwd of cleanup ? new Set(sessions.map((session) => session.cwd)) : []) {
+    for (const cwd of cleanup
+      ? new Set(
+          sessions.filter((session) => !session.ownershipUncertain).map((session) => session.cwd),
+        )
+      : []) {
       try {
         const worktree = await this.dependencies.inspect(cwd);
         if (worktree && !checkouts.has(worktree.root)) checkouts.set(worktree.root, worktree);
@@ -92,29 +115,31 @@ export class SessionDeletionService {
       token,
       sessions,
       ...(cleanupWarning ? { cleanupWarning } : {}),
-      worktrees: [...checkouts].map(([key, worktree]) => ({
-        key,
-        path: worktree.root,
-        branch: worktree.branch,
-        additional: inventory
-          .filter(
-            (item) => withinCheckout(worktree.root, item.cwd) && !selected.has(identity(item)),
-          )
-          .filter(
-            (item, index, list) =>
-              list.findIndex((other) => identity(other) === identity(item)) === index,
-          ),
-        blocked: worktree.locked
-          ? 'This worktree is locked.'
-          : inventory.some(
-                (item) =>
-                  item.ownershipUncertain &&
-                  (withinCheckout(worktree.parentPath, item.cwd) ||
-                    withinCheckout(worktree.root, item.cwd)),
-              )
-            ? 'Shared history has ambiguous checkout ownership; worktree removal is unavailable.'
-            : undefined,
-      })),
+      worktrees: [...checkouts].map(([key, worktree]) => {
+        const blockers = ambiguousHistories(inventory, worktree);
+        return {
+          key,
+          path: worktree.root,
+          branch: worktree.branch,
+          additional: inventory
+            .filter(
+              (item) =>
+                !item.ownershipUncertain &&
+                withinCheckout(worktree.root, item.cwd) &&
+                !selected.has(identity(item)),
+            )
+            .filter(
+              (item, index, list) =>
+                list.findIndex((other) => identity(other) === identity(item)) === index,
+            ),
+          ...(blockers.length ? { blockers } : {}),
+          blocked: worktree.locked
+            ? 'This worktree is locked.'
+            : blockers.length
+              ? `Checkout ownership cannot be determined for ${blockers.length} session(s), including "${blockers[0].title || '(empty)'}" (${blockers[0].agent}). Worktree removal is unavailable.`
+              : undefined,
+        };
+      }),
     };
     const now = Date.now();
     for (const [key, review] of this.reviews)
@@ -211,10 +236,9 @@ export class SessionDeletionService {
             const inventory = await this.dependencies.inventory();
             if (
               inventory.some(
-                (item) =>
-                  withinCheckout(worktree.root, item.cwd) ||
-                  (item.ownershipUncertain && withinCheckout(worktree.parentPath, item.cwd)),
-              )
+                (item) => !item.ownershipUncertain && withinCheckout(worktree.root, item.cwd),
+              ) ||
+              ambiguousHistories(inventory, worktree).length > 0
             )
               throw new Error('New or remaining histories use this worktree.');
             await this.dependencies.remove(worktree);

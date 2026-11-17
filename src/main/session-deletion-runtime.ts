@@ -9,10 +9,15 @@ import { managedSessions } from './managed-session-runtime.ts';
 import { guardCheckout } from './checkout-guard.ts';
 import { SessionDeletionService, withinCheckout } from './session-deletion-service.ts';
 import type { ReviewedSession } from '../shared/session-deletion.ts';
-import type { Session } from '../shared/types.ts';
+import type { Session, RegisteredProject } from '../shared/types.ts';
+import { resolveHistoryCheckoutScope } from './session-checkout-scope.ts';
 import { withFreshHistory } from './history-read-context.ts';
 
-async function reviewSession(session: Session, fallback: string): Promise<ReviewedSession> {
+async function reviewSession(
+  session: Session,
+  fallback: string,
+  ownershipScope?: string,
+): Promise<ReviewedSession> {
   let cwd = session.cwd ?? fallback;
   try {
     cwd = await realpath(cwd);
@@ -26,7 +31,9 @@ async function reviewSession(session: Session, fallback: string): Promise<Review
     agent: session.agent,
     title: session.title,
     cwd,
-    ...(!session.cwd ? { ownershipUncertain: true } : {}),
+    ...(!session.cwd
+      ? { ownershipUncertain: true, ...(ownershipScope ? { ownershipScope } : {}) }
+      : {}),
   };
 }
 
@@ -54,9 +61,19 @@ export const sessionDeletion = new SessionDeletionService({
     withFreshHistory(async () => {
       const projects = await listProjects(true);
       const entries: ReviewedSession[] = [];
+      let registrations: RegisteredProject[] | undefined;
       for (const project of projects) {
-        for (const session of await listSessionsForProject(project.id, true)) {
-          entries.push(await reviewSession(session, project.realPath));
+        const sessions = await listSessionsForProject(project.id, true);
+        let scope: string | undefined;
+        if (sessions.some((session) => !session.cwd)) {
+          registrations ??= (await preferences.read()).projects;
+          scope = await resolveHistoryCheckoutScope(
+            project.historyProjectId ?? project.id,
+            registrations,
+          );
+        }
+        for (const session of sessions) {
+          entries.push(await reviewSession(session, project.realPath, scope));
         }
       }
       return entries;

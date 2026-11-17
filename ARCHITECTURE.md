@@ -592,9 +592,20 @@ A dependency-injected deletion service freshly resolves only captured deletion t
 history outcome before the renderer closes successful tabs. A separate finish phase waits for actual
 native PTY exit, then revalidates histories and Git identity under a canonical-checkout guard. The guard
 excludes concurrent app launches/mutations during removal; normal parallel PTY starts share leases.
-Only non-force `git worktree remove` is used. Branches remain; dirty/ignored/untracked data, locks,
-ambiguous histories or other app terminals retain the checkout with a warning. External processes are
-not reliably detectable. History success never implies checkout success or rollback.
+Only non-force `git worktree remove` is used. Branches remain; tracked changes, untracked data, locks,
+ambiguous histories or other app terminals retain the checkout with a warning. The explicitly selected
+whole-folder action includes Git-ignored files (including local secrets/configuration), stated in the
+checkbox and review text. The precheck excludes ignored entries; Git retains its own no-force checks.
+No recursive directory deletion, force retry or automatic cache cleanup is used.
+Preview and finish share the same ambiguous-ownership predicate. Missing-cwd Claude histories may carry
+fresh canonical checkout scope from saved registrations, forward-encoded history matching and Git's
+actual worktree list. Distinct scopes are excluded from unrelated deletions; ancestors/the same checkout,
+colliding encoded keys and missing/broken evidence retain conservative blockers. Scope evidence never
+converts an unknown history into an automatically deletable additional session. Preview returns deduplicated blocker identities separately from
+reviewed additional histories; the UI labels fallback paths and keeps history-only deletion available.
+Claude metadata retains a non-sidechain root cwd before the first user message, using the first user's
+explicit cwd when present. It never substitutes another session's cwd to authorize cleanup. External
+processes are not reliably detectable. History success never implies checkout success or rollback.
 
 Ctrl+W/Cmd+W and tab buttons share TerminalTabs.requestClose and the existing confirmation/preference;
 modal guards prevent closing an underlying terminal, and close never removes native history.

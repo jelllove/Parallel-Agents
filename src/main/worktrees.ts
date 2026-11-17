@@ -109,6 +109,16 @@ export async function findProjectRepositoryRoot(basePath: string): Promise<strin
   }
 }
 
+/** Fresh Git inventory for checkout scoping; callers must not infer paths by reversing encoded IDs. */
+export async function listProjectWorktreePaths(root: string): Promise<string[]> {
+  return (
+    await git(root, ['worktree', 'list', '--porcelain', '-z'], 'Cannot inspect checkout scopes')
+  )
+    .split('\0')
+    .filter((field) => field.startsWith('worktree '))
+    .map((field) => field.slice(9));
+}
+
 export interface LinkedWorktree {
   root: string;
   parentPath: string;
@@ -174,10 +184,12 @@ export async function removeLinkedWorktree(expected: LinkedWorktree): Promise<vo
   if (current.locked) throw new Error('Worktree is locked.');
   const dirty = await git(
     current.root,
-    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching'],
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'],
     'Cannot inspect worktree changes',
   );
-  if (dirty) throw new Error('Worktree has uncommitted, untracked or ignored files.');
+  if (dirty) throw new Error('Worktree has uncommitted or untracked files.');
+  // The explicitly reviewed whole-folder removal includes ignored files. Git still checks for
+  // tracked/untracked changes and locks itself; never add --force or delete the directory directly.
   await git(
     current.parentPath,
     ['worktree', 'remove', '--', current.root],

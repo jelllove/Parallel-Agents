@@ -283,7 +283,14 @@ The fixture checks:
   checks no modal remount or acknowledgement reset, and cancels without deleting either shared history.
   Optional cleanup tests use disposable Git repos:
   explicitly reviewed additional sessions, no-force removal, branches retained, dirty/locked/ambiguous
-  histories and pending/running/closing PTY safety. Never run cleanup fixtures against user checkouts.
+  histories and pending/running/closing PTY safety. Ownership regressions cover header-only Claude
+  root cwd, named/deduplicated blockers, nested cross-provider histories, and genuinely missing cwd
+  retaining the safety block. Scope tests use fresh registrations/Git checkout lists, including lossy
+  encoding collisions and missing paths; another checkout's empty history must not block removal, while
+  the same checkout stays protected. Explicit whole-folder tests remove ignored fixture files without
+  force and retain tracked/untracked/locked data. Ignored files may be secrets, not only generated caches:
+  the UI consent must say all ignored files. Use the injected runtime seam, never the native PTY singleton
+  or real provider histories. Never run cleanup fixtures against user checkouts.
   Await the guard callback's explicit entry signal before testing contention: one setImmediate turn
   does not guarantee asynchronous realpath has completed, particularly on native macOS runners.
 - Notification expiry tests use fake timers to check the exact 15-second boundary for all completed

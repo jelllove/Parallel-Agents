@@ -1837,6 +1837,16 @@ async function checkWorktreeDeleteDialog() {
       .find((item) => item.textContent.includes(label))
       ?.querySelector('input');
   await waitFor(() => checkbox('Also remove Git worktree'));
+  assert.equal(
+    modal.textContent.includes('all ignored files'),
+    true,
+    'whole-folder consent must include ignored data',
+  );
+  assert.equal(
+    modal.textContent.includes('secrets or configuration'),
+    true,
+    'ignored local configuration is not necessarily disposable',
+  );
   assert.equal(checkbox('Also remove Git worktree').disabled, true);
   checkbox('I understand').click();
   await waitFor(() => !checkbox('Also remove Git worktree').disabled);
@@ -2214,6 +2224,16 @@ app.on('browser-window-created', (_event, win) => {
           { encoding: 'utf8' },
         );
       cleanupGit('worktree', 'add', '-b', 'fixture/cleanup-review', cleanupPath);
+      const fixtureExclude = join(project, '.git', 'info', 'exclude');
+      writeFileSync(
+        fixtureExclude,
+        readFileSync(fixtureExclude, 'utf8') + '\n/ignored-cleanup-fixture/\n',
+      );
+      mkdirSync(join(cleanupPath, 'ignored-cleanup-fixture'));
+      writeFileSync(
+        join(cleanupPath, 'ignored-cleanup-fixture', 'cache.txt'),
+        'Disposable ignored output\n',
+      );
       const cleanupHistory = join(home, '.claude', 'projects', 'C--cleanup-review');
       mkdirSync(cleanupHistory);
       for (const id of ['cleanup-one', 'cleanup-two'])
@@ -2226,9 +2246,51 @@ app.on('browser-window-created', (_event, win) => {
             message: { content: id },
           }) + '\n',
         );
+      const headerOnly = join(
+        home,
+        '.claude',
+        'projects',
+        'C--smoke-project',
+        'header-only-cleanup.jsonl',
+      );
+      writeFileSync(
+        headerOnly,
+        JSON.stringify({ type: 'system', cwd: project, timestamp: '2026-01-05T00:00:00Z' }) + '\n',
+      );
       checks.push(
         await win.webContents.executeJavaScript(`(${checkWorktreeDeleteDialog.toString()})()`),
       );
+      // A genuinely missing cwd must remain blocked, with the exact source history identified.
+      writeFileSync(
+        headerOnly,
+        JSON.stringify({ type: 'system', timestamp: '2026-01-05T00:00:00Z' }) + '\n',
+      );
+      checks.push(
+        await win.webContents.executeJavaScript(`(async () => {
+        const until = Date.now() + 12000;
+        const wait = async predicate => { while (!predicate()) {
+          if (Date.now() > until) throw new Error('Named cleanup blocker did not settle');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        } };
+        const row = [...document.querySelectorAll('.session-item')].find(item => item.textContent.includes('cleanup-one'));
+        row.querySelector('.session-delete').click();
+        await wait(() => document.querySelector('.modal-backdrop'));
+        const modal = document.querySelector('.modal-backdrop');
+        const input = label => [...modal.querySelectorAll('label')].find(item => item.textContent.includes(label))?.querySelector('input');
+        input('I understand').click();
+        await wait(() => input('Also remove Git worktree') && !input('Also remove Git worktree').disabled);
+        input('Also remove Git worktree').click();
+        await wait(() => modal.querySelector('[aria-label="Histories blocking worktree removal"]'));
+        if (!input('I understand').checked || !input('Also remove Git worktree').disabled || modal.querySelector('.btn-danger').disabled)
+          throw new Error('Ambiguous cleanup must block the folder, not acknowledged history-only deletion');
+        if (!modal.querySelector('[aria-label="Histories blocking worktree removal"]').textContent.includes('header-only-cleanup') || modal.textContent.includes('Check “I understand” below'))
+          throw new Error('Cleanup must identify the blocker without misleading acknowledgement advice');
+        modal.querySelector('.modal-actions .btn-secondary').click();
+        await wait(() => !document.querySelector('.modal-backdrop'));
+        return 'header-only checkout evidence avoids false ambiguity; genuinely missing checkout history is named and cannot authorize folder removal';
+      })()`),
+      );
+      unlinkSync(headerOnly);
       await win.webContents.executeJavaScript(`window.__smokeChecks = ${JSON.stringify(checks)}`);
       const cleanupRequest = async (id, remove) =>
         win.webContents.executeJavaScript(`(async () => {

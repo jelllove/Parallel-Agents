@@ -9,12 +9,15 @@ export interface ReviewedSession extends DeleteTarget {
   title: string;
   cwd: string;
   ownershipUncertain?: boolean;
+  /** Fresh canonical history-checkout scope, distinct from a lossy display-path fallback. */
+  ownershipScope?: string;
 }
 export interface WorktreeReview {
   key: string;
   path: string;
   branch: string | null;
   additional: ReviewedSession[];
+  blockers?: ReviewedSession[];
   blocked?: string;
 }
 export interface SessionDeletionPreview {

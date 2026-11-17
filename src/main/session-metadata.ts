@@ -200,11 +200,15 @@ async function readClaudeMetadata(filePath: string): Promise<ClaudeSessionMeta |
   };
   let createdAt: number | undefined;
   const mtime = await scanSessionLog(filePath, (record) => {
-    if (!record.isSidechain) createdAt ??= timestamp(record.timestamp) ?? undefined;
+    if (!record.isSidechain) {
+      createdAt ??= timestamp(record.timestamp) ?? undefined;
+      // A root header can establish checkout ownership before any user message exists.
+      meta.cwd ??= asString(record.cwd) || null;
+    }
     if (record.type !== 'user' || record.isSidechain) return false;
     meta.title = claudeTitle(asRecord(record.message)?.content);
     meta.timestamp = timestamp(record.timestamp);
-    meta.cwd = asString(record.cwd);
+    meta.cwd = asString(record.cwd) || meta.cwd;
     meta.gitBranch = asString(record.gitBranch);
     meta.version = asString(record.version);
     return true;

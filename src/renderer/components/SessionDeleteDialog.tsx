@@ -152,10 +152,29 @@ export function SessionDeleteDialog({
                   }}
                 />
                 <span>
-                  Also remove Git worktree: {worktree.path} ({worktree.branch ?? 'detached HEAD'})
+                  Also remove Git worktree and all ignored files: {worktree.path} (
+                  {worktree.branch ?? 'detached HEAD'})
                 </span>
               </label>
               {worktree.blocked && <p>{worktree.blocked}</p>}
+              {Boolean(worktree.blockers?.length) && (
+                <div>
+                  <p>
+                    These histories do not record a reliable checkout directory. Their displayed
+                    paths are fallbacks, not proof they belong to this worktree. History-only
+                    deletion is still available; verify these histories separately before removing a
+                    folder.
+                  </p>
+                  <ul aria-label="Histories blocking worktree removal">
+                    {worktree.blockers?.map((item) => (
+                      <li key={`${item.agent}:${item.sessionId}`}>
+                        {item.title || '(empty)'} · {item.agent} · {item.cwd} · Session ID:{' '}
+                        {item.sessionId}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {worktree.additional.length > 0 && (
                 <div>
                   <p>
@@ -176,9 +195,12 @@ export function SessionDeleteDialog({
           ))}
           {worktrees.length ? (
             <p>
-              Check “I understand” below to enable optional worktree removal. Branches are retained.
-              Dirty/locked worktrees or other open terminals prevent removal. External terminals
-              cannot be detected reliably; close them first.
+              {!armed && <>Check “I understand” below to enable optional worktree removal. </>}
+              Branches are retained. Removing the folder also permanently deletes Git-ignored files,
+              including dependencies, build output, caches and any ignored local secrets or
+              configuration. Uncommitted tracked changes, untracked files, locked worktrees or other
+              open terminals prevent removal. External terminals cannot be detected reliably; close
+              them first.
             </p>
           ) : null}
           {cleanupRequested && error && (

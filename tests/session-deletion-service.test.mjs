@@ -159,7 +159,7 @@ test('locked and ambiguous shared histories cannot be approved for cleanup', asy
     { ...f.a, sessionId: 'unknown', cwd: '/base', ownershipUncertain: true },
   ]);
   const preview = await f.service.preview([f.a], true);
-  assert.match(preview.worktrees[0].blocked, /ambiguous/);
+  assert.match(preview.worktrees[0].blocked, /cannot be determined/);
   await assert.rejects(
     f.service.deleteReviewed(preview.token, [preview.worktrees[0].key]),
     /Invalid/,
@@ -167,6 +167,103 @@ test('locked and ambiguous shared histories cannot be approved for cleanup', asy
   assert.deepEqual(f.calls, []);
   f.service.cancel(preview.token);
   await assert.rejects(f.service.deleteReviewed(preview.token, []), /expired/);
+});
+
+test('ambiguous cleanup identifies blocking histories without confusing them with reviewed additional sessions', async () => {
+  const f = fixture();
+  const blocker = {
+    ...f.a,
+    sessionId: 'old',
+    projectId: 'claude:base',
+    title: 'Old header-only session',
+    cwd: '/base',
+    ownershipUncertain: true,
+  };
+  f.setSessions([f.a, f.b, blocker, { ...blocker, projectId: 'claude:alias' }]);
+  const preview = await f.service.preview([f.a], true);
+  assert.deepEqual(preview.worktrees[0].additional, [f.b]);
+  assert.deepEqual(preview.worktrees[0].blockers, [blocker]);
+  assert.match(preview.worktrees[0].blocked, /cannot be determined|ambiguous/i);
+  assert.match(preview.worktrees[0].blocked, /Old header-only session/);
+  await assert.rejects(f.service.deleteReviewed(preview.token, ['/wt']), /Invalid/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('new ambiguous histories introduced after preview retain the checkout at finish', async () => {
+  const f = fixture();
+  const preview = await f.service.preview([f.a], true);
+  await f.service.deleteReviewed(preview.token, [preview.worktrees[0].key]);
+  f.setSessions([{ ...f.a, sessionId: 'late', cwd: '/base', ownershipUncertain: true }]);
+  const result = await f.service.finish(preview.token);
+  assert.equal(result.removedWorktrees.length, 0);
+  assert.match(result.retainedWorktrees.join(' '), /remaining/);
+  assert.ok(!f.calls.some((call) => call[0] === 'remove'));
+});
+
+test('an uncertain selected history cannot authorize removing a guessed checkout', async () => {
+  const f = fixture();
+  const uncertain = { ...f.a, ownershipUncertain: true, ownershipScope: '/different' };
+  f.setSessions([uncertain]);
+  const preview = await f.service.preview([uncertain], true);
+  assert.deepEqual(preview.worktrees, []);
+  await assert.rejects(f.service.deleteReviewed(preview.token, ['/wt']), /Invalid/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('verified different-checkout scope excludes a missing-cwd history even when its decoded path looks related', async () => {
+  const f = fixture();
+  const other = {
+    ...f.a,
+    sessionId: 'other-empty',
+    projectId: 'claude:other',
+    cwd: '/base/guessed/other',
+    ownershipUncertain: true,
+    ownershipScope: '/other-checkout',
+  };
+  f.setSessions([f.a, f.b, other]);
+  const preview = await f.service.preview([f.a], true);
+  assert.equal(preview.worktrees[0].blocked, undefined);
+  assert.deepEqual(preview.worktrees[0].additional, [f.b]);
+  await f.service.deleteReviewed(preview.token, ['/wt']);
+  const result = await f.service.finish(preview.token);
+  assert.deepEqual(result.removedWorktrees, ['/wt']);
+  assert.ok(!f.calls.some((call) => call[1] === 'other-empty'));
+});
+
+test('verified same-checkout scope never permits deleting a folder with an uncertain history', async () => {
+  const f = fixture();
+  const same = {
+    ...f.a,
+    sessionId: 'same-empty',
+    cwd: '/unreliable-guess',
+    ownershipUncertain: true,
+    ownershipScope: '/wt',
+  };
+  f.setSessions([f.a, f.b, same]);
+  const preview = await f.service.preview([f.a], true);
+  assert.deepEqual(preview.worktrees[0].blockers, [same]);
+  await assert.rejects(f.service.deleteReviewed(preview.token, ['/wt']), /Invalid/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('checkout scope is read again at finish and cannot retain stale exclusion permission', async () => {
+  const f = fixture();
+  const empty = {
+    ...f.a,
+    sessionId: 'changing-scope',
+    cwd: '/base/guess',
+    ownershipUncertain: true,
+    ownershipScope: '/other-checkout',
+  };
+  f.setSessions([f.a, f.b, empty]);
+  const preview = await f.service.preview([f.a], true);
+  assert.equal(preview.worktrees[0].blocked, undefined);
+  await f.service.deleteReviewed(preview.token, ['/wt']);
+  f.setSessions([{ ...empty, ownershipScope: '/wt' }]);
+  const result = await f.service.finish(preview.token);
+  assert.equal(result.removedWorktrees.length, 0);
+  assert.match(result.retainedWorktrees.join(' '), /remaining/);
+  assert.ok(!f.calls.some((call) => call[0] === 'remove'));
 });
 
 test('new histories after preview are never silently deleted or removed with a checkout', async () => {

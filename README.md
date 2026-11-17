@@ -119,14 +119,20 @@ terminals but keeps its session history, project and worktree.
 
 Session deletion keeps working folders by default. The dialog immediately shows the selected histories
 and existing sidebar worktree labels; opening it validates only the selected histories, without a full
-project inventory or Git worktree scan. Check **I understand** to enable **Also remove Git worktree**.
+project inventory or Git worktree scan. Check **I understand** to enable **Also remove Git worktree and all ignored files**.
 Only requesting that optional cleanup performs a fresh worktree/shared-history review. Neither checkbox
 resets the other; unchecking the acknowledgement disables removal and submission but retains the choice.
 If the review discovers additional sessions, they are listed before a second explicit cleanup selection
 agrees to delete them too. Leaving cleanup unchecked deletes only the original selection.
-Branches are retained. Dirty/locked checkouts, remaining histories or other app terminals block removal;
-successful history deletion is reported separately from worktree-removal failures. Close external
-terminals first; they cannot be reliably detected.
+Branches are retained. Whole-folder removal permanently deletes Git-ignored files too, including
+`node_modules`, build output, caches and any ignored local secrets/configuration. Uncommitted tracked
+changes, untracked files, locks, remaining histories and other app terminals still block removal.
+If a history has no reliable checkout directory, the review lists its title, provider, session ID and
+fallback path separately. Fresh saved-project and Git checkout evidence can exclude a different checkout
+from the blockers; ambiguous/colliding path evidence cannot authorize cleanup or delete an unknown history.
+Recorded root metadata is retained even for Claude histories without a user message. Successful history
+deletion is reported separately from folder-removal failures. Close external terminals first; they cannot
+be reliably detected.
 
 Completed operation notices (including failures and warnings) automatically dismiss after **15 seconds**.
 The timer does not depend on window focus, visibility or pointer/keyboard interaction. **Dismiss**
