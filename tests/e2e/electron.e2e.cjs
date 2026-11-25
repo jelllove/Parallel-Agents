@@ -109,6 +109,14 @@ ipcMain.handle = (channel, listener) =>
       return;
     }
     const result = await listener(event, ...args);
+    if (channel === 'projects:create' && args[0]?.branch === 'fixture/two') {
+      const revision = (cwd, ref) =>
+        execFileSync('git', ['-C', cwd, 'rev-parse', ref], { encoding: 'utf8' }).trim();
+      const upstream = join(home, 'upstream');
+      assert.equal(args[0].fetchLatestMain, true);
+      assert.equal(revision(result.realPath, 'HEAD'), revision(upstream, 'main'));
+      assert.equal(revision(project, 'main'), revision(upstream, 'main^'));
+    }
     if (channel === 'workspace:repository' && windowUnderTest) {
       const theme = await windowUnderTest.webContents.executeJavaScript(`(() => {
         const dialog = document.querySelector('.new-session-dialog[open]');
@@ -1557,6 +1565,14 @@ async function checkRenderer(projectPath, createPath) {
         await waitFor(
           () => /^feat\/\d{8}_manual-fixture-/.test(input.value),
           'Default branch did not use feat/local date/title format',
+        );
+        const baseBranch = dialog.querySelector('select[aria-label="Base Branch"]');
+        await waitFor(() => !baseBranch.disabled, 'Worktree base branches did not load');
+        check(
+          baseBranch.value === 'refs/heads/main' &&
+            dialog.querySelector('input[aria-label="Fetch latest main before creating worktree"]')
+              ?.checked,
+          `local main worktree creation defaults to fetching before launch (base: ${baseBranch.value})`,
         );
         checks.push(
           'new branch defaults use feat/YYYYMMDD_title without changing custom branch editing',

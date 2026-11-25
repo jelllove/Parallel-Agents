@@ -136,6 +136,18 @@
     border-color 0.15s,
     box-shadow 0.15s;
 }
+.new-session-fetch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.93em;
+}
+.new-session-dialog .new-session-fetch input {
+  width: auto;
+  flex: none;
+  margin: 0;
+  accent-color: var(--session-focus);
+}
 .new-session-dialog input:focus,
 .new-session-dialog select:focus,
 .new-session-dialog button:focus-visible,

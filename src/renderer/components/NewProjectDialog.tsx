@@ -38,6 +38,7 @@ export function NewProjectDialog({
   const [editTarget, setEditTarget] = useState(false);
   const [selectedRef, setSelectedRef] = useState<{ path: string; value: string } | null>(null);
   const [customRef, setCustomRef] = useState('HEAD');
+  const [fetchLatestMain, setFetchLatestMain] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [recentFolders, setRecentFolders] = useState<string[]>([]);
@@ -54,6 +55,7 @@ export function NewProjectDialog({
   const ref =
     selectedRef?.path === basePath ? selectedRef.value : (repository.info?.defaultRef ?? 'HEAD');
   const startPoint = ref === '__custom__' ? customRef : ref;
+  const canFetchMain = mode === 'worktree' && ref === 'refs/heads/main' && !repository.loading;
   const formBusy = busy || modePending;
   const worktreeReady = Boolean(repository.info?.isGit && repository.info.hasHead);
   const titleValid = (() => {
@@ -174,6 +176,7 @@ export function NewProjectDialog({
               branch: mode === 'worktree' ? branch : undefined,
               targetPath: mode === 'worktree' ? targetPath : undefined,
               startPoint: mode === 'worktree' ? startPoint : undefined,
+              ...(canFetchMain ? { fetchLatestMain } : {}),
               sessionTitle: title,
             });
             if (accepted === null)
@@ -336,6 +339,25 @@ export function NewProjectDialog({
                 ))}
                 <option value="__custom__">Other branch, tag or commit…</option>
               </select>
+              {canFetchMain && (
+                <>
+                  <label className="new-session-fetch">
+                    <input
+                      type="checkbox"
+                      aria-label="Fetch latest main before creating worktree"
+                      aria-describedby="new-session-fetch-help"
+                      checked={fetchLatestMain}
+                      disabled={formBusy}
+                      onChange={(event) => setFetchLatestMain(event.target.checked)}
+                    />
+                    Fetch latest main before creating worktree
+                  </label>
+                  <p id="new-session-fetch-help">
+                    Uses the latest commit from main’s upstream (or origin/main). Local branches and
+                    existing worktrees stay unchanged. Uncheck to use local main without fetching.
+                  </p>
+                </>
+              )}
               {ref === '__custom__' && (
                 <input
                   aria-label="Custom start point"

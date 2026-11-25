@@ -52,6 +52,7 @@ export interface NewProjectOptions {
   mode: WorkspaceMode;
   branch?: string;
   startPoint?: string;
+  fetchLatestMain?: boolean;
   targetPath?: string;
   sessionTitle: string;
 }

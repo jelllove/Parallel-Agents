@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { randomUUID } from 'node:crypto';
 import { lstat, realpath, stat } from 'fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
@@ -21,10 +22,16 @@ export function gitEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-async function git(basePath: string, args: string[], context: string): Promise<string> {
+async function git(
+  basePath: string,
+  args: string[],
+  context: string,
+  timeout?: number,
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', basePath, ...args], {
-      env: gitEnvironment(),
+      env: timeout ? { ...gitEnvironment(), GIT_TERMINAL_PROMPT: '0' } : gitEnvironment(),
+      timeout,
       maxBuffer: 32 * 1024 * 1024,
       windowsHide: true,
     });
@@ -262,12 +269,81 @@ export async function addProjectWorktreeMetadata(projects: Project[]): Promise<P
   });
 }
 
+async function withFetchedMain<T>(
+  basePath: string,
+  run: (commit: string) => Promise<T>,
+): Promise<T> {
+  // Resolve the source, not a potentially stale remote-tracking ref or shared FETCH_HEAD.
+  const readUpstream = (key: string) =>
+    git(basePath, ['config', '--get', key], 'Cannot read main upstream').catch((error: unknown) => {
+      if (error instanceof Error && (error.cause as { code?: number })?.code === 1) return '';
+      throw error;
+    });
+  const [configuredRemote, configuredRef] = await Promise.all([
+    readUpstream('branch.main.remote'),
+    readUpstream('branch.main.merge'),
+  ]);
+  const remote = configuredRemote || 'origin';
+  const source = configuredRef || 'refs/heads/main';
+  if (
+    Boolean(configuredRemote) !== Boolean(configuredRef) ||
+    remote === '.' ||
+    !source.startsWith('refs/heads/')
+  )
+    throw new Error(
+      'Local main does not track a remote branch. Uncheck Fetch latest main to use the local commit.',
+    );
+  await git(
+    basePath,
+    ['remote', 'get-url', '--', remote],
+    `Cannot fetch latest ${remote}/${source.slice(11)}: no such configured remote. Uncheck Fetch latest main to use the local commit`,
+  );
+  await git(basePath, ['check-ref-format', source], 'Invalid main upstream branch');
+  const temporaryRef = `refs/parallel-agents/worktree-start/${randomUUID()}`;
+  try {
+    // An empty refmap ignores configured fetch destinations, including local branches.
+    await git(
+      basePath,
+      [
+        'fetch',
+        '--no-tags',
+        '--no-prune',
+        '--no-recurse-submodules',
+        '--no-write-fetch-head',
+        '--no-auto-maintenance',
+        '--refmap=',
+        '--',
+        remote,
+        `${source}:${temporaryRef}`,
+      ],
+      `Cannot fetch latest ${remote}/${source.slice(11)}. Retry or uncheck Fetch latest main to use the local commit`,
+      60_000,
+    );
+    const commit = await git(
+      basePath,
+      ['rev-parse', '--verify', '--end-of-options', `${temporaryRef}^{commit}`],
+      'Cannot verify the fetched main commit',
+    );
+    return await run(commit);
+  } finally {
+    // A cleanup error must not mask a fetch failure or report a created worktree as failed.
+    await git(
+      basePath,
+      ['update-ref', '-d', temporaryRef],
+      'Cannot clean up temporary fetch ref',
+    ).catch((error: unknown) => console.warn(error));
+  }
+}
+
 export async function createProjectWorktree(options: {
   basePath: string;
   branch: string;
   startPoint: string;
   targetPath: string;
+  fetchLatestMain?: boolean;
 }): Promise<string> {
+  if (options.fetchLatestMain && options.startPoint !== 'refs/heads/main')
+    throw new Error('Fetching latest main is only available when local main is the base branch.');
   validateAbsolutePath(options.basePath, 'Base path');
   validateAbsolutePath(options.targetPath, 'Target path');
   const targetPath = resolve(options.targetPath);
@@ -313,10 +389,20 @@ export async function createProjectWorktree(options: {
   const actualTargetPath = await resolveTargetPath(targetPath);
   requireOutsideWorkingTree(actualTargetPath, workingTree);
   await requireMissingTarget(actualTargetPath);
-  await git(
-    basePath,
-    ['worktree', 'add', '-b', branch, actualTargetPath, commit],
-    'Failed to create Git worktree',
-  );
+  const add = async (start: string) => {
+    // A fetch can take time. Recheck the destination before asking Git to create anything.
+    await requireMissingTarget(actualTargetPath);
+    if ((await resolveTargetPath(targetPath)) !== actualTargetPath)
+      throw new Error(
+        'Worktree destination changed while preparing it. Review the path and retry.',
+      );
+    await git(
+      basePath,
+      ['worktree', 'add', '-b', branch, actualTargetPath, start],
+      'Failed to create Git worktree',
+    );
+  };
+  if (options.fetchLatestMain) await withFetchedMain(basePath, add);
+  else await add(commit);
   return normalize(await realpath(actualTargetPath));
 }

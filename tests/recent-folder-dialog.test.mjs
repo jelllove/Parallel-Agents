@@ -271,6 +271,24 @@ test('required manual title is validated before queueing and accepted creation c
   assert.equal(captured[0].generateTitle, undefined);
   assert.equal(captured[0].branch, undefined);
 });
+test('local main defaults to fetching on submission, with a per-dialog opt-out', async () => {
+  for (const checked of [true, false]) {
+    const captured = [];
+    const h = await harness({
+      sourceProject: { realPath: 'C:\\repo' },
+      workspace: { getMode: async () => 'worktree' },
+      queueProjectCreation: (options) => captured.push(options),
+    });
+    const option = byLabel(h.render(), 'Fetch latest main before creating worktree');
+    assert.equal(option.props.checked, true);
+    assert.deepEqual(captured, [], 'opening the dialog does not start a fetch');
+    if (!checked) option.props.onChange({ target: { checked: false } });
+    name(h);
+    submit(h);
+    assert.equal(captured[0].fetchLatestMain, checked);
+  }
+});
+
 test('worktree uses real refs and title-derived branch but preserves edited branch and directory', async () => {
   const captured = [];
   const h = await harness({
@@ -296,6 +314,7 @@ test('worktree uses real refs and title-derived branch but preserves edited bran
   assert.equal(byLabel(h.render(), 'New branch').props.value, 'feature/custom');
   assert.equal(byLabel(h.render(), 'New worktree directory').props.value, 'C:\\custom');
   byLabel(h.render(), 'Base Branch').props.onChange({ target: { value: '__custom__' } });
+  assert.equal(byLabel(h.render(), 'Fetch latest main before creating worktree'), undefined);
   assert.equal(byLabel(h.render(), 'Custom start point').props.value, 'HEAD');
   byLabel(h.render(), 'Custom start point').props.onChange({ target: { value: 'refs/tags/v1' } });
   submit(h);

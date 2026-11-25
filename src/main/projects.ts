@@ -457,6 +457,11 @@ export async function createProject(options: NewProjectOptions): Promise<Project
     throw new Error('Invalid project mode.');
   validateSessionName(options.sessionTitle);
   if (
+    (options.fetchLatestMain !== undefined && typeof options.fetchLatestMain !== 'boolean') ||
+    (options.fetchLatestMain && options.mode !== 'worktree')
+  )
+    throw new Error('Fetching latest main is only available for worktree creation.');
+  if (
     typeof options.basePath !== 'string' ||
     !isAbsolute(options.basePath) ||
     !(await pathExists(options.basePath))
@@ -470,6 +475,7 @@ export async function createProject(options: NewProjectOptions): Promise<Project
           branch: options.branch ?? '',
           startPoint: options.startPoint || 'HEAD',
           targetPath: options.targetPath ?? '',
+          fetchLatestMain: options.fetchLatestMain,
         })
       : normalize(options.basePath);
   // Registration is path-scoped; the sidebar's full provider/Git inventory is not a launch gate.

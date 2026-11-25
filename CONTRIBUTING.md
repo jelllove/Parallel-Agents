@@ -256,7 +256,9 @@ The fixture checks:
   promotion. The native fixture checks session grip Alt+Up/Down without opening a terminal.
   Refresh, title updates and restart preserve existing positions; temporary scan absence is not deletion.
   The original worktree fixtures retain Git/path validation and preserve dirty base checkout data;
-  dialog routing must not introduce same-folder branch switching or change worktree creation.
+  dialog routing must not introduce same-folder branch switching. Fetch-on-create tests use only a
+  disposable local upstream with a newer commit. Verify the default toggle, exact new-worktree HEAD,
+  unchanged local main and dirty base files, opt-out and failure without stale fallback.
 - Manual-title tests use disposable preferences and exact launch proofs. Preserve existing legacy
   names without resuming generation; initial names cannot overwrite later pencil renames or stale
   closed/deleted launches. No title CLI/helper/model requests are allowed.

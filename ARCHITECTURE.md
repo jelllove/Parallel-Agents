@@ -350,6 +350,11 @@ The main workspace repository reader exposes bounded read-only full refs, verifi
 branch with main/master/develop preference, using isolated Git environment and execFile rather than
 shell interpolation. Current Folder never checks out branches; worktree mutation still uses the
 original validation and outside-working-tree target policy. The destination remains manually editable.
+The opt-out-by-unchecking fetch flag applies only to a selected `refs/heads/main`. Main resolves
+its configured upstream, fetches one branch into a unique temporary ref with a 60-second timeout,
+ignoring configured fetch destinations, pruning, tags, submodules and `FETCH_HEAD`. The ref is
+removed after creation or failure. Git creates the worktree from the verified commit without
+pulling, merging or moving an existing local branch; fetch errors stop the background operation.
 A renderer-only name helper formats feat/YYYYMMDD_title from the dialog's frozen local calendar date
 and existing title slug/stable suffix. Explicit branch/directory overrides stay authoritative.
 The agent picker measures its actual wrapped rows with ResizeObserver and clamps to viewport gutters;

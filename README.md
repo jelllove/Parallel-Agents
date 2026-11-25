@@ -165,7 +165,11 @@ editable `feat/YYYYMMDD_title` branch, show its destination, and offer **Edit di
 The date uses the local calendar when the dialog opens (for example `feat/20261111_refactor-auth`);
 non-Latin-only titles use a stable suffix. Manually edited branch names are never overwritten.
 Local main/master/develop branches are preferred when present; other local/remote refs, tags, HEAD
-and custom commit references are available without fetching. Workspace mode remains remembered.
+and custom commit references are listed without fetching. With local `main` selected, **Fetch latest
+main before creating worktree** is checked by default. It fetches the upstream of `main` (or
+`origin/main`) on submission and uses the fetched commit only in the new worktree; existing branches
+and folders are unchanged. If fetching fails, creation stops. Uncheck to use local `main` offline.
+Workspace mode remains remembered.
 The form keeps essential field labels and destination details; redundant captions, badges and the
 ready-state footer text are omitted. Loading, validation errors and retry actions remain visible.
 

@@ -195,7 +195,11 @@ Parallel Agents 把这些都收到一个窗口里：左边管 project / session 
 - List actual local/remote refs and tags read-only; prefer existing local main/master/develop, otherwise
   verified HEAD. Keep custom start-point and destination input. Stale repository reads cannot change a
   new folder's choices. Non-Git folders work in place, but worktree mode requires a committed Git repo.
-  Current Folder must not switch branches; original safe worktree creation remains unchanged.
+  Current Folder must not switch branches. When local `main` is the selected worktree base, default
+  to fetching its configured upstream (or `origin/main` when none is configured) on submission.
+  Create only the new worktree from the fetched commit; leave local branches, existing files and
+  worktrees untouched. Opting out uses local `main`; fetch failure stops creation with no stale fallback.
+  Other base refs do not fetch.
 - Current Folder registration and managed PTY validation must not wait for global provider/project/Git
   discovery. Reuse known identity/display metadata, validate the selected folder and persisted launch
   address freshly, and retain stable IDs, ordering, recent-folder policy and checkout guards. Claude's

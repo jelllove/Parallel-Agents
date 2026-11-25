@@ -49,6 +49,96 @@ async function fixture(t, committed = true) {
   };
 }
 
+test('fetch latest main creates from the remote commit without changing local branches or the dirty checkout', async (t) => {
+  const f = await fixture(t);
+  const remote = join(f.root, 'upstream');
+  await git(f.basePath, 'clone', '--no-local', '--', f.basePath, remote);
+  const oldMain = await git(f.basePath, 'rev-parse', 'refs/heads/main');
+  const latest = await advanceRemote(remote);
+  await git(f.basePath, 'remote', 'add', 'origin', remote);
+  await git(f.basePath, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/heads/main');
+  await writeFile(join(f.basePath, 'tracked.txt'), 'dirty local file\n');
+  const target = await createProjectWorktree({
+    ...f,
+    startPoint: 'refs/heads/main',
+    fetchLatestMain: true,
+  });
+  assert.equal(await git(target, 'rev-parse', 'HEAD'), latest);
+  assert.equal(await git(f.basePath, 'rev-parse', 'refs/heads/main'), oldMain);
+  assert.equal(await readFile(join(f.basePath, 'tracked.txt'), 'utf8'), 'dirty local file\n');
+  assert.equal(await git(f.basePath, 'for-each-ref', 'refs/parallel-agents'), '');
+});
+
+async function advanceRemote(remote) {
+  await git(
+    remote,
+    '-c',
+    'user.name=Remote Fixture',
+    '-c',
+    'user.email=remote@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    '-c',
+    `core.hooksPath=${join(remote, 'no-hooks')}`,
+    'commit',
+    '--allow-empty',
+    '-m',
+    'Remote ahead',
+  );
+  return git(remote, 'rev-parse', 'HEAD');
+}
+
+test('checked fetch follows the configured upstream and explicit opt-out uses the local start point', async (t) => {
+  const f = await fixture(t);
+  const remote = join(f.root, 'upstream');
+  await git(f.basePath, 'clone', '--no-local', '--', f.basePath, remote);
+  await git(remote, 'branch', '-m', 'trunk');
+  const latest = await advanceRemote(remote);
+  const oldMain = await git(f.basePath, 'rev-parse', 'HEAD');
+  await git(f.basePath, 'remote', 'add', 'upstream', remote);
+  await git(f.basePath, 'config', 'branch.main.remote', 'upstream');
+  await git(f.basePath, 'config', 'branch.main.merge', 'refs/heads/trunk');
+  await git(
+    f.basePath,
+    'config',
+    'remote.upstream.fetch',
+    '+refs/heads/other:refs/remotes/upstream/other',
+  );
+  const local = await createProjectWorktree({
+    ...f,
+    startPoint: 'refs/heads/main',
+    fetchLatestMain: false,
+  });
+  const fresh = await createProjectWorktree({
+    ...f,
+    targetPath: join(f.root, 'fresh'),
+    branch: 'fresh',
+    startPoint: 'refs/heads/main',
+    fetchLatestMain: true,
+  });
+  assert.equal(await git(local, 'rev-parse', 'HEAD'), oldMain);
+  assert.equal(await git(fresh, 'rev-parse', 'HEAD'), latest);
+});
+
+test('failed fetch never falls back to local main or creates a branch or worktree', async (t) => {
+  const f = await fixture(t);
+  await git(f.basePath, 'remote', 'add', 'origin', join(f.root, 'missing-remote'));
+  await assertUnchangedAfterFailure(
+    { ...f, startPoint: 'refs/heads/main', fetchLatestMain: true },
+    /fetch.*origin\/main/i,
+  );
+  await assert.rejects(lstat(f.targetPath), { code: 'ENOENT' });
+  await assertUnchangedAfterFailure(
+    { ...f, startPoint: 'HEAD', fetchLatestMain: true },
+    /only.*local main/i,
+  );
+  await git(f.basePath, 'remote', 'remove', 'origin');
+  await assertUnchangedAfterFailure(
+    { ...f, startPoint: 'refs/heads/main', fetchLatestMain: true },
+    /no such configured remote/i,
+  );
+});
+
 async function assertUnchangedAfterFailure(options, pattern) {
   const before = await git(options.basePath, 'for-each-ref', '--format=%(refname) %(objectname)');
   await assert.rejects(createProjectWorktree(options), pattern);
