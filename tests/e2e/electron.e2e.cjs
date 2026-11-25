@@ -1371,11 +1371,28 @@ async function checkRenderer(projectPath, createPath) {
       async () => (await window.api.config.getSidebarTree()).expandedProjects.length === 0,
       'Project collapse was not saved',
     );
-    refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
-    await waitFor(() => !refresh.disabled, 'Inventory refresh is already pending');
-    refresh.click();
-    await waitFor(() => refresh.disabled, 'Inventory refresh did not start');
-    await waitFor(() => !refresh.disabled, 'Inventory refresh did not finish');
+    const refreshInventory = async () => {
+      const button = document.querySelector('button[aria-label="Refresh projects and agents"]');
+      await waitFor(() => !button.disabled, 'Inventory refresh is already pending');
+      // Fast refreshes can finish between polling ticks. Observe before the click so even
+      // batched disabled -> enabled transitions are recorded (oldValue is non-null on removal).
+      let finished = false;
+      const observer = new window.MutationObserver((records) => {
+        if (records.some((record) => record.oldValue !== null) && !button.disabled) finished = true;
+      });
+      observer.observe(button, {
+        attributes: true,
+        attributeFilter: ['disabled'],
+        attributeOldValue: true,
+      });
+      try {
+        button.click();
+        await waitFor(() => finished, 'Inventory refresh did not complete its busy cycle');
+      } finally {
+        observer.disconnect();
+      }
+    };
+    await refreshInventory();
     check(
       document.querySelector('.project-caret').getAttribute('aria-expanded') === 'false',
       'inventory refresh preserves a manually collapsed selected project',
@@ -1464,11 +1481,7 @@ async function checkRenderer(projectPath, createPath) {
         document.querySelector('.project-caret').getAttribute('aria-expanded') === 'true',
       'Agent reordering preserves Agent and project disclosure state',
     );
-    refresh = document.querySelector('button[aria-label="Refresh projects and agents"]');
-    await waitFor(() => !refresh.disabled, 'Inventory refresh is already pending');
-    refresh.click();
-    await waitFor(() => refresh.disabled, 'Reorder refresh did not start');
-    await waitFor(() => !refresh.disabled, 'Reorder refresh did not finish');
+    await refreshInventory();
     check(
       order() === 'gemini,codex,claude,aider,copilot',
       'Agent order survives inventory refresh',
